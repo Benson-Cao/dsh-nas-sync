@@ -191,10 +191,10 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
       if (sub === '/devices' && method === 'GET') {
         try {
           const r = await engine.sourceDevices();
-          return ok(res, { self: r.self, byPrefix: r.byPrefix });
+          return ok(res, { self: r.self, byPrefix: r.byPrefix, byWorkspace: r.byWorkspace });
         } catch (e) {
           // 远端不可达不该让面板报错，返回空统计即可
-          return ok(res, { self: '', byPrefix: {}, error: (e as Error).message });
+          return ok(res, { self: '', byPrefix: {}, byWorkspace: {}, error: (e as Error).message });
         }
       }
 

@@ -24,7 +24,8 @@ import { Chunker } from './chunker.js';
 import type { NasTransport } from '../nas/transport.js';
 import type { NasSyncConfig, Store } from '../config.js';
 import { isMergeable } from './merger.js';
-import { localOf } from '../paths.js';
+import { localOf, dshHome } from '../paths.js';
+import { join } from 'node:path';
 import {
   customFolderLocalOf,
   encodeCwd,
@@ -68,6 +69,22 @@ function prefixOf(rel: string): string {
   if (parts.length === 0 || !parts[0]) return '';
   if (parts[0] === 'custom-folders' && parts[1]) return 'custom-folders/' + parts[1];
   return parts[0];
+}
+
+/**
+ * 工作区名归一化，用于把「侧栏显示的名字」和「设备声明里的目录名」对上。
+ *
+ * 两端 title 可能不同（电脑 `wstest（同步）` / 手机 `wstest`），目录名也可能
+ * 带下划线（`default_workspace`）。所以去掉括号后缀、连字符/下划线/空格后转小写。
+ * `default-workspace` 在侧栏会被 dsh 本地化成「默认工作区」，单独做别名。
+ */
+export function normalizeWorkspaceName(raw: string): string {
+  const s = String(raw || '')
+    .replace(/[（(][^）)]*[）)]/g, '')
+    .replace(/[_\s-]+/g, '')
+    .toLowerCase();
+  if (s === '默认工作区' || s === 'defaultworkspace' || s === 'default') return 'defaultworkspace';
+  return s;
 }
 
 /**
@@ -146,7 +163,7 @@ export class Engine {
    *
    * @returns `{ self, byPrefix }`，`self` 是本机标识（前端据此隐藏本机 emoji）
    */
-  async sourceDevices(): Promise<{ self: string; byPrefix: Record<string, Array<{ device: string; files: number }>> }> {
+  async sourceDevices(): Promise<{ self: string; byPrefix: Record<string, Array<{ device: string; files: number }>>; byWorkspace: Record<string, Array<{ device: string; files: number }>> }> {
     this.checkReady();
     // 清单在 scan() 里缓存；面板可能先于扫描打开，这里按需补一次
     if (this.remoteManifest.length === 0) {
@@ -158,6 +175,7 @@ export class Engine {
     }
 
     const counters = new Map<string, Map<string, number>>();
+    const wsCounters = new Map<string, Map<string, number>>();
     const bump = (prefix: string, device: string, n: number) => {
       let m = counters.get(prefix);
       if (!m) {
@@ -180,6 +198,16 @@ export class Engine {
             const count = Number(n) || 0;
             if (count > 0) bump(prefix, claim.device, count);
           }
+          // 工作区清单：title 与目录名都注册，前端按归一化名查
+          for (const ws of claim.workspaces ?? []) {
+            for (const rawName of [ws?.title, ws?.name]) {
+              const key = normalizeWorkspaceName(String(rawName ?? ''));
+              if (!key) continue;
+              let m = wsCounters.get(key);
+              if (!m) { m = new Map(); wsCounters.set(key, m); }
+              m.set(claim.device, 1);
+            }
+          }
         } catch {
           /* 单个声明损坏不该影响其它设备 */
         }
@@ -201,7 +229,13 @@ export class Engine {
         .map(([device, files]) => ({ device, files }))
         .sort((a, b) => b.files - a.files);
     }
-    return { self: selfDevice(), byPrefix };
+    const byWorkspace: Record<string, Array<{ device: string; files: number }>> = {};
+    for (const [key, m] of wsCounters) {
+      byWorkspace[key] = [...m.entries()]
+        .map(([device, files]) => ({ device, files }))
+        .sort((a, b) => b.files - a.files);
+    }
+    return { self: selfDevice(), byPrefix, byWorkspace };
   }
 
   isRunning(): boolean {
@@ -260,9 +294,26 @@ export class Engine {
       const p = prefixOf(e.rel);
       if (p) prefixes[p] = (prefixes[p] ?? 0) + 1;
     }
+
+    // 本机拥有的工作区：标题来自注册表（侧栏显示的就是它），目录名来自 path。
+    // 两者都写，前端用归一化名匹配，能覆盖「两端标题不同」的情况。
+    const workspaces: Array<{ title: string; name: string }> = [];
+    try {
+      const raw = JSON.parse(await readFile(join(dshHome(), 'storages', 'workspace.json'), 'utf8'));
+      for (const w of Object.values<any>(raw?.tables?.workspaces ?? {})) {
+        const title = String(w?.title ?? '').trim();
+        const p = String(w?.path ?? '');
+        const name = p.split(/[\\/]+/).filter(Boolean).pop() ?? '';
+        if (title) workspaces.push({ title, name });
+      }
+    } catch {
+      /* 注册表读不到就只报目录级来源，不影响同步 */
+    }
+
     const payload = JSON.stringify({
       device: selfDevice(),
       prefixes,
+      workspaces,
       updatedAt: Date.now(),
     });
     await this.deps.transport.putBuffer(

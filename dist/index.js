@@ -21241,6 +21241,7 @@ var Chunker = class {
 // src/sync/engine.ts
 init_merger();
 init_paths();
+import { join as join6 } from "node:path";
 var MANIFEST_REMOTE = "/dsh/manifest.json";
 var DEVICES_REMOTE = "/dsh/devices";
 var deviceClaimFile = (device) => DEVICES_REMOTE + "/" + device.replace(/[^A-Za-z0-9._-]/g, "_") + ".json";
@@ -21252,6 +21253,11 @@ function prefixOf(rel) {
   if (parts.length === 0 || !parts[0]) return "";
   if (parts[0] === "custom-folders" && parts[1]) return "custom-folders/" + parts[1];
   return parts[0];
+}
+function normalizeWorkspaceName(raw) {
+  const s2 = String(raw || "").replace(/[（(][^）)]*[）)]/g, "").replace(/[_\s-]+/g, "").toLowerCase();
+  if (s2 === "\u9ED8\u8BA4\u5DE5\u4F5C\u533A" || s2 === "defaultworkspace" || s2 === "default") return "defaultworkspace";
+  return s2;
 }
 function mergeManifestDevices(fresh, prev) {
   const old = new Map(prev.map((e2) => [e2.rel, e2]));
@@ -21319,6 +21325,7 @@ var Engine = class {
       }
     }
     const counters = /* @__PURE__ */ new Map();
+    const wsCounters = /* @__PURE__ */ new Map();
     const bump = (prefix, device, n) => {
       let m2 = counters.get(prefix);
       if (!m2) {
@@ -21339,6 +21346,18 @@ var Engine = class {
             const count = Number(n) || 0;
             if (count > 0) bump(prefix, claim.device, count);
           }
+          for (const ws of claim.workspaces ?? []) {
+            for (const rawName of [ws?.title, ws?.name]) {
+              const key = normalizeWorkspaceName(String(rawName ?? ""));
+              if (!key) continue;
+              let m2 = wsCounters.get(key);
+              if (!m2) {
+                m2 = /* @__PURE__ */ new Map();
+                wsCounters.set(key, m2);
+              }
+              m2.set(claim.device, 1);
+            }
+          }
         } catch {
         }
       }
@@ -21353,7 +21372,11 @@ var Engine = class {
     for (const [prefix, m2] of counters) {
       byPrefix[prefix] = [...m2.entries()].map(([device, files]) => ({ device, files })).sort((a, b) => b.files - a.files);
     }
-    return { self: selfDevice(), byPrefix };
+    const byWorkspace = {};
+    for (const [key, m2] of wsCounters) {
+      byWorkspace[key] = [...m2.entries()].map(([device, files]) => ({ device, files })).sort((a, b) => b.files - a.files);
+    }
+    return { self: selfDevice(), byPrefix, byWorkspace };
   }
   isRunning() {
     return this.running;
@@ -21404,9 +21427,21 @@ var Engine = class {
       const p = prefixOf(e2.rel);
       if (p) prefixes[p] = (prefixes[p] ?? 0) + 1;
     }
+    const workspaces = [];
+    try {
+      const raw = JSON.parse(await readFile4(join6(dshHome(), "storages", "workspace.json"), "utf8"));
+      for (const w of Object.values(raw?.tables?.workspaces ?? {})) {
+        const title = String(w?.title ?? "").trim();
+        const p = String(w?.path ?? "");
+        const name2 = p.split(/[\\/]+/).filter(Boolean).pop() ?? "";
+        if (title) workspaces.push({ title, name: name2 });
+      }
+    } catch {
+    }
     const payload = JSON.stringify({
       device: selfDevice(),
       prefixes,
+      workspaces,
       updatedAt: Date.now()
     });
     await this.deps.transport.putBuffer(
@@ -21806,9 +21841,9 @@ function createBridge(ctx, deps) {
       if (sub === "/devices" && method === "GET") {
         try {
           const r2 = await engine.sourceDevices();
-          return ok(res, { self: r2.self, byPrefix: r2.byPrefix });
+          return ok(res, { self: r2.self, byPrefix: r2.byPrefix, byWorkspace: r2.byWorkspace });
         } catch (e2) {
-          return ok(res, { self: "", byPrefix: {}, error: e2.message });
+          return ok(res, { self: "", byPrefix: {}, byWorkspace: {}, error: e2.message });
         }
       }
       if (sub === "/test" && method === "POST") {

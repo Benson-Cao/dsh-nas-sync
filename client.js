@@ -24,6 +24,38 @@ window.__ModuleLoader__.load({
     const DEVICE_EMOJI = { win32: '💻', android: '📱', darwin: '🖥️', linux: '🐧' };
     const deviceEmoji = (d) => DEVICE_EMOJI[String(d || '').split(':')[0]] || '💾';
 
+    /**
+     * 工作区名归一化：把「侧栏显示的名字」和「设备声明里的目录名」对上。
+     * 与服务端 engine.normalizeWorkspaceName 必须保持一致。
+     */
+    const normalizeWsName = (raw) => {
+      const s = String(raw || '')
+        .replace(/[（(][^）)]*[）)]/g, '')
+        .replace(/[_\s-]+/g, '')
+        .toLowerCase();
+      return (s === '默认工作区' || s === 'defaultworkspace' || s === 'default')
+        ? 'defaultworkspace' : s;
+    };
+
+    /**
+     * 侧栏某个工作区该显示什么。返回 { emojis, devices } 或 null。
+     * 本机不显示；key（data-row-key 后缀）和 label（显示名）都试一遍，
+     * 这样无论宿主用 id 还是 path 当 key 都能匹配上。
+     */
+    const sidebarBadgeFor = (devices, key, label) => {
+      if (!devices || !devices.byWorkspace) return null;
+      for (const raw of [key, label]) {
+        const k = normalizeWsName(raw);
+        if (!k) continue;
+        const list = devices.byWorkspace[k] || [];
+        const others = list.filter((x) => x.device && x.device !== devices.self);
+        if (others.length === 0) continue;
+        const emojis = [...new Set(others.map((x) => deviceEmoji(x.device)))].join('');
+        return { emojis, devices: others.map((x) => x.device) };
+      }
+      return null;
+    };
+
     /** 分类 key → 远端清单里的前缀（必须与 SYNC_CATEGORIES 的 localDir 对应）。 */
     const CATEGORY_PREFIX = {
       sessions: 'sessions',
@@ -409,6 +441,10 @@ window.__ModuleLoader__.load({
       // 数据来自远端清单记录的「最后上传者」，所以首次同步前是 null —— 此时不显示任何标记，
       // 而不是显示一个"未知设备"的占位，免得用户以为同步坏了。
       const [devices, setDevices] = useState(null);
+      // DOM 注入需要读最新 devices，但 MutationObserver 只安装一次 —— 用 ref 传值，
+      // 避免回调闭包抓到旧的 state。
+      const devicesRef = useRef(null);
+      const applySidebarRef = useRef(null);
 
       const refreshAll = useCallback(async () => {
         if (!c.ready) return;
@@ -441,7 +477,75 @@ window.__ModuleLoader__.load({
         }
       }, [c, t]);
 
+      /**
+       * 给宿主左侧栏的工作区行注入来源 emoji。
+       *
+       * 取证（@deepseek-ai/dsh-client-ui-workspace 的 client.js）：
+       *   工作区行 = div[data-row-key^="workspace:"]，内部 projectText > title span 放名字。
+       * 用 data-row-key 而不是 CSS module 的 hash class（会随版本变）。
+       *
+       * 幂等：目标 emoji 没变就不碰 DOM。否则「注入 → 触发 MutationObserver → 再注入」
+       * 会无限循环。label 只取 title 的**文本节点**，所以已注入的 badge 不会污染名字。
+       */
+      function applySidebarBadges() {
+        if (typeof document === 'undefined' || !document.querySelectorAll) return;
+        const devices = devicesRef.current;
+        const rows = document.querySelectorAll('[data-row-key^="workspace:"]');
+        for (const row of rows) {
+          let titleEl = null;
+          let label = '';
+          for (const sp of row.querySelectorAll('span')) {
+            if (sp.hasAttribute('data-nas-sync-device') || sp.children.length !== 0) continue;
+            let txt = '';
+            for (const n of sp.childNodes) if (n.nodeType === 3) txt += n.textContent;
+            if (txt.trim()) { titleEl = sp; label = txt.trim(); break; }
+          }
+          if (!titleEl) continue;
+
+          const key = (row.getAttribute('data-row-key') || '').slice('workspace:'.length);
+          const want = sidebarBadgeFor(devices, key, label);
+          const existing = titleEl.querySelector(':scope > [data-nas-sync-device]');
+          if (existing && existing.getAttribute('data-badge') === (want ? want.emojis : '')) continue;
+          if (existing) existing.remove();
+          if (!want) continue;
+
+          const el = document.createElement('span');
+          el.setAttribute('data-nas-sync-device', '1');
+          el.setAttribute('data-badge', want.emojis);
+          el.textContent = ' ' + want.emojis;
+          el.title = want.devices.join('\n');
+          el.style.cssText = 'font-size:12px;line-height:1;opacity:.85;margin-left:2px;flex:0 0 auto;cursor:default;';
+          titleEl.appendChild(el);
+        }
+      }
+      applySidebarRef.current = applySidebarBadges;
+
       useEffect(() => { refreshAll(); }, [refreshAll]);
+      // devices 变化时重标一次
+      useEffect(() => {
+        devicesRef.current = devices;
+        if (applySidebarRef.current) applySidebarRef.current();
+      }, [devices]);
+      // 宿主侧栏会随展开/搜索/会话变化重建，用 observer 补标（debounce + 幂等）
+      useEffect(() => {
+        let timer = null;
+        const run = () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => { if (applySidebarRef.current) applySidebarRef.current(); }, 180);
+        };
+        let obs = null;
+        try {
+          obs = new MutationObserver(run);
+          obs.observe(document.body, { childList: true, subtree: true });
+        } catch (_) { obs = null; }
+        run();
+        return () => {
+          if (obs) obs.disconnect();
+          if (timer) clearTimeout(timer);
+          // 卸载时把注入的标记全部撤掉，不留垃圾节点
+          document.querySelectorAll('[data-nas-sync-device]').forEach((el) => el.remove());
+        };
+      }, []);
       useEffect(() => {
         const timer = setInterval(() => {
           if (!c.ready) return;
