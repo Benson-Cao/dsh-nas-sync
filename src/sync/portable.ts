@@ -926,3 +926,105 @@ export async function repairSessionCwd(home: string = dshHome()): Promise<Repair
 
   return { fixed, scanned };
 }
+
+/**
+ * 跨 cwd 目录的会话 id 去重（0.3.3）。
+ *
+ * 故障现场：下载会话时 `rewriteSessionCwd()` 会把远端的绝对路径映射成本机
+ * `~/.dsh/nassyncworkspaces/<name>`，而本机同一个 sessionId 可能早就存在于
+ * 真实工作区目录里。`dsh-session-persistence-jsonl` 的 `listArtifacts()` 一旦
+ * 发现同一个 id 出现在多个 project directory，就直接抛
+ *   duplicate JSONL session id "..." appears in multiple project directories
+ * → workspace 插件不激活 → workspaceController / sessionController 全部 pending
+ * → 侧栏工作区与会话全空、无法新建文件夹。
+ *
+ * `repairSessionCwd()` 对「cwd 已经映射过且本机存在」的会话是幂等跳过的，
+ * 所以那两份目录会永久共存，必须在收尾单独收敛。
+ *
+ * 策略：**只移动、不删除**。非权威副本整体搬进
+ * `~/.dsh/.suspect-quarantine/sessions-dup-<ts>/<dir>/<sid>`，随时可还原。
+ * 权威目录优先级：注册表 workspace.path 的 cwd 编码 > 带 session.lock > 字典序最小。
+ */
+export interface SessionDirDedupeResult {
+  /** 扫到的有效会话目录数（有 session.v*.jsonl.zstd 才算） */
+  scanned: number;
+  /** 出现重复的 sessionId 数 */
+  duplicates: number;
+  /** 已搬进隔离区的重复副本数 */
+  isolated: number;
+}
+
+export async function dedupeSessionDirs(home: string = dshHome()): Promise<SessionDirDedupeResult> {
+  const root = join(home, 'sessions');
+  const result: SessionDirDedupeResult = { scanned: 0, duplicates: 0, isolated: 0 };
+
+  let projectDirs: string[];
+  try {
+    projectDirs = (await readdir(root)).filter((d) => d.startsWith('--'));
+  } catch {
+    return result;
+  }
+
+  // 注册表里的工作区路径 → cwd 编码目录，作为「权威目录」的首选
+  const preferred = new Set<string>();
+  try {
+    const reg = JSON.parse(await readFile(join(home, WORKSPACE_REGISTRY_REL), 'utf8'));
+    const table = reg?.tables?.workspaces ?? {};
+    for (const w of Object.values<any>(table)) {
+      if (typeof w?.path === 'string') preferred.add(encodeCwd(w.path));
+    }
+  } catch {
+    /* 注册表读不到就退化成 lock / 字典序优先级 */
+  }
+
+  const bySid = new Map<string, { dir: string; hasLock: boolean }[]>();
+  for (const dir of projectDirs) {
+    const wdir = join(root, dir);
+    let sessionDirs: string[];
+    try {
+      sessionDirs = await readdir(wdir);
+    } catch {
+      continue;
+    }
+    for (const sid of sessionDirs) {
+      let files: string[];
+      try {
+        files = await readdir(join(wdir, sid));
+      } catch {
+        continue;
+      }
+      // 只有 session.lock 的空壳不算，避免把历史残留误判成重复
+      if (!files.some((f) => SESSION_FILE_RE.test(f))) continue;
+      result.scanned += 1;
+      if (!bySid.has(sid)) bySid.set(sid, []);
+      bySid.get(sid)!.push({ dir, hasLock: files.includes('session.lock') });
+    }
+  }
+
+  const rank = (e: { dir: string; hasLock: boolean }): number =>
+    preferred.has(e.dir) ? 0 : e.hasLock ? 1 : 2;
+
+  let quarantine = '';
+  for (const [sid, entries] of bySid) {
+    if (entries.length < 2) continue;
+    result.duplicates += 1;
+    const sorted = [...entries].sort(
+      (a, b) => rank(a) - rank(b) || a.dir.localeCompare(b.dir),
+    );
+    for (const loser of sorted.slice(1)) {
+      if (!quarantine) {
+        quarantine = join(home, '.suspect-quarantine', 'sessions-dup-' + Date.now());
+        await mkdir(quarantine, { recursive: true });
+      }
+      try {
+        await mkdir(join(quarantine, loser.dir), { recursive: true });
+        await rename(join(root, loser.dir, sid), join(quarantine, loser.dir, sid));
+        result.isolated += 1;
+      } catch {
+        /* 搬不动就留着，下一轮再试；绝不 rm 用户数据 */
+      }
+    }
+  }
+
+  return result;
+}

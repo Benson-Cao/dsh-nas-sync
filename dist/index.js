@@ -20944,6 +20944,69 @@ async function repairSessionCwd(home = dshHome()) {
   }
   return { fixed, scanned };
 }
+async function dedupeSessionDirs(home = dshHome()) {
+  const root = join4(home, "sessions");
+  const result = { scanned: 0, duplicates: 0, isolated: 0 };
+  let projectDirs;
+  try {
+    projectDirs = (await readdir2(root)).filter((d) => d.startsWith("--"));
+  } catch {
+    return result;
+  }
+  const preferred = /* @__PURE__ */ new Set();
+  try {
+    const reg = JSON.parse(await readFile2(join4(home, WORKSPACE_REGISTRY_REL), "utf8"));
+    const table = reg?.tables?.workspaces ?? {};
+    for (const w of Object.values(table)) {
+      if (typeof w?.path === "string") preferred.add(encodeCwd(w.path));
+    }
+  } catch {
+  }
+  const bySid = /* @__PURE__ */ new Map();
+  for (const dir of projectDirs) {
+    const wdir = join4(root, dir);
+    let sessionDirs;
+    try {
+      sessionDirs = await readdir2(wdir);
+    } catch {
+      continue;
+    }
+    for (const sid of sessionDirs) {
+      let files;
+      try {
+        files = await readdir2(join4(wdir, sid));
+      } catch {
+        continue;
+      }
+      if (!files.some((f3) => SESSION_FILE_RE.test(f3))) continue;
+      result.scanned += 1;
+      if (!bySid.has(sid)) bySid.set(sid, []);
+      bySid.get(sid).push({ dir, hasLock: files.includes("session.lock") });
+    }
+  }
+  const rank = (e2) => preferred.has(e2.dir) ? 0 : e2.hasLock ? 1 : 2;
+  let quarantine = "";
+  for (const [sid, entries] of bySid) {
+    if (entries.length < 2) continue;
+    result.duplicates += 1;
+    const sorted = [...entries].sort(
+      (a, b) => rank(a) - rank(b) || a.dir.localeCompare(b.dir)
+    );
+    for (const loser of sorted.slice(1)) {
+      if (!quarantine) {
+        quarantine = join4(home, ".suspect-quarantine", "sessions-dup-" + Date.now());
+        await mkdir2(quarantine, { recursive: true });
+      }
+      try {
+        await mkdir2(join4(quarantine, loser.dir), { recursive: true });
+        await rename(join4(root, loser.dir, sid), join4(quarantine, loser.dir, sid));
+        result.isolated += 1;
+      } catch {
+      }
+    }
+  }
+  return result;
+}
 
 // src/sync/scanner.ts
 var SYNC_CATEGORIES = [
@@ -21731,6 +21794,15 @@ var Engine = class {
         }
         try {
           await repairSessionCwd();
+        } catch {
+        }
+        try {
+          const dedup = await dedupeSessionDirs();
+          if (dedup.duplicates > 0) {
+            console.warn(
+              "[dsh-nas-sync] \u4F1A\u8BDD\u76EE\u5F55\u5DF2\u6536\u655B\uFF1A\u91CD\u590D session " + dedup.duplicates + "\u3001\u9694\u79BB\u526F\u672C " + dedup.isolated + "\uFF08\u4FDD\u7559\u5728 .suspect-quarantine\uFF09"
+            );
+          }
         } catch {
         }
       }

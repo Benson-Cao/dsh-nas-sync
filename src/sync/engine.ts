@@ -34,6 +34,7 @@ import {
   isWorkspaceRegistryRel,
   mergeWorkspaceRegistry,
   platformMismatch,
+  dedupeSessionDirs,
   repairSessionCwd,
   repairWorkspaceRegistry,
   rewriteSessionCwd,
@@ -487,6 +488,19 @@ export class Engine {
         }
         try {
           await repairSessionCwd();
+        } catch {
+          /* 修复失败不该让整轮同步判失败 */
+        }
+        try {
+          // 必须放在 repairSessionCwd 之后：搬目录本身也可能让同一个 sessionId
+          // 落到两个 cwd 目录里，而 dsh 扫描到重复就拒绝激活 workspace 插件。
+          const dedup = await dedupeSessionDirs();
+          if (dedup.duplicates > 0) {
+            console.warn(
+              '[dsh-nas-sync] 会话目录已收敛：重复 session ' + dedup.duplicates +
+              '、隔离副本 ' + dedup.isolated + '（保留在 .suspect-quarantine）',
+            );
+          }
         } catch {
           /* 修复失败不该让整轮同步判失败 */
         }
