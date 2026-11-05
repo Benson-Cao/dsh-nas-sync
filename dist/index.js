@@ -21250,6 +21250,13 @@ function prefixOf(rel) {
   if (parts[0] === "custom-folders" && parts[1]) return "custom-folders/" + parts[1];
   return parts[0];
 }
+function mergeManifestDevices(fresh, prev) {
+  const old = new Map(prev.map((e2) => [e2.rel, e2]));
+  return fresh.map((e2) => {
+    const before = old.get(e2.rel);
+    return before && before.device && before.hash === e2.hash ? { ...e2, device: before.device } : e2;
+  });
+}
 var Engine = class {
   deps;
   scanner;
@@ -21492,11 +21499,7 @@ var Engine = class {
       }
       if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
-        const prev = new Map(this.remoteManifest.map((e2) => [e2.rel, e2]));
-        const merged = fresh.map((e2) => {
-          const old = prev.get(e2.rel);
-          return old && old.device && old.hash === e2.hash ? { ...e2, device: old.device } : e2;
-        });
+        const merged = mergeManifestDevices(fresh, this.remoteManifest);
         await this.writeRemoteManifest(merged);
         this.remoteManifest = merged;
         this.deps.store.snapshot.lastSyncTime = Date.now();

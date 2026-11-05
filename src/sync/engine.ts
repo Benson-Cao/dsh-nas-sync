@@ -58,6 +58,23 @@ function prefixOf(rel: string): string {
   return parts[0];
 }
 
+/**
+ * 合并清单的来源设备：`fresh` 里的条目都被 scanner 标成了本机，但只有**内容真的
+ * 变过**（哈希不同）的文件才算本机上传；其余保留 `prev` 里的原来源。
+ *
+ * 抽成纯函数是为了能直接测 —— 这个规则写反了，来源标记就会每次同步被刷成本机，
+ * 功能等于失效，而且从 UI 上很难察觉。
+ */
+export function mergeManifestDevices(fresh: ManifestEntry[], prev: ManifestEntry[]): ManifestEntry[] {
+  const old = new Map(prev.map((e) => [e.rel, e] as const));
+  return fresh.map((e) => {
+    const before = old.get(e.rel);
+    return before && before.device && before.hash === e.hash
+      ? { ...e, device: before.device }
+      : e;
+  });
+}
+
 export interface EngineDeps {
   transport: NasTransport;
   store: Store;
@@ -359,11 +376,7 @@ export class Engine {
          * 与上一轮一致的条目**保留原来源**，只有真正变了的才归给本机。
          * 不做这一步，来源每同步一次就被刷成"本机"，等于没记。
          */
-        const prev = new Map(this.remoteManifest.map((e) => [e.rel, e] as const));
-        const merged = fresh.map((e) => {
-          const old = prev.get(e.rel);
-          return old && old.device && old.hash === e.hash ? { ...e, device: old.device } : e;
-        });
+        const merged = mergeManifestDevices(fresh, this.remoteManifest);
         await this.writeRemoteManifest(merged);
         this.remoteManifest = merged;
         this.deps.store.snapshot.lastSyncTime = Date.now();
