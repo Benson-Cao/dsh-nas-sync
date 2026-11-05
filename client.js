@@ -419,14 +419,15 @@ window.__ModuleLoader__.load({
           setPassSet(Boolean(st.config.passphraseSet));
           const pd = await c.call('/pending?page=1&pageSize=100');
           setPending(pd);
+          const cf = await c.call('/conflicts');
           setConflicts(cf);
-          // 来源设备统计依赖远端清单，网络慢时不该拖住整个面板渲染
+          // 来源设备统计依赖远端清单，网络慢/接口不存在时不该拖住整个面板渲染。
+          // 单独 try：旧版 host 没有 /devices 端点，这里不能让整个 refreshAll 失败。
           try {
             setDevices(await c.call('/devices'));
           } catch (e) {
             setDevices(null);
           }
-          setConflicts(cf);
           // 技能名单单独拉：它只依赖磁盘上的 skills/ 目录，跟同步状态无关。
           // 失败不阻断整个刷新 —— 面板其它部分仍然可用，只是技能子列表空着。
           try {
