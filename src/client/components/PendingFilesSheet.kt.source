@@ -1,0 +1,256 @@
+// ============================================================================
+// dsh-nas-sync · PendingFilesSheet.kt
+// ----------------------------------------------------------------------------
+// 待同步文件管理面板：分页加载、本地搜索、按动作过滤、单文件跳过。
+// 由 SyncStatusPanel 的“待同步文件”入口弹出（ModalBottomSheet 或独立页面）。
+// ============================================================================
+
+package com.deepseek.dsh.nassync.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.deepseek.dsh.nassync.client.SyncViewModel
+import com.deepseek.dsh.nassync.client.observeAsState
+import com.deepseek.dsh.nassync.data.PendingFile
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PendingFilesSheet(
+    viewModel: SyncViewModel,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val state by viewModel.observeAsState()
+    var search by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf<Filter?>(null) }
+    var skipTarget by remember { mutableStateOf<PendingFile?>(null) }
+
+    // 进入时加载第一页
+    LaunchedEffect(Unit) {
+        if (state.pending.items.isEmpty()) {
+            viewModel.loadPending(1)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+
+        // ---- 标题栏 ----
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "待同步文件（${state.pending.total}）",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterDropdown(current = filter, onSelect = { filter = it })
+                IconButton(onClick = onDismiss) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "关闭")
+                }
+            }
+        }
+
+        // ---- 搜索框 ----
+        OutlinedTextField(
+            value = search,
+            onValueChange = { search = it },
+            placeholder = { Text("搜索文件名") },
+            leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            singleLine = true,
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // ---- 列表 ----
+        if (state.pending.loading && state.pending.items.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            val filtered = state.pending.items.filter { item ->
+                val matchSearch = search.isBlank() ||
+                        item.rel.contains(search, ignoreCase = true)
+                val matchFilter = filter == null || item.action == filter!!.action
+                matchSearch && matchFilter
+            }
+
+            if (filtered.isEmpty()) {
+                EmptyHint(text = "没有符合条件的待同步文件")
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    items(filtered, key = { it.rel }) { item ->
+                        PendingFileRow(
+                            item = item,
+                            onClickSkip = { skipTarget = item },
+                        )
+                    }
+                }
+            }
+        }
+
+        // ---- 分页指示器 ----
+        if (state.pending.total > state.pending.pageSize) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    enabled = state.pending.page > 1 && !state.pending.loading,
+                    onClick = { scope.launch { viewModel.loadPending(state.pending.page - 1) } },
+                ) { Text("上一页") }
+
+                Text(
+                    text = "${state.pending.page} / " +
+                            maxOf(1, (state.pending.total + state.pending.pageSize - 1) / state.pending.pageSize),
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+
+                TextButton(
+                    enabled = state.pending.page * state.pending.pageSize < state.pending.total &&
+                            !state.pending.loading,
+                    onClick = { scope.launch { viewModel.loadPending(state.pending.page + 1) } },
+                ) { Text("下一页") }
+            }
+        }
+    }
+
+    // ---- 跳过确认对话框 ----
+    if (skipTarget != null) {
+        AlertDialog(
+            onDismissRequest = { skipTarget = null },
+            title = { Text("跳过同步") },
+            text = {
+                Text("确定跳过文件 ${skipTarget!!.rel} 吗？它将从待同步列表中移除，不会同步到 NAS，本地与远端均保持不变。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        viewModel.skipPending(skipTarget!!.rel)
+                        skipTarget = null
+                    }
+                }) { Text("跳过") }
+            },
+            dismissButton = {
+                TextButton(onClick = { skipTarget = null }) { Text("取消") }
+            },
+        )
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 单行
+// ----------------------------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PendingFileRow(
+    item: PendingFile,
+    onClickSkip: () -> Unit,
+) {
+    val (icon, tint, label) = when (item.action) {
+        com.deepseek.dsh.nassync.data.Action.UPLOAD ->
+            Triple(Icons.Default.Upload, androidx.compose.ui.graphics.Color(0xFF4CAF50), "上传")
+        com.deepseek.dsh.nassync.data.Action.DOWNLOAD ->
+            Triple(Icons.Default.Download, androidx.compose.ui.graphics.Color(0xFF2196F3), "下载")
+        com.deepseek.dsh.nassync.data.Action.DELETE ->
+            Triple(Icons.Default.Delete, androidx.compose.ui.graphics.Color(0xFFF44336), "删除")
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(24.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.rel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.MiddleEllipsis,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(text = label, style = MaterialTheme.typography.labelSmall, color = tint)
+                    Text(
+                        text = formatSize(item.size),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+            }
+            IconButton(onClick = onClickSkip) {
+                Icon(imageVector = Icons.Default.Close, contentDescription = "跳过")
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 过滤下拉
+// ----------------------------------------------------------------------------
+
+private sealed class Filter(val action: com.deepseek.dsh.nassync.data.Action, val label: String) {
+    object Upload : Filter(com.deepseek.dsh.nassync.data.Action.UPLOAD, "仅上传")
+    object Download : Filter(com.deepseek.dsh.nassync.data.Action.DOWNLOAD, "仅下载")
+    object Delete : Filter(com.deepseek.dsh.nassync.data.Action.DELETE, "仅删除")
+}
+
+@Composable
+private fun FilterDropdown(current: Filter?, onSelect: (Filter?) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) {
+            Text(current?.label ?: "全部")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("全部") }, onClick = { onSelect(null); expanded = false })
+            DropdownMenuItem(text = { Text(Filter.Upload.label) }, onClick = { onSelect(Filter.Upload); expanded = false })
+            DropdownMenuItem(text = { Text(Filter.Download.label) }, onClick = { onSelect(Filter.Download); expanded = false })
+            DropdownMenuItem(text = { Text(Filter.Delete.label) }, onClick = { onSelect(Filter.Delete); expanded = false })
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 工具
+// ----------------------------------------------------------------------------
+
+private fun formatSize(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val units = arrayOf("B", "KiB", "MiB", "GiB", "TiB")
+    var v = bytes.toDouble()
+    var i = 0
+    while (v >= 1024 && i < units.lastIndex) {
+        v /= 1024
+        i++
+    }
+    return "%.1f %s".format(v, units[i])
+}

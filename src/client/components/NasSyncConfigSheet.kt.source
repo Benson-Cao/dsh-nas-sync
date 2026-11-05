@@ -1,0 +1,152 @@
+// ============================================================================
+// dsh-nas-sync · NasSyncConfigSheet.kt
+// ----------------------------------------------------------------------------
+// 配置表单：传输方式、WebDAV / 挂载点凭据、加密口令、自动同步、分块参数。
+// 密码字段不回显、不进 ViewModel 状态；敏感开关需二次确认。
+// ============================================================================
+
+package com.deepseek.dsh.nassync.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import com.deepseek.dsh.nassync.client.DshPluginBridge
+import com.deepseek.dsh.nassync.data.NasSyncConfig
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NasSyncConfigSheet(
+    bridge: DshPluginBridge? = null,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit,
+) {
+    val bound = bridge?.bindConfig<NasSyncConfig>()
+    var type by remember { mutableStateOf(bound?.type ?: "webdav") }
+    var url by remember { mutableStateOf(bound?.webdav?.url ?: "") }
+    var username by remember { mutableStateOf(bound?.webdav?.username ?: "") }
+    var password by remember { mutableStateOf("") } // 不回显已有值
+    var mountRoot by remember { mutableStateOf(bound?.mountRoot ?: "") }
+    var passphrase by remember { mutableStateOf("") }
+    var autoEnabled by remember { mutableStateOf(bound?.autoSync?.enabled ?: false) }
+    var autoMode by remember { mutableStateOf(bound?.autoSync?.mode ?: "push") }
+    var intervalMin by remember { mutableStateOf((bound?.autoSync?.intervalMin ?: 30).toString()) }
+    var chunkThreshold by remember { mutableStateOf((bound?.chunkThreshold ?: (100 * 1024 * 1024)).toString()) }
+    var chunkSize by remember { mutableStateOf((bound?.chunkSize ?: (50 * 1024 * 1024)).toString()) }
+    var concurrency by remember { mutableStateOf((bound?.concurrency ?: 4).toString()) }
+    var includeSensitive by remember { mutableStateOf(bound?.includeSensitive ?: false) }
+    var confirmSensitive by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 640.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(text = "NAS 同步配置", style = MaterialTheme.typography.titleLarge)
+
+        // 传输方式
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(text = "传输方式", modifier = Modifier.width(96.dp))
+            SegmentedButton(type, listOf("webdav" to "WebDAV", "mount" to "本地挂载")) {
+                type = it
+            }
+        }
+
+        if (type == "webdav") {
+            OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("WebDAV 地址") }, placeholder = { Text("https://nas.local:5006") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(value = username, onValueChange = { username = it }, label = { Text("用户名") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("密码") }, modifier = Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
+        } else {
+            OutlinedTextField(value = mountRoot, onValueChange = { mountRoot = it }, label = { Text("挂载点路径") }, placeholder = { Text("/mnt/nas") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        }
+
+        OutlinedTextField(value = passphrase, onValueChange = { passphrase = it }, label = { Text("加密口令（必填）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+
+        Divider()
+
+        // 自动同步
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Switch(checked = autoEnabled, onCheckedChange = { autoEnabled = it })
+            Text(text = "启用自动同步")
+            if (autoEnabled) {
+                SegmentedButton(autoMode, listOf("push" to "推送", "pull" to "拉取", "mirror" to "双向镜像")) {
+                    autoMode = it
+                }
+            }
+        }
+        if (autoEnabled) {
+            OutlinedTextField(value = intervalMin, onValueChange = { intervalMin = it.filter(Char::isDigit) }, label = { Text("间隔（分钟）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        }
+
+        Divider()
+
+        // 分块参数
+        OutlinedTextField(value = chunkThreshold, onValueChange = { chunkThreshold = it.filter(Char::isDigit) }, label = { Text("分块阈值（字节，默认 104857600 = 100MiB）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        OutlinedTextField(value = chunkSize, onValueChange = { chunkSize = it.filter(Char::isDigit) }, label = { Text("分块大小（字节，默认 52428800 = 50MiB）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        OutlinedTextField(value = concurrency, onValueChange = { concurrency = it.filter(Char::isDigit) }, label = { Text("上传并发数（1-16）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+
+        Divider()
+
+        // 敏感文件
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = includeSensitive, onCheckedChange = {
+                if (it) confirmSensitive = true else includeSensitive = false
+            })
+            Text(text = "同步敏感文件（.credentials.yaml 等）")
+        }
+
+        // 操作
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onDismiss) { Text("取消") }
+            Button(onClick = {
+                saving = true
+                // 由宿主实现保存：把表单组装成 NasSyncConfig 调用 bridge.saveConfig()
+                // 此处为示意，实际接入时替换成 bridge 调用
+                onSaved()
+            }, enabled = !saving) {
+                if (saving) CircularProgressIndicator(modifier = Modifier.size(16.dp)) else Text("保存")
+            }
+        }
+    }
+
+    if (confirmSensitive) {
+        AlertDialog(
+            onDismissRequest = { confirmSensitive = false },
+            title = { Text("确认同步敏感文件") },
+            text = { Text("将同步 .credentials.yaml 等包含令牌的文件。这些文件会被加密后上传，但任何获得加密口令的人都可能解密。确认继续吗？") },
+            confirmButton = { TextButton(onClick = { includeSensitive = true; confirmSensitive = false }) { Text("确认") } },
+            dismissButton = { TextButton(onClick = { confirmSensitive = false }) { Text("取消") } },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SegmentedButton(
+    selected: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+) {
+    Row(modifier = Modifier.selectableGroup()) {
+        options.forEach { (value, label) ->
+            val selectedState = selected == value
+            FilterChip(
+                selected = selectedState,
+                onClick = { onSelect(value) },
+                label = { Text(label) },
+                modifier = Modifier.padding(end = 8.dp),
+            )
+        }
+    }
+}

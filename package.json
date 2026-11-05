@@ -1,0 +1,45 @@
+{
+  "name": "dsh-nas-sync",
+  "version": "0.2.0",
+  "description": "DeepSeek Harness 插件：通过 WebDAV / 本地挂载同步会话、配置、附件、Profile 与 Skills 到 NAS，支持分块断点续传、冲突管理与 Compose 设置页",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/client.js"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "entry": "./dist/client.js"
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-core": "^0.2.0",
+    "@deepseek-ai/dsh-settings": "^0.2.0",
+    "@deepseek-ai/schemastery": "^0.2.0",
+    "scrypt-js": "^3.0.1",
+    "tweetnacl": "^1.0.3",
+    "webdav": "^5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  }
+}

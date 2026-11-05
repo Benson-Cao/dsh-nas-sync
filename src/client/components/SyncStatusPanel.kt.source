@@ -1,0 +1,463 @@
+// ============================================================================
+// dsh-nas-sync · SyncStatusPanel.kt
+// ----------------------------------------------------------------------------
+// Compose 主设置页：状态总览卡片 + 冲突记录区 + 待同步文件入口。
+// 这是 settings.section 插槽注册的 composable 根节点。
+//
+// 说明：本文件为 .source，需并入你项目的 Compose 源码树（与 build.gradle
+// 中的 kotlin source set 对齐）后编译。依赖均为 Compose Material3 标准库。
+// ============================================================================
+
+package com.deepseek.dsh.nassync.ui
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.deepseek.dsh.nassync.client.SyncViewModel
+import com.deepseek.dsh.nassync.client.observeAsState
+import com.deepseek.dsh.nassync.data.ConflictItem
+import com.deepseek.dsh.nassync.data.PendingFile
+import com.deepseek.dsh.nassync.data.SyncPhase
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NasSyncSettingsPage(
+    viewModel: SyncViewModel,
+    onOpenPending: () -> Unit,
+    onOpenConflict: (ConflictItem) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val state by viewModel.observeAsState()
+    var showConfigSheet by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 16.dp)
+    ) {
+        // ---- 标题 ----
+        Text(
+            text = "NAS 同步",
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "通过 WebDAV 或本地挂载将会话、配置、附件、Profile 与 Skills 同步到 NAS",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ---- 状态总览卡片 ----
+        SyncOverviewCard(
+            snapshot = state.snapshot,
+            running = state.snapshot?.running ?: false,
+            onSync = { scope.launch { viewModel.startSync("mirror") } },
+            onStop = { scope.launch { viewModel.stopSync() } },
+            onConfigure = { showConfigSheet = true },
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // ---- 待同步入口 ----
+        PendingEntryRow(
+            count = state.snapshot?.pendingCount ?: 0,
+            loading = state.pending.loading,
+            onClick = onOpenPending,
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // ---- 冲突记录 ----
+        ConflictSection(
+            conflicts = state.conflicts,
+            selected = state.selectedConflicts,
+            onToggle = { viewModel.toggleConflict(it) },
+            onSelectAll = { viewModel.selectAllConflicts() },
+            onClear = { viewModel.clearSelection() },
+            onBatchResolve = { scope.launch { viewModel.batchResolve(it) } },
+            onOpen = onOpenConflict,
+        )
+
+        // ---- 错误提示 ----
+        state.error?.let { err ->
+            Spacer(modifier = Modifier.height(12.dp))
+            ErrorCard(message = err, onDismiss = { /* 由下次 poll 覆盖 */ })
+        }
+    }
+
+    if (showConfigSheet) {
+        ModalBottomSheet(onDismissRequest = { showConfigSheet = false }) {
+            NasSyncConfigSheet(
+                onDismiss = { showConfigSheet = false },
+                onSaved = { showConfigSheet = false },
+            )
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 状态总览卡片
+// ----------------------------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SyncOverviewCard(
+    snapshot: com.deepseek.dsh.nassync.data.SyncSnapshot?,
+    running: Boolean,
+    onSync: () -> Unit,
+    onStop: () -> Unit,
+    onConfigure: () -> Unit,
+) {
+    val phase = snapshot?.phase ?: SyncPhase.IDLE
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+
+            // 阶段徽章 + 上次同步时间
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                PhaseBadge(phase = phase)
+                Text(
+                    text = snapshot?.lastSyncTime?.let { formatRelative(it) } ?: "从未同步",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 三宫格统计
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                StatCell(
+                    title = "待同步",
+                    value = (snapshot?.pendingCount ?: 0).toString(),
+                    highlight = false,
+                )
+                StatCell(
+                    title = "冲突",
+                    value = (snapshot?.conflictCount ?: 0).toString(),
+                    highlight = (snapshot?.conflictCount ?: 0) > 0,
+                )
+                StatCell(
+                    title = "进度",
+                    value = "${snapshot?.progress?.done ?: 0}/${snapshot?.progress?.total ?: 0}",
+                    highlight = false,
+                )
+            }
+
+            // 进度条
+            if (running && (snapshot?.progress?.total ?: 0) > 0) {
+                Spacer(modifier = Modifier.height(14.dp))
+                val fraction = (snapshot?.progress?.done?.toFloat() ?: 0f) /
+                        (snapshot?.progress?.total?.toFloat() ?: 1f)
+                LinearProgressIndicator(
+                    progress = { fraction.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "错误 ${snapshot?.progress?.errors ?: 0} 项",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 操作按钮
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (running) {
+                    Button(onClick = onStop, colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error)) {
+                        Text("停止")
+                    }
+                } else {
+                    Button(onClick = onSync) { Text("立即同步") }
+                }
+                OutlinedButton(onClick = onConfigure) { Text("配置") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhaseBadge(phase: SyncPhase) {
+    val (label, color) = when (phase) {
+        SyncPhase.IDLE -> "空闲" to MaterialTheme.colorScheme.outline
+        SyncPhase.SCANNING -> "扫描中" to MaterialTheme.colorScheme.primary
+        SyncPhase.UPLOADING -> "上传中" to MaterialTheme.colorScheme.tertiary
+        SyncPhase.DOWNLOADING -> "下载中" to MaterialTheme.colorScheme.tertiary
+        SyncPhase.ERROR -> "出错" to MaterialTheme.colorScheme.error
+    }
+    Surface(
+        color = color.copy(alpha = 0.12f),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            color = color,
+            style = MaterialTheme.typography.labelSmall,
+        )
+    }
+}
+
+@Composable
+private fun StatCell(title: String, value: String, highlight: Boolean) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleLarge,
+            color = if (highlight) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 待同步入口行（点击弹出 PendingFilesSheet）
+// ----------------------------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PendingEntryRow(count: Int, loading: Boolean, onClick: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column {
+                Text(text = "待同步文件", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = if (loading) "加载中…" else "共 $count 项，点击查看与管理",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+            if (count > 0) {
+                Badge { Text(count.toString()) }
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 冲突列表
+// ----------------------------------------------------------------------------
+
+@Composable
+private fun ConflictSection(
+    conflicts: List<ConflictItem>,
+    selected: Set<String>,
+    onToggle: (String) -> Unit,
+    onSelectAll: () -> Unit,
+    onClear: () -> Unit,
+    onBatchResolve: (com.deepseek.dsh.nassync.client.Resolution) -> Unit,
+    onOpen: (ConflictItem) -> Unit,
+) {
+    // 批量操作顶栏
+    if (selected.isNotEmpty()) {
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer,
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "已选择 ${selected.size} 项",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onClear) { Text("取消") }
+                    TextButton(onClick = onSelectAll) { Text("全选") }
+                    TextButton(onClick = { onBatchResolve(com.deepseek.dsh.nassync.client.Resolution.LOCAL) }) {
+                        Text("保留本地")
+                    }
+                    TextButton(onClick = { onBatchResolve(com.deepseek.dsh.nassync.client.Resolution.REMOTE) }) {
+                        Text("保留远程")
+                    }
+                    TextButton(onClick = { onBatchResolve(com.deepseek.dsh.nassync.client.Resolution.SKIP) }) {
+                        Text("跳过")
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+
+    Text(text = "冲突记录", style = MaterialTheme.typography.titleMedium)
+    Spacer(modifier = Modifier.height(8.dp))
+
+    if (conflicts.isEmpty()) {
+        EmptyHint(text = "暂无冲突 🎉")
+        return
+    }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(conflicts, key = { it.rel }) { item ->
+            ConflictRow(
+                item = item,
+                selected = selected.contains(item.rel),
+                onToggle = { onToggle(item.rel) },
+                onClick = { onOpen(item) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConflictRow(
+    item: ConflictItem,
+    selected: Boolean,
+    onToggle: () -> Unit,
+    onClick: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Checkbox(checked = selected, onCheckedChange = { onToggle() })
+                Text(
+                    text = item.rel,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.MiddleEllipsis,
+                )
+                if (item.mergeable) {
+                    SuggestionChip(onClick = onClick, label = { Text("可合并") })
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                VersionLabel(tag = "本地", mtime = item.localMtime, hash = item.localHash)
+                VersionLabel(tag = "远程", mtime = item.remoteMtime, hash = item.remoteHash)
+            }
+
+            if (expanded) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onClick) { Text("处理") }
+                    OutlinedButton(onClick = onClick) { Text("查看差异") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VersionLabel(tag: String, mtime: Long, hash: String) {
+    Column {
+        Text(
+            text = "$tag · ${formatDateTime(mtime)}",
+            style = MaterialTheme.typography.labelSmall,
+        )
+        Text(
+            text = hash.take(8),
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.outline,
+        )
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 通用小组件
+// ----------------------------------------------------------------------------
+
+@Composable
+private fun EmptyHint(text: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(16.dp),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
+private fun ErrorCard(message: String, onDismiss: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = message,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 格式化工具（DSH 客户端通常自带 i18n 时间工具，此处给纯 Kotlin 实现）
+// ----------------------------------------------------------------------------
+
+private fun formatRelative(ts: Long): String {
+    val diff = System.currentTimeMillis() - ts
+    val sec = diff / 1000
+    return when {
+        sec < 60 -> "刚刚"
+        sec < 3600 -> "${sec / 60} 分钟前"
+        sec < 86400 -> "${sec / 3600} 小时前"
+        else -> formatDateTime(ts)
+    }
+}
+
+private fun formatDateTime(ts: Long): String {
+    val d = java.util.Date(ts)
+    val f = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+    return f.format(d)
+}

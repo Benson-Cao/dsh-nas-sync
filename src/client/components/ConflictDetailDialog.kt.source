@@ -1,0 +1,231 @@
+// ============================================================================
+// dsh-nas-sync · ConflictDetailDialog.kt
+// ----------------------------------------------------------------------------
+// 单条冲突处理弹窗：自动合并（三路）、行级 diff 预览、单条解决。
+// 由 SyncStatusPanel 中点击某条冲突后弹出。
+// ============================================================================
+
+package com.deepseek.dsh.nassync.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import com.deepseek.dsh.nassync.client.SyncViewModel
+import com.deepseek.dsh.nassync.client.observeAsState
+import com.deepseek.dsh.nassync.data.ConflictItem
+import com.deepseek.dsh.nassync.data.DiffLine
+import com.deepseek.dsh.nassync.data.DiffLineType
+import com.deepseek.dsh.nassync.data.MergeResult
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ConflictDetailDialog(
+    item: ConflictItem,
+    viewModel: SyncViewModel,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var tab by remember { mutableStateOf(Tab.RESOLVE) }
+    var merge by remember { mutableStateOf<MergeResult?>(null) }
+    var mergeLoading by remember { mutableStateOf(false) }
+    var diff by remember { mutableStateOf<List<DiffLine>>?>(null) }
+    var diffLoading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("处理冲突", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = item.rel,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.MiddleEllipsis,
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
+
+                // Tab
+                TabRow(selectedTabIndex = tab.ordinal) {
+                    Tab(selected = tab == Tab.RESOLVE, onClick = { tab = Tab.RESOLVE }) { Text("解决") }
+                    Tab(selected = tab == Tab.MERGE, onClick = {
+                        tab = Tab.MERGE
+                        if (merge == null && item.mergeable && !mergeLoading) {
+                            mergeLoading = true
+                            scope.launch {
+                                try {
+                                    merge = viewModel.tryMerge(item.rel)
+                                } catch (e: Exception) {
+                                    error = e.message
+                                } finally {
+                                    mergeLoading = false
+                                }
+                            }
+                        }
+                    }) { Text("自动合并") }
+                    Tab(selected = tab == Tab.DIFF, onClick = {
+                        tab = Tab.DIFF
+                        if (diff == null && !diffLoading) {
+                            diffLoading = true
+                            scope.launch {
+                                try {
+                                    diff = viewModel.getFileDiff(item.rel)
+                                } catch (e: Exception) {
+                                    error = e.message
+                                } finally {
+                                    diffLoading = false
+                                }
+                            }
+                        }
+                    }) { Text("差异") }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                when (tab) {
+                    Tab.RESOLVE -> ResolvePane(item = item, onResolve = { res ->
+                        scope.launch {
+                            viewModel.resolve(item.rel, res)
+                            onDismiss()
+                        }
+                    })
+                    Tab.MERGE -> MergePane(
+                        mergeable = item.mergeable,
+                        loading = mergeLoading,
+                        result = merge,
+                        error = error,
+                        onAccept = {
+                            scope.launch {
+                                viewModel.acceptMerge(item.rel, merge!!.mergedContent!!)
+                                onDismiss()
+                            }
+                        },
+                    )
+                    Tab.DIFF -> DiffPane(loading = diffLoading, lines = diff, error = error)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+    )
+}
+
+// ----------------------------------------------------------------------------
+// 三个页签
+// ----------------------------------------------------------------------------
+
+private enum class Tab { RESOLVE, MERGE, DIFF }
+
+@Composable
+private fun ResolvePane(item: ConflictItem, onResolve: (com.deepseek.dsh.nassync.client.Resolution) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = "该文件在本地与远程均已修改且内容不同，请选择保留哪一方：",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+            VersionSummary(tag = "本地", mtime = item.localMtime, hash = item.localHash)
+            VersionSummary(tag = "远程", mtime = item.remoteMtime, hash = item.remoteHash)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { onResolve(com.deepseek.dsh.nassync.client.Resolution.LOCAL) }) { Text("保留本地") }
+            OutlinedButton(onClick = { onResolve(com.deepseek.dsh.nassync.client.Resolution.REMOTE) }) { Text("保留远程") }
+            TextButton(onClick = { onResolve(com.deepseek.dsh.nassync.client.Resolution.SKIP) }) { Text("暂不处理") }
+        }
+    }
+}
+
+@Composable
+private fun VersionSummary(tag: String, mtime: Long, hash: String) {
+    Column {
+        Text(text = tag, style = MaterialTheme.typography.labelMedium)
+        Text(text = formatDateTime(mtime), style = MaterialTheme.typography.labelSmall)
+        Text(text = hash.take(12), style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace)
+    }
+}
+
+@Composable
+private fun MergePane(
+    mergeable: Boolean,
+    loading: Boolean,
+    result: MergeResult?,
+    error: String?,
+    onAccept: () -> Unit,
+) {
+    when {
+        !mergeable -> Text("该文件类型不支持自动合并（仅 YAML / JSON / Markdown / 文本可合并）", style = MaterialTheme.typography.bodyMedium)
+        loading -> Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        error != null -> Text("合并失败：$error", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+        result != null && result.success -> {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (result.hasConflicts == true) {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                        Text(
+                            text = "合并后仍存在无法自动解决的冲突，请检查下方标记（<<<<<<< / ======= / >>>>>>>）并手动编辑。",
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                } else {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                        Text(text = "自动合并成功，无冲突。", modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                SelectionContainer {
+                    Text(
+                        text = result.mergedContent ?: "",
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp),
+                    )
+                }
+                Button(onClick = onAccept) { Text("接受合并结果") }
+            }
+        }
+        else -> Text("无结果", style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun DiffPane(loading: Boolean, lines: List<DiffLine>?, error: String?) {
+    when {
+        loading -> Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        error != null -> Text("无法获取差异：$error", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+        lines.isNullOrEmpty() -> Text("两端内容一致或无差异", style = MaterialTheme.typography.bodyMedium)
+        else -> {
+            val green = androidx.compose.ui.graphics.Color(0x2200FF00)
+            val red = androidx.compose.ui.graphics.Color(0x22FF0000)
+            val yellow = androidx.compose.ui.graphics.Color(0x22FFEB3B)
+            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                items(lines) { line ->
+                    val bg = when (line.type) {
+                        DiffLineType.ADD -> green
+                        DiffLineType.REMOVE -> red
+                        DiffLineType.CHANGE -> yellow
+                        else -> androidx.compose.ui.graphics.Color.Transparent
+                    }
+                    Text(
+                        text = line.line,
+                        modifier = Modifier.fillMaxWidth().background(bg).padding(horizontal = 8.dp, vertical = 2.dp),
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+    }
+}

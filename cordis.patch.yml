@@ -1,0 +1,11 @@
+# dsh-nas-sync —— Cordis 注入清单
+#
+# 注意：本文件只负责把服务挂进 Host 运行时。
+# UI（设置页卡片 / 面板）由客户端半 client/index.ts 通过插槽注册，
+# 两端通过同一个 namespace key "nas-sync" 配对，无需修改宿主源码。
+
+services:
+  - id: nas-sync
+    name: dsh-nas-sync
+    config:
+      enabled: true
