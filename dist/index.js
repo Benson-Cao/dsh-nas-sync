@@ -20191,7 +20191,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { readFile as readFile5, writeFile as writeFile4, mkdir as mkdir4 } from "node:fs/promises";
 
 // src/sync/engine.ts
-import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3 } from "node:fs/promises";
+import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3, rm as rm3 } from "node:fs/promises";
 import { stat as stat5 } from "node:fs/promises";
 import { createHash as createHash2 } from "node:crypto";
 
@@ -20408,15 +20408,15 @@ var Store = class {
 // src/sync/portable.ts
 init_paths();
 import * as zlib2 from "node:zlib";
-import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mkdir as mkdir2, stat as stat3, rename } from "node:fs/promises";
+import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mkdir as mkdir2, stat as stat3, rename, rm as rm2 } from "node:fs/promises";
 import { existsSync as existsSync2 } from "node:fs";
 import { join as join4, resolve, sep as sep3 } from "node:path";
 var zstdImpl = zlib2;
 var zstdCompress = zstdImpl.zstdCompressSync ?? null;
 var zstdDecompress = zstdImpl.zstdDecompressSync ?? null;
 var WORKSPACE_REGISTRY_REL = "storages/workspace.json";
-var WORKSPACES_DIR = "workspaces";
-var WORKSPACE_FILES_PREFIX = WORKSPACES_DIR;
+var WORKSPACES_DIR = "nassyncworkspaces";
+var WORKSPACE_FILES_PREFIX = "workspaces";
 var SESSION_FILE_RE = /^session\.v\d+\.jsonl\.zstd$/;
 var SESSION_REL_RE = /^sessions\/[^/]+\/[^/]+\/session\.v\d+\.jsonl\.zstd$/;
 function isSessionRel(rel) {
@@ -20429,7 +20429,7 @@ function safeName(p) {
   if (typeof p !== "string" || p.length === 0) return "workspace";
   const parts = p.split(/[\\/]+/).filter(Boolean);
   const base = parts.length > 0 ? parts[parts.length - 1] : "";
-  const cleaned = base.replace(/[<>:"|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/, "");
+  const cleaned = base.replace(/[<>:"|?*\u0000-\u001f]/g, "_").replace(/-+/g, "_").replace(/[. ]+$/, "");
   return cleaned.length > 0 ? cleaned : "workspace";
 }
 function mapRemotePath(remotePath, home = dshHome()) {
@@ -20708,6 +20708,21 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
   await rename(tmp, localPath);
   return { added, remapped, total: Object.keys(workspaces).length };
 }
+function encodeCwd(p) {
+  const ascii = p.replace(
+    /[^\x20-\x7e]/g,
+    (c) => "~" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")
+  );
+  const body = ascii.replace(/[\\/:]+/g, "-").replace(/^-+/, "").replace(/-+$/, "");
+  return "--" + body + "--";
+}
+function platformMismatch(p) {
+  if (typeof p !== "string" || p.length === 0) return true;
+  const looksWindows = /^[A-Za-z]:[\\/]/.test(p);
+  const looksPosix = p.startsWith("/");
+  if (process.platform === "win32") return looksPosix && !looksWindows;
+  return looksWindows;
+}
 async function repairSessionCwd(home = dshHome()) {
   const root = join4(home, "sessions");
   let workspaceDirs;
@@ -20748,7 +20763,19 @@ async function repairSessionCwd(home = dshHome()) {
         const out = rewriteSessionCwd(buf, home);
         if (!out) continue;
         await mkdir2(out.dir, { recursive: true });
-        await writeFile2(file, out.buf);
+        const wantDir = encodeCwd(out.dir);
+        const target = join4(root, wantDir, sid, name2);
+        if (target === file) {
+          await writeFile2(file, out.buf);
+          fixed += 1;
+          continue;
+        }
+        await mkdir2(join4(root, wantDir, sid), { recursive: true });
+        await writeFile2(target, out.buf);
+        try {
+          await rm2(sdir, { recursive: true, force: true });
+        } catch {
+        }
         fixed += 1;
       }
     }
@@ -21453,8 +21480,26 @@ var Engine = class {
     if (isSessionRel(rel)) {
       const out = rewriteSessionCwd(Buffer.from(plain));
       if (out !== null) {
+        if (platformMismatch(out.dir)) {
+          console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u5F02\u5E73\u53F0\u4F1A\u8BDD\uFF08cwd=" + out.dir + "\uFF09: " + rel);
+          return;
+        }
         await mkdir3(out.dir, { recursive: true });
-        await writeFile3(localAbs, out.buf);
+        const parts = rel.split("/");
+        const sid = parts[parts.length - 2] ?? "";
+        const fileName = parts[parts.length - 1] ?? "";
+        const wantDir = encodeCwd(out.dir);
+        const targetRel = wantDir === parts[1] ? rel : ["sessions", wantDir, sid, fileName].join("/");
+        const target = this.resolveLocal(targetRel);
+        const cut2 = Math.max(target.lastIndexOf("/"), target.lastIndexOf("\\"));
+        await mkdir3(target.slice(0, cut2), { recursive: true });
+        await writeFile3(target, out.buf);
+        if (target !== localAbs) {
+          try {
+            await rm3(localAbs.slice(0, cut), { recursive: true, force: true });
+          } catch {
+          }
+        }
         return;
       }
     }

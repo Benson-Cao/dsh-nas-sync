@@ -14,7 +14,7 @@
  * 远端路径 = '/dsh/' + rel，本地路径 = localOf(rel)。
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { ConflictItem, ManifestEntry, PendingFile, SyncPhase } from '../data/models.js';
@@ -27,9 +27,11 @@ import { isMergeable } from './merger.js';
 import { localOf } from '../paths.js';
 import {
   customFolderLocalOf,
+  encodeCwd,
   isSessionRel,
   isWorkspaceRegistryRel,
   mergeWorkspaceRegistry,
+  platformMismatch,
   repairSessionCwd,
   rewriteSessionCwd,
 } from './portable.js';
@@ -362,8 +364,35 @@ export class Engine {
       // 表现成「会话拉下来了但 cwd 永远是手机路径」。
       const out = rewriteSessionCwd(Buffer.from(plain));
       if (out !== null) {
+        // 跨平台会话直接跳过：手机上的会话（cwd=/data/...）落到 Windows 上，
+        // 或电脑上的（cwd=C:\...）落到手机上，只会在本机制造一个打不开的幽灵会话，
+        // 严重时让 dsh 的会话列表整个不渲染。
+        if (platformMismatch(out.dir)) {
+          console.warn('[dsh-nas-sync] 跳过异平台会话（cwd=' + out.dir + '）: ' + rel);
+          return;
+        }
         await mkdir(out.dir, { recursive: true });
-        await writeFile(localAbs, out.buf);
+
+        // rel 形如 sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd
+        const parts = rel.split('/');
+        const sid = parts[parts.length - 2] ?? '';
+        const fileName = parts[parts.length - 1] ?? '';
+        const wantDir = encodeCwd(out.dir);
+        const targetRel = wantDir === parts[1] ? rel : ['sessions', wantDir, sid, fileName].join('/');
+        const target = this.resolveLocal(targetRel);
+        const cut2 = Math.max(target.lastIndexOf('/'), target.lastIndexOf('\\'));
+        await mkdir(target.slice(0, cut2), { recursive: true });
+        await writeFile(target, out.buf);
+
+        // 目录名变了就别把旧副本留着 —— 同一个 sessionId 出现在两个 cwd 目录下，
+        // dsh 会当成两个会话（其中一个永远打不开）。
+        if (target !== localAbs) {
+          try {
+            await rm(localAbs.slice(0, cut), { recursive: true, force: true });
+          } catch {
+            /* 删不掉也不影响下一轮再修 */
+          }
+        }
         return;
       }
     }

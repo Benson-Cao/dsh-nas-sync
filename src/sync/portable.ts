@@ -25,7 +25,7 @@
  */
 
 import * as zlib from 'node:zlib';
-import { readdir, readFile, writeFile, mkdir, stat, rename } from 'node:fs/promises';
+import { readdir, readFile, writeFile, mkdir, stat, rename, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { dshHome } from '../paths.js';
@@ -48,16 +48,23 @@ const zstdDecompress: ((buf: Uint8Array) => Buffer) | null = zstdImpl.zstdDecomp
 /** 工作区注册表：相对 $DSH_HOME。 */
 export const WORKSPACE_REGISTRY_REL = 'storages/workspace.json';
 /**
- * 映射后的工作区统一放在 $DSH_HOME/workspaces 下，不污染 home 根目录。
+ * 映射后的工作区统一放在 $DSH_HOME 下，两个约束都踩过坑：
  *
- * 这个选择同时解决了两件事：① 映射目标仍然是 $DSH_HOME 的子目录，所以工作区
- * **文件**不需要给同步引擎引入「虚拟根目录」；② 手机上的工作区目录（如
- * `/data/user/0/com.dsh.harness/files/home/wstest`）与电脑上的映射目录，在 rel
- * 空间里都收敛成同一个前缀 `workspaces/<名字>`，两端算法一致就不会错位。
+ * ① **不能是 `workspaces/`** —— dsh 自己也把它当工作区根（实测它会往里创建
+ *    `default-workspace/`），两边抢同一个目录会互相破坏。
+ * ② **名字里不能有连字符** —— dsh 的会话目录名是 cwd 的编码（`-` 代表路径分隔符），
+ *    解码时 `nas-sync-workspaces` 会被拆成三段 `nas/sync/workspaces`，路径对不上，
+ *    会话就全部掉进「未分组」。实测换成不含 `-` 的名字后归属才正确。
  */
-export const WORKSPACES_DIR = 'workspaces';
-/** 工作区文件在 rel 空间的前缀（= $DSH_HOME/workspaces）。 */
-export const WORKSPACE_FILES_PREFIX = WORKSPACES_DIR;
+export const WORKSPACES_DIR = 'nassyncworkspaces';
+/**
+ * 工作区文件在 rel 空间的**协议**前缀，**不要**跟着 WORKSPACES_DIR 改。
+ *
+ * 这个前缀是已经上传到 NAS 的目录结构（`workspaces/<名字>/…`），改了等于让
+ * 所有历史数据失联。它只影响「远端长什么样」，而 WORKSPACES_DIR 只影响
+ * 「本机落在哪」，两者必须解耦。
+ */
+export const WORKSPACE_FILES_PREFIX = 'workspaces';
 
 /** 会话正文文件名匹配（格式版本会涨，这里不写死 v4）。 */
 const SESSION_FILE_RE = /^session\.v\d+\.jsonl\.zstd$/;
@@ -77,7 +84,10 @@ function safeName(p: unknown): string {
   const parts = p.split(/[\\/]+/).filter(Boolean);
   const base = parts.length > 0 ? parts[parts.length - 1] : '';
   const cleaned = base
+    // `-` 也必须清掉：dsh 用 `-` 表示会话目录名里的路径分隔符，
+    // 目录名自带连字符会让它还原出错误路径（见 WORKSPACES_DIR 的注释）。
     .replace(/[<>:"|?*\u0000-\u001f]/g, '_')
+    .replace(/-+/g, '_')
     .replace(/[. ]+$/, '');
   return cleaned.length > 0 ? cleaned : 'workspace';
 }
@@ -556,6 +566,45 @@ export interface RepairResult {
  * 把已经落在本地的同步会话逐个检查一遍：cwd 在本机不存在就改写。
  * 幂等——改完的文件下次读到 `mapRemotePath().mapped === false`，直接跳过。
  */
+/**
+ * 把绝对路径编码成 dsh 的会话目录名。
+ *
+ * 规则（用两个真实样本反推验证过）：
+ *   ① 非 ASCII 字符 → `~` + 四位大写十六进制（**前缀式**，结尾不带 `~`）
+ *      例：`胎教Agent` → `~80CE~6559Agent`
+ *   ② 连续的 `\` `/` `:` 合并成一个 `-`
+ *   ③ 去掉首尾的 `-`，整体再包一层 `--`
+ *
+ * 为什么必须精确：dsh 打开会话时会核对「目录名是不是 cwd 的编码」，对不上就
+ * 自己"修复"——实测会把两个编码拼成一个畸形目录名（`--旧cwd-新cwd--`）。
+ * 所以改了 cwd 就必须同时改目录名，否则一定踩坑。
+ *
+ * ⚠️ 推论：工作区目录名里**不能有连字符**，否则解码时会被当成路径分隔符
+ * （`nas-sync-workspaces` → `nas/sync/workspaces`）。见 WORKSPACES_DIR。
+ */
+export function encodeCwd(p: string): string {
+  const ascii = p.replace(/[^\x20-\x7e]/g, (c) =>
+    '~' + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'),
+  );
+  const body = ascii.replace(/[\\/:]+/g, '-').replace(/^-+/, '').replace(/-+$/, '');
+  return '--' + body + '--';
+}
+
+/**
+ * 判断一个 cwd 是否属于「另一种平台」，是就别往本机落。
+ *
+ * 踩过的坑：电脑上改写过的会话（cwd = `C:\...\wstest`）被同步到手机，
+ * 手机上这个路径当然不存在，dsh 一扫描就把整个会话列表搞挂（更糟的是会掉进
+ * 「未分组」）。反过来也一样。所以跨平台同步时，这类会话直接跳过而不是硬塞。
+ */
+export function platformMismatch(p: string): boolean {
+  if (typeof p !== 'string' || p.length === 0) return true;
+  const looksWindows = /^[A-Za-z]:[\\/]/.test(p);
+  const looksPosix = p.startsWith('/');
+  if (process.platform === 'win32') return looksPosix && !looksWindows;
+  return looksWindows;
+}
+
 export async function repairSessionCwd(home: string = dshHome()): Promise<RepairResult> {
   const root = join(home, 'sessions');
   let workspaceDirs: string[];
@@ -598,7 +647,29 @@ export async function repairSessionCwd(home: string = dshHome()): Promise<Repair
         const out = rewriteSessionCwd(buf, home);
         if (!out) continue;
         await mkdir(out.dir, { recursive: true });
-        await writeFile(file, out.buf);
+
+        /**
+         * 目录名必须跟着 cwd 一起迁移。
+         *
+         * 只改内容不改目录名的后果：dsh 打开会话时发现「目录名 ≠ cwd 编码」，
+         * 会自己动手"修复"，把两个编码拼成 `--旧-新--` 这种畸形名（真出现过）。
+         * 所以这里要么原地不动（cwd 没变），要么连目录一起搬。
+         */
+        const wantDir = encodeCwd(out.dir);
+        const target = join(root, wantDir, sid, name);
+        if (target === file) {
+          await writeFile(file, out.buf);
+          fixed += 1;
+          continue;
+        }
+        await mkdir(join(root, wantDir, sid), { recursive: true });
+        await writeFile(target, out.buf);
+        // 旧位置的副本会让同一会话出现两次，必须清掉（只删这个 session 目录）
+        try {
+          await rm(sdir, { recursive: true, force: true });
+        } catch {
+          /* 删不掉也不影响，下次还能再修 */
+        }
         fixed += 1;
       }
     }

@@ -183,6 +183,20 @@ registerNasSyncUi(ctx, HostBridge(scope))
   | `settings` | `settings.yaml` | 关（敏感） |
   | `pluginPatch` | `cordis.patch.yml` | 关（敏感） |
 
+**关键技术点**：
+
+- 映射目录叫 **`nassyncworkspaces`**，两个约束都踩过坑：
+  ① 不能用 `workspaces/`——dsh 自己也把它当工作区根；
+  ② **不能含连字符**——dsh 的会话目录名是 cwd 的编码（`-` 代表路径分隔符），
+  `nas-sync-workspaces` 解码时会被拆成 `nas/sync/workspaces`，会话全掉进「未分组」。
+- `workspace.path` 必须与会话 `header.cwd` **逐字符相同**（连斜杠方向都要一致），
+  否则 dsh 判定「不属于该工作区」。
+- 改了 `cwd` 就必须**同时迁移会话目录名**（`encodeCwd(cwd)`），否则 dsh 会自己
+  "修复"成 `--旧cwd-新cwd--` 这种畸形目录。
+- 会话列表由 **`storages/workspace.json` 的 sessionIds** 决定，dsh 不会主动扫
+  `sessions/` 目录；另外还叠了一层 `session_projcache` 和前端 WebView 缓存，
+  数据改完后必须一起清，否则界面不刷新。
+
 - **明确排除**：`.credentials.yaml`、`.env`、`.token`、`node_modules/`、`.git/`、缓存、
   **`.asar`**（Electron 会把任何 `.asar` 当归档解析，构建产物放目录里会刷屏报错）、
   **超过 64 MiB 的单文件**（整块读入加密会拖死宿主，大文件请走 `attachments` 分类）
