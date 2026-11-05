@@ -274,6 +274,83 @@ window.__ModuleLoader__.load({
       };
     }
 
+
+    // ---- 宿主左侧栏工作区来源标记（模块级自启动，不依赖面板是否打开）----
+    let sidebarDevices = null;
+    let sidebarStarted = false;
+
+    /** 幂等注入：目标 emoji 没变就不碰 DOM，避免 observer 自我触发死循环。 */
+    function applySidebarBadges() {
+      if (typeof document === 'undefined' || !document.querySelectorAll) return;
+      const rows = document.querySelectorAll('[data-row-key^="workspace:"]');
+      for (const row of rows) {
+        let titleEl = null;
+        let label = '';
+        // 只看「直接文本节点」，不能用 children.length === 0 过滤：badge 注入后
+        // title 就有了子 span，用那个条件会导致后续 apply 认不出 title，标记再也无法更新/清除。
+        for (const sp of row.querySelectorAll('span')) {
+          if (sp.hasAttribute('data-nas-sync-device')) continue;
+          let txt = '';
+          for (const n of sp.childNodes) if (n.nodeType === 3) txt += n.textContent;
+          if (!txt.trim()) continue;
+          titleEl = sp;
+          label = txt.trim();
+          break;
+        }
+        if (!titleEl) continue;
+
+        const key = (row.getAttribute('data-row-key') || '').slice('workspace:'.length);
+        const want = sidebarBadgeFor(sidebarDevices, key, label);
+        const existing = titleEl.querySelector(':scope > [data-nas-sync-device]');
+        if (existing && existing.getAttribute('data-badge') === (want ? want.emojis : '')) continue;
+        if (existing) existing.remove();
+        if (!want) continue;
+
+        const el = document.createElement('span');
+        el.setAttribute('data-nas-sync-device', '1');
+        el.setAttribute('data-badge', want.emojis);
+        el.textContent = ' ' + want.emojis;
+        el.title = want.devices.join('\n');
+        el.style.cssText = 'font-size:12px;line-height:1;opacity:.85;margin-left:2px;flex:0 0 auto;cursor:default;';
+        titleEl.appendChild(el);
+      }
+    }
+
+    /** 面板刷新拿到 devices 后调用，立即重标；全局定时拉取也会调它。 */
+    function setSidebarDevices(d) {
+      sidebarDevices = d;
+      applySidebarBadges();
+    }
+
+    function startSidebarBadges() {
+      if (sidebarStarted) return;
+      sidebarStarted = true;
+      // 面板没打开时也要能更新：每 20 秒拉一次 /devices（token 由 boot payload 注入）
+      const pull = () => {
+        try {
+          const a = api();
+          if (!a.ready) return;
+          a.call('/devices').then(setSidebarDevices).catch(() => {});
+        } catch (_) { /* token 还没就绪，下一轮再试 */ }
+      };
+      pull();
+      setInterval(pull, 20000);
+
+      let debounce = null;
+      try {
+        const obs = new MutationObserver(() => {
+          if (debounce) clearTimeout(debounce);
+          debounce = setTimeout(applySidebarBadges, 180);
+        });
+        obs.observe(document.body, { childList: true, subtree: true });
+      } catch (_) { /* 宿主不支持 observer 时仍保留定时刷新 */ }
+      applySidebarBadges();
+    }
+
+    // DOM 可能还没就绪（模块加载早于 body 创建），延到 DOMContentLoaded
+    if (typeof document !== 'undefined' && document.body) startSidebarBadges();
+    else if (typeof window !== 'undefined') window.addEventListener('DOMContentLoaded', startSidebarBadges, { once: true });
+
     const S = {
       // r4：桌面端把这一栏放进一个 shrink-to-fit 的 flex 列里，原先 920px 的
       // 上限会让右侧空出一大块（实测约占窗口 18%）。这里不再自己限宽，
@@ -441,10 +518,6 @@ window.__ModuleLoader__.load({
       // 数据来自远端清单记录的「最后上传者」，所以首次同步前是 null —— 此时不显示任何标记，
       // 而不是显示一个"未知设备"的占位，免得用户以为同步坏了。
       const [devices, setDevices] = useState(null);
-      // DOM 注入需要读最新 devices，但 MutationObserver 只安装一次 —— 用 ref 传值，
-      // 避免回调闭包抓到旧的 state。
-      const devicesRef = useRef(null);
-      const applySidebarRef = useRef(null);
 
       const refreshAll = useCallback(async () => {
         if (!c.ready) return;
@@ -460,9 +533,12 @@ window.__ModuleLoader__.load({
           // 来源设备统计依赖远端清单，网络慢/接口不存在时不该拖住整个面板渲染。
           // 单独 try：旧版 host 没有 /devices 端点，这里不能让整个 refreshAll 失败。
           try {
-            setDevices(await c.call('/devices'));
+            const dv = await c.call('/devices');
+            setDevices(dv);
+            setSidebarDevices(dv);
           } catch (e) {
             setDevices(null);
+            setSidebarDevices(null);
           }
           // 技能名单单独拉：它只依赖磁盘上的 skills/ 目录，跟同步状态无关。
           // 失败不阻断整个刷新 —— 面板其它部分仍然可用，只是技能子列表空着。
@@ -477,75 +553,7 @@ window.__ModuleLoader__.load({
         }
       }, [c, t]);
 
-      /**
-       * 给宿主左侧栏的工作区行注入来源 emoji。
-       *
-       * 取证（@deepseek-ai/dsh-client-ui-workspace 的 client.js）：
-       *   工作区行 = div[data-row-key^="workspace:"]，内部 projectText > title span 放名字。
-       * 用 data-row-key 而不是 CSS module 的 hash class（会随版本变）。
-       *
-       * 幂等：目标 emoji 没变就不碰 DOM。否则「注入 → 触发 MutationObserver → 再注入」
-       * 会无限循环。label 只取 title 的**文本节点**，所以已注入的 badge 不会污染名字。
-       */
-      function applySidebarBadges() {
-        if (typeof document === 'undefined' || !document.querySelectorAll) return;
-        const devices = devicesRef.current;
-        const rows = document.querySelectorAll('[data-row-key^="workspace:"]');
-        for (const row of rows) {
-          let titleEl = null;
-          let label = '';
-          for (const sp of row.querySelectorAll('span')) {
-            if (sp.hasAttribute('data-nas-sync-device') || sp.children.length !== 0) continue;
-            let txt = '';
-            for (const n of sp.childNodes) if (n.nodeType === 3) txt += n.textContent;
-            if (txt.trim()) { titleEl = sp; label = txt.trim(); break; }
-          }
-          if (!titleEl) continue;
-
-          const key = (row.getAttribute('data-row-key') || '').slice('workspace:'.length);
-          const want = sidebarBadgeFor(devices, key, label);
-          const existing = titleEl.querySelector(':scope > [data-nas-sync-device]');
-          if (existing && existing.getAttribute('data-badge') === (want ? want.emojis : '')) continue;
-          if (existing) existing.remove();
-          if (!want) continue;
-
-          const el = document.createElement('span');
-          el.setAttribute('data-nas-sync-device', '1');
-          el.setAttribute('data-badge', want.emojis);
-          el.textContent = ' ' + want.emojis;
-          el.title = want.devices.join('\n');
-          el.style.cssText = 'font-size:12px;line-height:1;opacity:.85;margin-left:2px;flex:0 0 auto;cursor:default;';
-          titleEl.appendChild(el);
-        }
-      }
-      applySidebarRef.current = applySidebarBadges;
-
       useEffect(() => { refreshAll(); }, [refreshAll]);
-      // devices 变化时重标一次
-      useEffect(() => {
-        devicesRef.current = devices;
-        if (applySidebarRef.current) applySidebarRef.current();
-      }, [devices]);
-      // 宿主侧栏会随展开/搜索/会话变化重建，用 observer 补标（debounce + 幂等）
-      useEffect(() => {
-        let timer = null;
-        const run = () => {
-          if (timer) clearTimeout(timer);
-          timer = setTimeout(() => { if (applySidebarRef.current) applySidebarRef.current(); }, 180);
-        };
-        let obs = null;
-        try {
-          obs = new MutationObserver(run);
-          obs.observe(document.body, { childList: true, subtree: true });
-        } catch (_) { obs = null; }
-        run();
-        return () => {
-          if (obs) obs.disconnect();
-          if (timer) clearTimeout(timer);
-          // 卸载时把注入的标记全部撤掉，不留垃圾节点
-          document.querySelectorAll('[data-nas-sync-device]').forEach((el) => el.remove());
-        };
-      }, []);
       useEffect(() => {
         const timer = setInterval(() => {
           if (!c.ready) return;
