@@ -17,8 +17,8 @@ export function createMountTransport(root: string): NasTransport {
       try {
         await stat(root);
         return true;
-      } catch {
-        return false;
+      } catch (e: any) {
+        throw new Error(`挂载点不可访问 ${root}（code=${e?.code ?? 'unknown'}）：${e?.message ?? e}`);
       }
     },
 

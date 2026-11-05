@@ -7,18 +7,23 @@
 
 ```
 dsh-nas-sync/
-├── package.json              # dsh.bundle 声明 + 依赖
-├── cordis.patch.yml          # Host 半：只挂服务
-├── tsconfig.json             # Host 半编译
-├── tsconfig.client.json      # 客户端半编译（桥接层）
+├── package.json              # dsh.bundle / dsh.client 声明 + 依赖
+├── cordis.patch.yml          # bundle patch 层：把服务 insert 进 Loader 树
+├── dist/index.js             # ⚠️ 已构建产物（814 KB，必须入库，见下文）
+├── client.js                 # 客户端半：window.__ModuleLoader__.load 手写模块
+├── scripts/build.mjs         # esbuild 打包（esbuild → 单文件 ESM）
+├── tsconfig.json             # Host 半类型检查
+├── tsconfig.client.json      # 客户端半（Compose 桥接层）类型检查
 └── src/
     ├── index.ts              # 插件主入口：注册工具 + 设置命名空间
     ├── config.ts             # 配置 schema / store / namespace
+    ├── paths.ts              # ~/.dsh 路径解析
+    ├── bridge.ts             # RPC 桥接口（需宿主实现）
     ├── data/models.ts        # 跨层数据模型
     ├── nas/                  # 传输层：transport / webdav / mount
     ├── sync/                 # 同步引擎：scanner / crypto / chunker / engine / merger
     └── client/               # 客户端半（Compose）
-        ├── bridge.ts               # RPC 桥接口（需宿主实现）
+        ├── bridge.ts               # RPC 桥接口
         ├── SyncViewModel.ts       # 状态 + 动作
         ├── index.ts               # 注册 settings.section 插槽
         └── components/
@@ -28,29 +33,64 @@ dsh-nas-sync/
             └── NasSyncConfigSheet.kt.source   # 配置表单
 ```
 
-## 1. 安装（web profile）
+### 为什么 `dist/` 在仓库里而不是 `.gitignore`
+
+本包**没有发布到 npm**，只能作为 git 依赖安装，而 pnpm / npm 从 git 安装时
+**不会执行 `build` 脚本**（只会在有 `prepare` 时跑 `prepare`）。`package.json`
+的 `main` 指向 `dist/index.js`，如果产物不在仓库里，装完必然
+`Cannot find module`。因此 `dist/index.js` 是入库文件，重新构建后需要一并提交。
+
+## 1. 安装
+
+### 1.1 桌面端（Electron）— 推荐
+
+直接填 Git 仓库地址，不需要 clone、不需要本地构建（`dist/` 已入库）：
+
+```
+设置 → 插件 → 添加插件 → 填 https://github.com/Benson-Cao/dsh-nas-sync
+```
+
+安装位置是 `~/.dsh/profiles/desktop`。装完**必须完全退出进程再重开**
+（不是关窗口），Cordis 模块与 client bundle 才会重新组合。
+
+### 1.2 web profile（CLI）
 
 ```bash
-cd dsh-nas-sync
-pnpm install
-pnpm build                       # 输出 dist/index.js + dist/client.js
+dsh plugin --profile web add "https://github.com/Benson-Cao/dsh-nas-sync"
+```
 
+或用本地目录（改代码调试时用这个，改完要自己 `pnpm build`）：
+
+```bash
+pnpm install --ignore-scripts
+pnpm build                        # 输出 dist/index.js
 dsh plugin --profile web add "link:$PWD"
 ```
 
-桌面版（Electron）**不能用 CLI 装**到 desktop profile，会报
-`profile "desktop" is managed exclusively by the Electron application`，
-请在 App 内「设置 → 插件 → 添加插件」填本地目录。
+> 桌面端**不能用 CLI 装**到 desktop profile，会报
+> `profile "desktop" is managed exclusively by the Electron application`，
+> 请走 1.1 的 App 内插件面板。
 
 验证：
 
 ```bash
-ls ~/.dsh/profiles/web/node_modules/dsh-nas-sync   # 依赖已链接
-dsh --profile web --dump-config | grep nas-sync     # 配置层已挂载
+ls ~/.dsh/profiles/desktop/node_modules/dsh-nas-sync   # 依赖已链接
+ls ~/.dsh/profiles/desktop/node_modules/dsh-nas-sync/dist/index.js
 ```
 
-> 关键：`package.json` 里的 `dsh.bundle.patch` 必须指向
-> `cordis.patch.yml`，否则插件只是普通 npm 依赖，**不会挂载、不会生效**。
+### 1.3 依赖约定（重要）
+
+`@deepseek-ai/*` 是**宿主运行时提供的包，不在公共 npm 上**，因此：
+
+- 它们只出现在 `peerDependencies`，且 `peerDependenciesMeta` 标 `optional: true`；
+- 插件自己的 `dependencies` 仅有 `webdav` / `tweetnacl` / `scrypt-js`；
+- `scripts/build.mjs` 用 esbuild 把这三个依赖**打进** `dist/index.js`，
+  并把 `@deepseek-ai/*` 设为 `external` 交给宿主。
+
+> 如果把 `@deepseek-ai/dsh-core` 之类写进 `dependencies`，`pnpm add` 会直接失败：
+> `@deepseek-ai/dsh-core` 在 npm 上是 404，`@deepseek-ai/schemastery` 的版本序列
+> 是 `3.18.x / 3.19.0`（没有 `0.2.0`）。报错信息常被 App 显示成
+> “无法连接 github.com”，其实是版本解析失败，不是网络问题。
 
 ## 2. 接入 Compose 设置页
 
@@ -140,12 +180,34 @@ registerNasSyncUi(ctx, HostBridge(scope))
 
 | 现象 | 原因 | 修复 |
 |---|---|---|
+| 安装失败，报 `无法连接 github.com` / `HEAD ... error (500)` | 大概率**不是网络**。展开安装详情，看有没有 `ERR_PNPM_NO_MATCHING_VERSION` | 见 1.3，`@deepseek-ai/*` 必须是 peer 依赖 |
+| 安装失败，报 `ERR_PNPM_NO_MATCHING_VERSION` | 把宿主包写进了 `dependencies` | 改成 `peerDependencies` + `optional: true` |
+| 安装成功但 `Cannot find module ... dist/index.js` | 仓库里没有构建产物 | `pnpm build` 后把 `dist/` 一起提交 |
 | 插件列表里没有 | bundle 没进 `dsh.profile.bundles` | 重跑 `dsh plugin add` 看报错 |
 | 列表有但不挂载 | `package.json` 缺 `dsh.bundle.patch` | 补声明后重装 |
-| 设置页没入口 | namespace 两端不一致 | Host `nas-sync` vs Client `key: nas-sync` |
+| 列表有、`cordis.patch.yml` 也指向了，仍然静默不生效 | patch 层**顶层写成了 map**（`services:` / 直接 `- id:`） | 必须写成 `- insert: [...]`，见下方说明 |
+| 设置页没入口 | namespace 两端不一致，或 `dsh.client` 没被扫到 | Host `nas-sync` vs Client `key: nas-sync`；确认 patch 已 insert |
 | 密码框明文 | schema 没加 `role('secret')` | 补上，重启 |
 | 桌面端装不上 | 用 CLI 装 desktop | 改用 App 内插件面板 |
 | Compose 改了没生效 | Cordis 模块缓存 | 完全退出进程重开，不是关窗口 |
+
+### `cordis.patch.yml` 必须是 `insert` 形式
+
+profile 的 root 层 `cordis.yml` 内容是空数组 `[]`。`applyEntryPatches` 的规则是：
+
+- **带 `insert`** 的 patch → 把 `insert` 数组推进目标条目（无 id 时推进 root 数组）✅
+- **不带 `insert`** 的 patch → 必须按 `id` 命中**已存在**的条目，否则 `warn` 后**静默跳过**
+
+root 是 `[]`，所以直接的 `- id: ...` 写法永远插不进去 → 插件不进 Loader 树 →
+`dsh-client-modules` 扫不到它的 `dsh.client` → 前端不组合 client bundle →
+**界面上完全没有入口**。正确写法：
+
+```yaml
+- insert:
+    - id: nas-sync
+      name: dsh-nas-sync
+```
+
 
 ## 7. 已知限制
 
@@ -160,10 +222,11 @@ registerNasSyncUi(ctx, HostBridge(scope))
 
 ## 8. 开源与许可
 
-本仓库只含插件自身源码，不包含 DeepSeek Harness 宿主、Android 壳或任何官方
-npm 包代码。它作为一个独立 Cordis 插件通过 `cordis.patch.yml` 挂载，需要
-宿主提供 `@deepseek-ai/dsh-tools`、`@deepseek-ai/schemastery`、
-`@deepseek-ai/dsh-home-paths` 三个 peer 依赖，以及 `bridge.ts` 里那套 RPC 实现。
+本仓库只含插件自身源码与构建产物，不包含 DeepSeek Harness 宿主、Android 壳或任何
+官方 npm 包代码。它作为一个独立 Cordis 插件通过 `cordis.patch.yml` 挂载，需要宿主
+提供 `@deepseek-ai/dsh-tools`、`@deepseek-ai/schemastery`、
+`@deepseek-ai/dsh-home-paths`、`@deepseek-ai/dsh-client-core` 四个 peer 依赖，
+以及 `bridge.ts` 里那套 RPC 实现。
 
 许可：MIT（见 [LICENSE](LICENSE)）。
 

@@ -1,136 +1,307 @@
 /**
- * dsh-nas-sync · 白名单扫描
- * ---------------------------
- * 只同步明确列出的路径，敏感文件（.credentials.yaml 等）默认排除。
- * 换机器后 ~ 的绝对路径不同，因此所有记录都以“相对于 ~/.dsh”的相对路径存储。
+ * dsh-nas-sync · 白名单扫描（r3：按分类勾选）
+ * -------------------------------------------
+ * rel 一律相对 $DSH_HOME/.dsh，远端路径 = '<remoteRoot>/' + rel，
+ * 本地路径 = join(.dsh, rel)，三元一一对应。
+ *
+ * r3 起「哪些子树参与同步」不再写死，而是由配置里的 `syncScope` 逐类勾选决定；
+ * 分类元数据（label/desc/sensitive）集中在这里，状态查询与工具描述都复用同一份，
+ * 避免「工具说支持 A、扫描器却不认 A」这类漂移。
  */
 
 import { readdir, stat, readFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import type { ManifestEntry } from '../data/models.js';
+import { dshHome, localOf, relFromRemote } from '../paths.js';
+import { DEFAULT_SYNC_SCOPE, type SyncScope, type SyncScopeKey } from '../config.js';
 
+export interface ManifestEntry {
+  rel: string;
+  mtime: number;
+  size: number;
+  hash: string;
+}
+
+/** 一个同步分类的静态元数据。key 与 config 的 syncScope 一一对应。 */
+export interface CategoryMeta {
+  key: SyncScopeKey;
+  /** 相对 ~/.dsh 的目录或文件 */
+  localDir: string;
+  label: string;
+  desc: string;
+  /** 可能携带凭据：勾选后仍需 includeSensitive 才带上内部的 .credentials 等 */
+  sensitive: boolean;
+}
+
+/**
+ * 分类表（顺序即界面展示顺序）。
+ * 拆得比旧版细：会话标题单独一项（它很小却决定会话列表是否有名字），
+ * settings.yaml 与 cordis.patch.yml 分开（前者含密钥、后者只是插件装配）。
+ */
+export const SYNC_CATEGORIES: CategoryMeta[] = [
+  { key: 'sessions', localDir: 'sessions', label: '会话记录', desc: 'sessions/ 下的对话内容', sensitive: false },
+  { key: 'sessionTitles', localDir: 'session-titles.json', label: '会话标题', desc: '会话列表的标题索引', sensitive: false },
+  { key: 'attachments', localDir: 'attachments', label: '附件', desc: 'attachments/ 图片与文件，通常最大', sensitive: false },
+  { key: 'skills', localDir: 'skills', label: '技能', desc: 'skills/ 自定义技能', sensitive: false },
+  { key: 'profiles', localDir: 'profiles', label: 'Profile 与插件', desc: 'profiles/ 插件配置，可能含插件凭据', sensitive: true },
+  { key: 'settings', localDir: 'settings.yaml', label: '主设置', desc: 'settings.yaml，可能含 API Key 明文', sensitive: true },
+  { key: 'pluginPatch', localDir: 'cordis.patch.yml', label: '插件补丁', desc: 'cordis.patch.yml 插件装配层', sensitive: true },
+];
+
+export function categoryByKey(key: SyncScopeKey): CategoryMeta | undefined {
+  return SYNC_CATEGORIES.find((c) => c.key === key);
+}
+
+/** 同步规则：由分类表 + 勾选状态推导出来。 */
 export interface Rule {
-  /** 本地绝对路径（文件或目录） */
-  local: string;
-  /** 远端路径（以 / 开头） */
-  remote: string;
-  /** 是否可能含敏感内容，需 includeSensitive=true 才同步 */
+  key: SyncScopeKey;
+  /** 相对 ~/.dsh 的目录/文件，如 'sessions'、'settings.yaml' */
+  localDir: string;
   sensitive?: boolean;
 }
 
-export const DEFAULT_RULES: Rule[] = [
-  { local: '.dsh/sessions',             remote: '/dsh/sessions',            sensitive: true },
-  { local: '.dsh/settings.yaml',        remote: '/dsh/config/settings.yaml', sensitive: true },
-  { local: '.dsh/attachments/v1/objects', remote: '/dsh/attachments' },
-  { local: '.dsh/profiles/web',         remote: '/dsh/profiles/web',         sensitive: true },
-  { local: '.dsh/skills',               remote: '/dsh/skills' },
-];
+/** 旧行为等价物：未显式给 scope 时按默认勾选推导。 */
+export const DEFAULT_RULES: Rule[] = SYNC_CATEGORIES
+  .filter((c) => DEFAULT_SYNC_SCOPE[c.key])
+  .map((c) => ({ key: c.key, localDir: c.localDir, sensitive: c.sensitive }));
 
 const SENSITIVE_NAMES = ['.credentials.yaml', '.credentials', '.env', '.token'];
 
+/** 递归遍历目录下的普通文件（跳过运行时垃圾）。扫描与统计共用同一份过滤规则。 */
+export async function* walkFiles(dir: string): AsyncGenerator<string> {
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const full = join(dir, name);
+    let st;
+    try {
+      st = await stat(full);
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) {
+      if (name === 'node_modules' || name === 'nas-sync') continue;
+      yield* walkFiles(full);
+    } else {
+      if (name.endsWith('.base') || name.endsWith('.chunk-manifest.json')) continue;
+      if (name.endsWith('.lock')) continue; // 运行时锁文件，不参与同步
+      yield full;
+    }
+  }
+}
+
 export class Scanner {
-  private home: string;
   private includeSensitive: boolean;
   private rules: Rule[];
+  private scope: SyncScope;
+  private skillFilter: string[];
 
-  constructor(opts: {
-    home?: string;
-    includeSensitive?: boolean;
-    rules?: Rule[];
-  } = {}) {
-    this.home = opts.home ?? process.env.HOME ?? process.env.USERPROFILE ?? '';
+  /**
+   * @param opts.scope            分类勾选（缺省 = DEFAULT_SYNC_SCOPE）
+   * @param opts.includeSensitive 已选分类**内部**是否连凭据文件一起同步
+   * @param opts.skillFilter      技能白名单（空 = 全部，见 config.ts 的语义说明）
+   * @param opts.rules            直接指定规则（测试用；给了就不看 scope）
+   */
+  constructor(opts: { scope?: Partial<SyncScope>; includeSensitive?: boolean; skillFilter?: string[]; rules?: Rule[] } = {}) {
     this.includeSensitive = opts.includeSensitive ?? false;
-    this.rules = opts.rules ?? DEFAULT_RULES;
+    this.scope = { ...DEFAULT_SYNC_SCOPE, ...(opts.scope ?? {}) } as SyncScope;
+    this.skillFilter = opts.skillFilter ?? [];
+    this.rules = opts.rules ?? this.rulesFromScope();
   }
 
-  private expand(p: string): string {
-    if (p.startsWith('~/') || p.startsWith('~\\')) return join(this.home, p.slice(2));
-    if (p === '~') return this.home;
-    return resolve(p);
+  /** 勾选的分类 → 规则表。注意：这里**不**用 includeSensitive 过滤整体分类。 */
+  private rulesFromScope(): Rule[] {
+    return SYNC_CATEGORIES
+      .filter((c) => this.scope[c.key] !== false)
+      .map((c) => ({ key: c.key, localDir: c.localDir, sensitive: c.sensitive }));
   }
 
-  async exists(p: string): Promise<boolean> {
-    try {
-      await stat(p);
-      return true;
-    } catch {
-      return false;
-    }
+  /** 当前生效的规则（只读，供状态/日志展示）。 */
+  activeRules(): Rule[] {
+    return this.rules.map((r) => ({ ...r }));
+  }
+
+  private isSensitive(rel: string): boolean {
+    const base = rel.split('/').pop() ?? '';
+    if (SENSITIVE_NAMES.some((s) => base === s)) return true;
+    // profiles 下的凭据文件
+    return rel.startsWith('profiles/') && SENSITIVE_NAMES.some((s) => base.endsWith(s));
+  }
+
+  /**
+   * 技能白名单判定（实现见模块级 skillAllowed）。
+   */
+  private skillAllowed(rel: string): boolean {
+    return skillAllowed(rel, this.skillFilter);
   }
 
   private async* walk(dir: string): AsyncGenerator<string> {
-    let names: string[];
-    try {
-      names = await readdir(dir);
-    } catch {
-      return;
-    }
-    for (const name of names) {
-      const full = join(dir, name);
-      let st;
-      try {
-        st = await stat(full);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
-        if (name === 'node_modules') continue;
-        yield* this.walk(full);
-      } else {
-        // 跳过工作区内的隐藏文件（白名单目录名本身不受影响）
-        if (name.startsWith('.')) continue;
-        yield full;
-      }
-    }
-  }
-
-  private isSensitive(path: string): boolean {
-    const base = path.split(/[\\/]/).pop() ?? '';
-    return SENSITIVE_NAMES.some((s) => base === s || base.endsWith(s + '.yaml'));
+    yield* walkFiles(dir);
   }
 
   async buildManifest(): Promise<ManifestEntry[]> {
+    const base = dshHome();
     const out: ManifestEntry[] = [];
     for (const rule of this.rules) {
-      if (rule.sensitive && !this.includeSensitive) continue;
-      const local = this.expand(rule.local);
-      if (!(await this.exists(local))) continue;
-
-      const s = await stat(local);
-      if (s.isFile()) {
-        out.push(await this.toEntry(local, local));
+      const local = resolve(base, rule.localDir);
+      let st;
+      try {
+        st = await stat(local);
+      } catch {
         continue;
       }
-
+      if (st.isFile()) {
+        const rel = rule.localDir;
+        if (!this.includeSensitive && this.isSensitive(rel)) continue;
+        out.push(await this.toEntry(local, rel));
+        continue;
+      }
       for await (const file of this.walk(local)) {
-        if (!this.includeSensitive && this.isSensitive(file)) continue;
-        out.push(await this.toEntry(file, local));
+        // rel = 相对 ~/.dsh
+        const rel = file.slice(base.length + 1).split(/[\\/]/).join('/');
+        if (!this.includeSensitive && this.isSensitive(rel)) continue;
+        if (!this.skillAllowed(rel)) continue;
+        out.push(await this.toEntry(file, rel));
       }
     }
     return out;
   }
 
-  private async toEntry(file: string, base: string): Promise<ManifestEntry> {
-    const s = await stat(file);
+  private async toEntry(file: string, rel: string): Promise<ManifestEntry> {
+    const s = statSync(file);
     const buf = await readFile(file);
     return {
-      rel: relative(base, file).split(/[\\/]/).join('/'),
+      rel,
       mtime: s.mtimeMs,
       size: s.size,
       hash: createHash('sha256').update(buf).digest('hex'),
     };
   }
+}
 
-  /** 远端路径 -> 本地绝对路径（恢复时用） */
-  remoteToLocal(remote: string): string {
-    for (const rule of this.rules) {
-      if (remote.startsWith(rule.remote + '/') || remote === rule.remote) {
-        const suffix = remote === rule.remote ? '' : remote.slice(rule.remote.length + 1);
-        return join(this.expand(rule.local), suffix);
-      }
-    }
-    // 未知路径放到 .dsh/nas-import 下，避免覆盖本地文件
-    return join(this.expand('.dsh/nas-import'), remote.replace(/^\/+/, ''));
+/**
+ * 按分类统计清单（供 nas_sync_status 展示「每个勾选项到底带了多少文件」）。
+ * 未命中的 rel（理论上不会有）归到 __unknown 里，便于发现规则缺口。
+ */
+export function countByCategory(entries: ManifestEntry[]): Record<string, { files: number; bytes: number }> {
+  const stats: Record<string, { files: number; bytes: number }> = {};
+  for (const c of SYNC_CATEGORIES) stats[c.key] = { files: 0, bytes: 0 };
+  stats.__unknown = { files: 0, bytes: 0 };
+  for (const e of entries) {
+    // 最长前缀匹配，避免 'sessions' 命中 'sessions-archive'
+    const hit = SYNC_CATEGORIES
+      .filter((c) => e.rel === c.localDir || e.rel.startsWith(c.localDir + '/'))
+      .sort((a, b) => b.localDir.length - a.localDir.length)[0];
+    const bucket = stats[hit ? hit.key : '__unknown'];
+    bucket.files += 1;
+    bucket.bytes += e.size;
   }
+  return stats;
+}
+
+export type CategorySummary = Record<SyncScopeKey, { files: number; bytes: number }>;
+
+/**
+ * 轻量统计：只 stat、不读内容、不算 hash。
+ *
+ * 用途是「勾选预览」——用户要看到「关掉附件能省多少」才有判断依据。
+ * 不能复用 buildManifest()：它对每个文件 `readFile` 算 sha256，attachments 一大就是
+ * 几百 MB 的读盘，光为了显示一个数字不值得。
+ */
+export async function summarizeCategories(opts: { scope: Partial<SyncScope>; includeSensitive?: boolean; skillFilter?: string[] }): Promise<CategorySummary> {
+  const scope = { ...DEFAULT_SYNC_SCOPE, ...opts.scope } as SyncScope;
+  const out = {} as CategorySummary;
+  for (const c of SYNC_CATEGORIES) out[c.key] = { files: 0, bytes: 0 };
+  const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter });
+  for (const rule of sc.activeRules()) {
+    const local = resolve(dshHome(), rule.localDir);
+    let st;
+    try { st = await stat(local); } catch { continue; }
+    if (st.isFile()) {
+      out[rule.key].files += 1;
+      out[rule.key].bytes += st.size;
+      continue;
+    }
+    for await (const f of walkFiles(local)) {
+      // 统计也要走白名单，否则「关掉几个技能能省多少」显示的数字是假的
+      const rel = f.slice(dshHome().length + 1).split(/[\\/]/).join('/');
+      if (!skillAllowed(rel, opts.skillFilter ?? [])) continue;
+      try {
+        const fs2 = await stat(f);
+        out[rule.key].files += 1;
+        out[rule.key].bytes += fs2.size;
+      } catch { /* 忽略消失的文件 */ }
+    }
+  }
+  return out;
+}
+
+export interface SkillInfo {
+  /** skills/ 下的一级目录名，即技能标识 */
+  name: string;
+  files: number;
+  bytes: number;
+}
+
+/**
+ * 技能白名单判定（纯函数，便于单测与复用）。
+ *
+ * rel 形如 `skills/<名字>/SKILL.md`，只按**一级目录名**匹配：
+ * `skills/a/b/c.md` 都归 `a` 这个技能管，免得用户勾一个技能还得逐级勾子目录。
+ * 空白名单 = 全部放行（默认行为，也是「全勾」归一化后的表示）。
+ */
+export function skillAllowed(rel: string, filter: string[]): boolean {
+  if (!filter || filter.length === 0) return true;
+  const parts = rel.split('/');
+  if (parts[0] !== 'skills' || parts.length < 2) return true;
+  return filter.includes(parts[1]);
+}
+
+/**
+ * 列出本机 `skills/` 下的技能（一级目录），带文件数与体积。
+ *
+ * 面板要渲染「每个技能一个勾选框」，名字必须来自**设备真实存在的目录**，
+ * 不能靠前端写死 —— 用户装了什么技能只有设备知道。
+ * 体积是给用户判断「取消这个能省多少」用的，所以只 stat 不读内容。
+ */
+export async function listSkills(): Promise<SkillInfo[]> {
+  const dir = resolve(dshHome(), 'skills');
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: SkillInfo[] = [];
+  for (const name of names) {
+    if (name.startsWith('.')) continue;
+    const full = join(dir, name);
+    let st;
+    try { st = await stat(full); } catch { continue; }
+    if (!st.isDirectory()) continue;
+    let files = 0;
+    let bytes = 0;
+    for await (const f of walkFiles(full)) {
+      try {
+        const s = await stat(f);
+        files += 1;
+        bytes += s.size;
+      } catch { /* 忽略消失的文件 */ }
+    }
+    out.push({ name, files, bytes });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+
+
+/** 远端路径（/dsh/<rel>）-> 本地绝对路径（= join(.dsh, rel)）。 */
+export function remoteToLocal(remote: string): string {
+  return localOf(relFromRemote(remote));
 }

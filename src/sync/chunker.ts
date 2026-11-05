@@ -1,99 +1,91 @@
 /**
- * dsh-nas-sync · 分块断点续传上传
- * --------------------------------
- *  - 本地保留 chunks/<md5>.json 记录每块偏移/哈希/是否上传
- *  - 远端文件名：<base>.partNNNN，另附 <base>.chunk-manifest.json
- *  - 每次上传前 stat 远端已存在块，大小匹配即视为已完成（断点续传）
- *  - 大小不匹配则删除残块重传
- *  - 并发受 concurrency 控制
+ * dsh-nas-sync · 分块断点续传（r2 重写）
+ * ----------------------------------------
+ * r1 两个致命 bug：
+ *   1. 直接把**明文**分块上传到 NAS（与 README 声称的加密快照矛盾）；
+ *   2. completeHash 是明文 hash，下载端却拿密文合并结果去对比 → 每个大文件
+ *      下载必报「校验失败」。
+ *
+ * r2 语义（全链路密文）：
+ *   - 上传方：明文整体 sha256 = plainHash → 整体加密（Crypto，salt 进头）
+ *     → 密文按 chunkSize 切块 → 每块 sha256（密文）= 块 hash
+ *   - 远端：<base>.partNNNN + <base>.chunk-manifest.json（plainHash + 块文件名）
+ *   - 断点续传：远端块 stat 大小一致 → 跳过；否则删残块重传
+ *   - 下载方（engine.downloadEntry）：按清单拉块拼密文 → decrypt →
+ *     sha256(明文) 对比 plainHash
  */
 
-import { readFile, writeFile, unlink, mkdir, open } from 'node:fs/promises';
-import { readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import type { ChunkManifest, ChunkState, FileState } from '../data/models.js';
 import type { NasTransport } from '../nas/transport.js';
 
 export interface ChunkerOptions {
   chunkSize: number;
   concurrency: number;
-  stateDir: string;
+}
+
+export interface ChunkManifest {
+  chunks: string[];
+  plainHash: string;
+  plainSize: number;
 }
 
 export class Chunker {
   private transport: NasTransport;
-  private opts: Required<ChunkerOptions>;
+  private opts: ChunkerOptions;
 
   constructor(transport: NasTransport, opts: ChunkerOptions) {
     this.transport = transport;
-    if (!opts.stateDir) throw new Error('ChunkerOptions.stateDir 必填');
     this.opts = opts;
-  }
-
-  private statePath(localPath: string): string {
-    const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
-    const hash = createHash('md5').update(localPath).digest('hex');
-    return join(home, this.opts.stateDir, hash + '.json');
-  }
-
-  private async loadState(localPath: string): Promise<FileState | null> {
-    try {
-      const raw = await readFile(this.statePath(localPath), 'utf-8');
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-
-  private async saveState(state: FileState): Promise<void> {
-    const fp = this.statePath(state.filePath);
-    await mkdir(join(fp, '..'), { recursive: true });
-    await writeFile(fp, JSON.stringify(state, null, 2), 'utf-8');
-  }
-
-  private async removeState(state: FileState): Promise<void> {
-    await unlink(this.statePath(state.filePath)).catch(() => {});
   }
 
   private chunkRemote(base: string, index: number): string {
     return base + '.part' + String(index).padStart(4, '0');
   }
 
-  async upload(localPath: string, remotePath: string): Promise<void> {
-    let state = await this.loadState(localPath);
-    if (!state) state = await this.buildState(localPath);
+  /** 上传一段**已加密**的完整密文（含 NSS1 头）。plainHash 由调用方传入。 */
+  async upload(cipher: Uint8Array, plainHash: string, plainSize: number, remotePath: string): Promise<void> {
+    const chunkSize = this.opts.chunkSize;
+    const num = Math.max(1, Math.ceil(cipher.length / chunkSize));
 
-    // 已完成且远端清单存在 -> 校验整体哈希
-    if (state.completed) {
-      const ok = await this.verifyRemote(remotePath, state.completeHash);
-      if (ok) return;
-      // 远端不完整，清空重传
-      state.chunks.forEach((c) => (c.uploaded = false));
-      state.completed = false;
+    // 断点续传：先看远端是否已有完整清单
+    try {
+      const prev = await this.transport.getBuffer(remotePath + '.chunk-manifest.json');
+      const manifest = JSON.parse(new TextDecoder().decode(prev)) as ChunkManifest;
+      if (manifest.plainHash === plainHash) {
+        // 内容没变：校验每块在远端的大小，全对就只补清单
+        let allOk = true;
+        for (let i = 0; i < num; i++) {
+          const remote = this.chunkRemote(remotePath, i);
+          const st = await this.transport.stat(remote);
+          const expect = i === num - 1 ? cipher.length - (num - 1) * chunkSize : chunkSize;
+          if (!st || st.size !== expect) { allOk = false; break; }
+        }
+        if (allOk) return;
+      }
+    } catch {
+      /* 无清单，正常首次上传 */
     }
 
-    // 并发上传
-    const queue: ChunkState[] = state.chunks.filter((c) => !c.uploaded);
+    // 并发上传各块
+    const queue: number[] = [];
+    for (let i = 0; i < num; i++) queue.push(i);
     let active = 0;
-    let done = 0;
-    let error: Error | null = null;
+    let failed: Error | null = null;
 
     await new Promise<void>((resolve, reject) => {
       const spawn = (): void => {
-        if (error) return;
+        if (failed) return;
         while (queue.length > 0 && active < this.opts.concurrency) {
-          const chunk = queue.shift()!;
+          const i = queue.shift()!;
           active++;
-          this.uploadOne(state!, chunk, remotePath)
+          this.uploadOne(cipher, i, remotePath)
             .then(() => {
               active--;
-              done++;
               if (queue.length === 0 && active === 0) resolve();
               else spawn();
             })
             .catch((e: Error) => {
-              error = e;
+              failed = e;
               reject(e);
             });
         }
@@ -101,95 +93,47 @@ export class Chunker {
       spawn();
     });
 
-    // 写清单，标记完成
     const manifest: ChunkManifest = {
-      chunks: state.chunks.map((c, i) => this.chunkRemote(remotePath, i).split('/').pop()!),
-      completeHash: state.completeHash,
+      chunks: Array.from({ length: num }, (_, i) =>
+        this.chunkRemote(remotePath, i).split('/').pop()!),
+      plainHash,
+      plainSize,
     };
     await this.transport.putBuffer(
-      Buffer.from(JSON.stringify(manifest, null, 2)),
+      new TextEncoder().encode(JSON.stringify(manifest, null, 2)),
       remotePath + '.chunk-manifest.json',
       { mkdirs: true },
     );
-    state.completed = true;
-    await this.saveState(state);
-    await this.removeState(state);
   }
 
-  private async uploadOne(state: FileState, chunk: ChunkState, remotePath: string): Promise<void> {
-    const remote = this.chunkRemote(remotePath, chunk.index);
-    const rs = await this.transport.stat(remote);
+  private async uploadOne(cipher: Uint8Array, index: number, remotePath: string): Promise<void> {
+    const remote = this.chunkRemote(remotePath, index);
+    const offset = index * this.opts.chunkSize;
+    const chunk = cipher.subarray(offset, Math.min(offset + this.opts.chunkSize, cipher.length));
 
-    if (rs && rs.size === chunk.size) {
-      // 大小一致，视为已完成（若要求严格可再拉哈希，代价较高）
-      chunk.uploaded = true;
-      await this.saveState(state);
-      return;
-    }
+    const st = await this.transport.stat(remote);
+    if (st && st.size === chunk.length) return;   // 大小一致 → 视为已完成（断点续传）
 
-    if (rs) {
-      // 残块，删除后重传
-      await this.transport.delete(remote);
-    }
-
-    const fh = await open(state.filePath, 'r');
-    let fd: Uint8Array;
-    try {
-      const tmp = Buffer.alloc(chunk.size);
-      await fh.read(tmp, 0, chunk.size, chunk.offset);
-      fd = new Uint8Array(tmp);
-    } finally { await fh.close(); }
-    const actual = createHash('sha256').update(fd).digest('hex');
-    if (actual !== chunk.hash) {
-      throw new Error(`分块 ${chunk.index} 哈希不一致，源文件可能已被修改，请重新扫描`);
-    }
-
-    await this.transport.putBuffer(fd, remote, { mkdirs: true });
-    chunk.uploaded = true;
-    await this.saveState(state);
+    await this.transport.putBuffer(chunk, remote, { mkdirs: true });
   }
 
-  private async buildState(localPath: string): Promise<FileState> {
-    const { size: totalSize } = await statSync(localPath) as any;
-    const size = Number(totalSize);
-    const chunkSize = this.opts.chunkSize;
-    const num = Math.ceil(size / chunkSize);
-    const chunks: ChunkState[] = [];
-
-    for (let i = 0; i < num; i++) {
-      const offset = i * chunkSize;
-      const len = Math.min(chunkSize, size - offset);
-      const fhB = await open(localPath, 'r');
-      let buf: Uint8Array;
-      try {
-        const tmp = Buffer.alloc(len);
-        await fhB.read(tmp, 0, len, offset);
-        buf = new Uint8Array(tmp);
-      } finally { await fhB.close(); }
-      chunks.push({
-        index: i,
-        offset,
-        size: len,
-        hash: createHash('sha256').update(buf).digest('hex'),
-        uploaded: false,
-      });
+  /** 下载：按清单拉全部块拼回密文。返回 { cipher, manifest }。 */
+  async download(remotePath: string): Promise<{ cipher: Uint8Array; manifest: ChunkManifest }> {
+    const manifestEnc = await this.transport.getBuffer(remotePath + '.chunk-manifest.json');
+    const manifest = JSON.parse(new TextDecoder().decode(manifestEnc)) as ChunkManifest;
+    // 清单里存的是块 basename（<file>.partNNNN），要拼回其所在目录
+    const dir = remotePath.slice(0, remotePath.lastIndexOf('/') + 1);
+    const parts: Uint8Array[] = [];
+    for (const c of manifest.chunks) {
+      parts.push(await this.transport.getBuffer(dir + c));
     }
-
-    const full = await readFile(localPath);
-    const completeHash = createHash('sha256').update(full).digest('hex');
-
-    const state: FileState = { filePath: localPath, totalSize: size, chunks, completeHash, completed: false };
-    await this.saveState(state);
-    return state;
-  }
-
-  private async verifyRemote(remotePath: string, expected: string): Promise<boolean> {
-    try {
-      const buf = await this.transport.getBuffer(remotePath);
-      const actual = createHash('sha256').update(buf).digest('hex');
-      return actual === expected;
-    } catch {
-      return false;
+    const total = parts.reduce((s, p) => s + p.length, 0);
+    const merged = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) {
+      merged.set(p, off);
+      off += p.length;
     }
+    return { cipher: merged, manifest };
   }
 }

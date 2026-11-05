@@ -1,14 +1,18 @@
 node_modules/
-dist/
 *.log
 .DS_Store
 Thumbs.db
+
+# NOTE: dist/ is intentionally NOT ignored.
+# This package is distributed as a git dependency (no npm registry entry), and
+# pnpm/npm do not run `prepublishOnly`/`build` for git dependencies. The compiled
+# bundle must ship in the repository, otherwise `main: dist/index.js` cannot
+# resolve and the plugin fails to load.
 
 # Never commit credentials or sync artefacts
 .env
 .credentials.yaml
 *.token
-*.bak
 *.part*
 *.chunk-manifest.json
 *.base
