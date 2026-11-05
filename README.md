@@ -186,6 +186,7 @@ registerNasSyncUi(ctx, HostBridge(scope))
 | 插件列表里没有 | bundle 没进 `dsh.profile.bundles` | 重跑 `dsh plugin add` 看报错 |
 | 列表有但不挂载 | `package.json` 缺 `dsh.bundle.patch` | 补声明后重装 |
 | 列表有、`cordis.patch.yml` 也指向了，仍然静默不生效 | patch 层**顶层写成了 map**（`services:` / 直接 `- id:`） | 必须写成 `- insert: [...]`，见下方说明 |
+| 面板在桌面端只有 920px 宽，右侧空出一大块 | 原先 `client.js` 的 `S.root` 自己限了 `maxWidth: 920px`，而宿主的设置内容列又是「宽度随内容收缩」的 flex 子项，光放开自己不够 | 已改为 `width:100% + flex:1`，并在挂载时由 `widenHostColumn()` 放开宿主那一层的 `max-width` / `flex-grow`（卸载还原，<720px 不启用） |
 | 面板能渲染出来，但一直显示「页面没有拿到请求令牌」 | 桌面端**只消费结构化 `index-inject`** 的 boot payload，`ctx.webServer.tapIndex` 在桌面端完全不生效 | 见下方「桌面端注入」 |
 | 设置页没入口 | namespace 两端不一致，或 `dsh.client` 没被扫到 | Host `nas-sync` vs Client `key: nas-sync`；确认 patch 已 insert |
 | 密码框明文 | schema 没加 `role('secret')` | 补上，重启 |

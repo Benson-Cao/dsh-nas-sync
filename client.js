@@ -202,7 +202,11 @@ window.__ModuleLoader__.load({
     }
 
     const S = {
-      root: { padding: '24px', maxWidth: '920px', margin: '0 auto', color: 'var(--dsw-alias-label-primary)', fontSize: '13px', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '16px', height: '100%', overflow: 'auto', boxSizing: 'border-box' },
+      // r4：桌面端把这一栏放进一个 shrink-to-fit 的 flex 列里，原先 920px 的
+      // 上限会让右侧空出一大块（实测约占窗口 18%）。这里不再自己限宽，
+      // 改为 100% + flex-grow 去吃满宿主给的可用宽度；真正的限宽祖先由
+      // widenHostColumn() 在挂载时放开（可逆，见该函数注释）。
+      root: { padding: '24px', width: '100%', maxWidth: 'none', margin: 0, flex: '1 1 auto', minWidth: 0, alignSelf: 'stretch', color: 'var(--dsw-alias-label-primary)', fontSize: '13px', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '16px', height: '100%', overflow: 'auto', boxSizing: 'border-box' },
       card: { background: 'var(--dsw-alias-bg-layer-1)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' },
       title: { margin: 0, fontSize: '16px', fontWeight: 600 },
       subtitle: { margin: 0, color: 'var(--dsw-alias-label-secondary)', fontSize: '12px' },
@@ -260,10 +264,80 @@ window.__ModuleLoader__.load({
       try { return new Date(ms).toLocaleString(); } catch { return String(ms); }
     }
 
+    // ---- 桌面端加宽 -------------------------------------------------------
+    // 宿主的设置页把内容列做成「宽度随内容收缩」的 flex 子项，所以我们把自己
+    // 的 max-width 放开还不够 —— 真正卡宽度的是祖先节点。这里在挂载时向上找
+    // 「第一个显式在限宽的祖先」和「第一个不会长开的 flex 祖先」，各放开一处，
+    // 卸载时按原来的 inline 值原样还原。只在本面板显示期间生效，不碰其它设置页。
+    // 窄屏（<720px）不启用，避免把手机端布局撑坏。
+    function widenHostColumn(el) {
+      const undo = [];
+      let node = el.parentElement;
+
+      for (let depth = 0; node && depth < 6; depth += 1) {
+        const cs = window.getComputedStyle(node);
+        const inline = node.style;
+        const saved = {};
+        let touched = false;
+
+        // ① 显式 max-width（px / %）才是「限宽」；'none' 说明这层不背锅
+        if (cs.maxWidth && cs.maxWidth !== 'none' && cs.maxWidth !== '0px') {
+          saved.maxWidth = inline.maxWidth;
+          inline.setProperty('max-width', 'none', 'important');
+          touched = true;
+        }
+
+        // ② 是 flex 子项但不会长开 → 让它吃满剩下的横向空间
+        const parent = node.parentElement;
+        const parentDisplay = parent ? window.getComputedStyle(parent).display : '';
+        if (parentDisplay.indexOf('flex') !== -1 && Number(cs.flexGrow) === 0) {
+          saved.flexGrow = inline.flexGrow;
+          saved.minWidth = inline.minWidth;
+          inline.setProperty('flex-grow', '1', 'important');
+          inline.setProperty('min-width', '0', 'important');
+          touched = true;
+        }
+
+        if (touched) {
+          undo.push([node, saved]);
+          // 放开两处就够；再往上动会波及应用外壳
+          if (undo.length >= 2) break;
+        }
+        node = node.parentElement;
+      }
+
+      return function restore() {
+        for (let i = 0; i < undo.length; i += 1) {
+          const target = undo[i][0];
+          const saved = undo[i][1];
+          if ('maxWidth' in saved) {
+            if (saved.maxWidth) target.style.setProperty('max-width', saved.maxWidth);
+            else target.style.removeProperty('max-width');
+          }
+          if ('flexGrow' in saved) {
+            if (saved.flexGrow) target.style.setProperty('flex-grow', saved.flexGrow);
+            else target.style.removeProperty('flex-grow');
+          }
+          if ('minWidth' in saved) {
+            if (saved.minWidth) target.style.setProperty('min-width', saved.minWidth);
+            else target.style.removeProperty('min-width');
+          }
+        }
+      };
+    }
+
     function PanelView({ t }) {
       const client = useRef(null);
       if (!client.current) client.current = api();
       const c = client.current;
+
+      // 挂载时放开宿主那一层的限宽，卸载时还原（见 widenHostColumn 注释）
+      const rootRef = useRef(null);
+      useEffect(() => {
+        const el = rootRef.current;
+        if (!el || window.innerWidth < 720) return undefined;
+        return widenHostColumn(el);
+      }, []);
 
       const [snap, setSnap] = useState(null);
       const [cfg, setCfg] = useState(null);
@@ -312,7 +386,7 @@ window.__ModuleLoader__.load({
       }, [c]);
 
       if (!c.ready) {
-        return h('div', { style: S.root }, h('div', { style: S.card, role: 'alert' }, t('needRefresh')));
+        return h('div', { ref: rootRef, style: S.root }, h('div', { style: S.card, role: 'alert' }, t('needRefresh')));
       }
 
       // r172：配置还没到手时必须**停下**。下面整片配置区（以及紧随其后的
@@ -322,7 +396,7 @@ window.__ModuleLoader__.load({
       // 为什么 r170 才出现：这一版新加的「按分类勾选」在 render 函数体里
       // 先算了 syncScope（不是 JSX 里的条件分支），所以第一次渲染必崩。
       if (!cfg) {
-        return h('div', { style: S.root }, h('div', { style: S.card }, t('loadingCfg')));
+        return h('div', { ref: rootRef, style: S.root }, h('div', { style: S.card }, t('loadingCfg')));
       }
 
       const running = Boolean(snap && snap.running);
@@ -466,7 +540,7 @@ window.__ModuleLoader__.load({
           : { enabled: true, mode: v, intervalMin });
       };
 
-      return h('div', { style: S.root },
+      return h('div', { ref: rootRef, style: S.root },
         // 头部
         h('div', null,
           h('h2', { style: S.title }, t('title')),
