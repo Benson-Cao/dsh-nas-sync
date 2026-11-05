@@ -34,6 +34,8 @@ export const DEFAULT_SYNC_SCOPE = {
    * 手机与电脑的工作区绝对路径不同，但折算后落到同一前缀，所以两端不会错位。
    */
   workspaceFiles: true,
+  /** 用户自己加的任意目录（配置里的 customFolders 映射表），与工作区文件并列 */
+  customFolders: true,
   /** session-titles.json 会话标题索引（很小，但缺了列表会没名字） */
   sessionTitles: true,
   /** attachments/ 图片与文件 */
@@ -81,6 +83,7 @@ export const NasSyncSchema = z.object({
     sessions: z.boolean().default(DEFAULT_SYNC_SCOPE.sessions),
     workspaces: z.boolean().default(DEFAULT_SYNC_SCOPE.workspaces),
     workspaceFiles: z.boolean().default(DEFAULT_SYNC_SCOPE.workspaceFiles),
+    customFolders: z.boolean().default(DEFAULT_SYNC_SCOPE.customFolders),
     sessionTitles: z.boolean().default(DEFAULT_SYNC_SCOPE.sessionTitles),
     attachments: z.boolean().default(DEFAULT_SYNC_SCOPE.attachments),
     skills: z.boolean().default(DEFAULT_SYNC_SCOPE.skills),
@@ -97,6 +100,21 @@ export const NasSyncSchema = z.object({
    * 想表达「一个技能都不同步」，把 `syncScope.skills` 关掉即可，不必用空列表表达。
    */
   skillFilter: z.array(z.string()).default([]),
+  /**
+   * 自定义文件夹：**每台机器各自维护**的「名字 → 本机路径」映射表。
+   *
+   * 为什么不是「两端同一个绝对路径」：手机和电脑的盘符/目录结构天然不同，
+   * 要求一致等于把这个功能限制成同机备份。所以用 `name` 当跨设备的稳定标识
+   * （rel 前缀 `custom-folders/<name>/`），`path` 只在本机有意义 ——
+   * 同一份远端数据，在电脑上落到 `D:\Projects\foo`、在手机上落到别的目录都行。
+   *
+   * 上传：扫 `path` 目录，rel 记作 `custom-folders/<name>/…`
+   * 下载：按 rel 里的 `<name>` 查出本机 `path`，落到那里（见 engine 的 resolveLocal）
+   */
+  customFolders: z.array(z.object({
+    name: z.string(),
+    path: z.string(),
+  })).default([]),
 });
 
 export type NasSyncConfig = ReturnType<typeof NasSyncSchema.parse>;
@@ -142,7 +160,40 @@ export function parseNasSyncConfig(raw: unknown): NasSyncConfig {
   out.syncScope = normalizeSyncScope(out.syncScope);
   // 技能白名单同样要归一：数组元素可能是非字符串、带空格、重复
   out.skillFilter = normalizeSkillFilter(out.skillFilter);
+  // 自定义文件夹：去重、要求 name 可做目录名、path 必须非空
+  out.customFolders = normalizeCustomFolders(out.customFolders);
   return out as NasSyncConfig;
+}
+
+/** 一个自定义文件夹条目：跨设备用 name 标识，path 只在本机有意义。 */
+export interface CustomFolder {
+  name: string;
+  path: string;
+}
+
+/**
+ * 归一自定义文件夹表。
+ *
+ * name 会被拼进 rel（`custom-folders/<name>/…`），所以必须清掉路径分隔符与
+ * Windows 非法字符 —— 否则 `name: "../x"` 就能把文件写到 rel 空间外面。
+ * 重名直接丢弃后来者：两条配置映射到同一个 rel 前缀只会互相覆盖。
+ */
+export function normalizeCustomFolders(raw: unknown): CustomFolder[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CustomFolder[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    const name = typeof rec['name'] === 'string' ? rec['name'].trim() : '';
+    const path = typeof rec['path'] === 'string' ? rec['path'].trim() : '';
+    if (name.length === 0 || path.length === 0) continue;
+    const safe = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^\.+/, '_');
+    if (safe.length === 0 || seen.has(safe)) continue;
+    seen.add(safe);
+    out.push({ name: safe, path });
+  }
+  return out;
 }
 
 /**

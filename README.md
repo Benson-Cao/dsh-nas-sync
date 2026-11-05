@@ -175,6 +175,7 @@ registerNasSyncUi(ctx, HostBridge(scope))
   | `sessions` | `sessions/` 会话正文 | 开 |
   | `workspaces` | `storages/workspace.json` 工作区清单（侧栏的文件夹名与归属） | 开 |
   | `workspaceFiles` | 每个工作区**目录内容**（源码等），跳过 `node_modules` / `.git` | 开 |
+  | `customFolders` | 用户自己指定的任意目录（映射表见 5.2） | 开 |
   | `sessionTitles` | `session-titles.json` 标题索引 | 开 |
   | `attachments` | `attachments/` 图片与文件 | 开 |
   | `skills` | `skills/` 自定义技能（可再按名字细分） | 开 |
@@ -182,7 +183,9 @@ registerNasSyncUi(ctx, HostBridge(scope))
   | `settings` | `settings.yaml` | 关（敏感） |
   | `pluginPatch` | `cordis.patch.yml` | 关（敏感） |
 
-- **明确排除**：`.credentials.yaml`、`.env`、`.token`、`node_modules/`、`.git/`、缓存
+- **明确排除**：`.credentials.yaml`、`.env`、`.token`、`node_modules/`、`.git/`、缓存、
+  **`.asar`**（Electron 会把任何 `.asar` 当归档解析，构建产物放目录里会刷屏报错）、
+  **超过 64 MiB 的单文件**（整块读入加密会拖死宿主，大文件请走 `attachments` 分类）
 - **判变**：`mtime + size + sha256` 三元组
 - **加密**：scrypt 派生密钥 → NaCl secretbox（encrypt-then-MAC）
 - **断点续传**：远端分块 `<base>.partNNNN`，清单 `<base>.chunk-manifest.json`；
@@ -220,6 +223,26 @@ registerNasSyncUi(ctx, HostBridge(scope))
 > 正确做法是解析帧边界、**只重写第 0 帧**，后续帧逐字节保留 —— 见
 > `src/sync/portable.ts` 的 `zstdFrameEnd()`。
 
+### 5.2 自定义文件夹：每台机器各自映射
+
+工作区文件只覆盖「工作区」这一种目录。要同步别的目录（比如 `D:\Projects`），
+加一条**自定义文件夹**：
+
+```json
+{ "name": "projects", "path": "D:\\Projects" }
+```
+
+- `name` 是**跨设备的稳定标识**，决定远端 rel 前缀 `custom-folders/<name>/`。
+- `path` 只在本机有意义 —— 另一台机器配 `{ "name": "projects", "path": "/srv/projects" }`
+  也能对上同一份数据。这就是为什么不做「两端同一个绝对路径」：手机和电脑的
+  盘符/目录结构天然不同，要求一致等于把功能限制成同机备份。
+- 面板上「同步内容」勾选 `自定义文件夹` 后会出现编辑区，可增删条目；
+  也可以调 `nas_sync_scope` 传 `customFolders`（整表替换，`[]` = 清空）。
+
+安全约束（`normalizeCustomFolders` + `customFolderLocalOf`）：
+`name` 会清掉路径分隔符与 Windows 非法字符（否则 `../x` 能写到 rel 空间之外）；
+重名只保留第一条；下载时 rel 里出现 `..` 或空段直接拒绝。
+
 ## 6. 排错
 
 | 现象 | 原因 | 修复 |
@@ -238,6 +261,8 @@ registerNasSyncUi(ctx, HostBridge(scope))
 | 同步完成，但侧栏还是「未分组」、工作区名没有 | 没勾 `workspaces`（工作区清单不在白名单里，`storages/workspace.json` 根本不会传） | 面板勾上「工作区清单」再同步一次 |
 | 同步来的会话一打开就报 `working-directory does not exist` | 会话头 `cwd` 是原机器绝对路径，本机没有该目录；而 dsh 拒绝换 cwd 打开老会话 | 见 5.1，落地时自动改写 cwd；已下地的旧文件跑一轮同步会被幂等修复 |
 | 工作区目录里明明有文件，`workspaceFiles` 却是 0 | 该工作区的 `path` 在本机不存在（清单先到、文件没到），或 path 被设成了家目录 / 盘符根（安全策略拒绝同步） | 正常现象；等清单与目录就位，或把工作区指到具体子目录 |
+| `debug.log` 里刷 `Failed to parse header from ...xxx.asar` | 目录里有 `.asar`（asar 打包产物）。Electron 会把任何 `.asar` 路径当归档解析，`stat`/`read` 各触发一次 | 0.2.5 起自动跳过 `.asar`；同时建议把构建产物移出工作区（动辄上百 MB） |
+| 有文件没被同步，也没有报错 | 超过 64 MiB 单文件上限，或落在 `node_modules`/`.git`/`.asar` 里 | 是刻意跳过的；大文件请放进 `attachments` 分类 |
 | Compose 改了没生效 | Cordis 模块缓存 | 完全退出进程重开，不是关窗口 |
 
 ### `cordis.patch.yml` 必须是 `insert` 形式

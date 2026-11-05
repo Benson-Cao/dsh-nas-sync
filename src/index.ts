@@ -21,7 +21,7 @@ import { SYNC_CATEGORIES, summarizeCategories, listSkills } from './sync/scanner
 import { mergeThreeWay, diffLines, isMergeable } from './sync/merger.js';
 import {
   NasSyncSchema, NS_NAS_SYNC, Store, parseNasSyncConfig,
-  normalizeSyncScope, enabledScopeKeys, normalizeSkillFilter,
+  normalizeSyncScope, enabledScopeKeys, normalizeSkillFilter, normalizeCustomFolders,
   type NasSyncConfig, type SyncScopeKey,
 } from './config.js';
 import { localOf } from './paths.js';
@@ -262,6 +262,7 @@ function apply(ctx: any, config: any): void {
       includeSensitive: { type: 'boolean' },
       enabled: { type: 'json' },
       skillFilter: { type: 'json' },
+      customFolders: { type: 'json' },
       skills: { type: 'json' },
       totalFiles: { type: 'integer' },
       totalBytes: { type: 'integer' },
@@ -282,11 +283,15 @@ function apply(ctx: any, config: any): void {
       + '传 set 则修改勾选（局部合并，如 {"attachments":false} 只关附件，其余不变）。'
       + 'includeSensitive 控制已选分类**内部**的凭据文件（.credentials.yaml 等）是否一起同步。'
       + '技能可再按名字细分：传 skillFilter（如 ["pdf","xlsx"]）只同步这几个技能；'
-      + '传 [] 表示全部技能（也包含以后新增的）。不带 skillFilter 则保持原值。',
+      + '传 [] 表示全部技能（也包含以后新增的）。不带 skillFilter 则保持原值。'
+      + '自定义文件夹传 customFolders（如 [{"name":"projects","path":"D:\\\\Projects"}]）：'
+      + 'name 是跨设备的稳定标识（rel 前缀 custom-folders/<name>/），path 只在本机生效，'
+      + '所以两台机器可以同 name 不同路径；整表替换，传 [] 表示清空。',
     parameters: {
       set: { type: 'json', description: '要修改的分类键值，如 {"attachments": false, "skills": true}；省略=只查看' },
       includeSensitive: { type: 'boolean', description: '已选分类内部是否连凭据文件一起同步，默认保持原值' },
       skillFilter: { type: 'json', description: '技能白名单数组（只同步这些技能名）；传 [] = 全部技能；省略=不改' },
+      customFolders: { type: 'json', description: '自定义文件夹映射表 [{name,path}]；整表替换；省略=不改' },
     },
     output: {
       schema: scopeOutputSchema,
@@ -338,13 +343,18 @@ function apply(ctx: any, config: any): void {
         patch.skillFilter = normalizeSkillFilter(args.skillFilter);
         changed = true;
       }
+      // 自定义文件夹映射表：整表替换（不是合并）—— 删条目必须能表达出来
+      if (args?.customFolders !== undefined) {
+        patch.customFolders = normalizeCustomFolders(args.customFolders);
+        changed = true;
+      }
       if (changed) applyConfigPatch(patch);
 
       // 体积按「全部分类都勾上」统计，否则关掉的分类会显示 0，用户无法判断关掉它省了多少
       const allOn = Object.fromEntries(SYNC_CATEGORIES.map((c) => [c.key, true])) as Record<SyncScopeKey, boolean>;
       let summary: Record<string, { files: number; bytes: number }> = {};
       try {
-        summary = await summarizeCategories({ scope: allOn, includeSensitive: cfg.includeSensitive });
+        summary = await summarizeCategories({ scope: allOn, includeSensitive: cfg.includeSensitive, customFolders: cfg.customFolders });
       } catch (e) {
         warn('分类统计失败：' + (e as Error).message);
       }
@@ -381,6 +391,7 @@ function apply(ctx: any, config: any): void {
         includeSensitive: cfg.includeSensitive,
         enabled: enabledScopeKeys(normalizeSyncScope(cfg.syncScope)),
         skillFilter: cfg.skillFilter ?? [],
+        customFolders: cfg.customFolders ?? [],
         skills: skillRows,
         totalFiles: on.reduce((n, c) => n + c.files, 0),
         totalBytes: on.reduce((n, c) => n + c.bytes, 0),

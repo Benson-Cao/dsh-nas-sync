@@ -20219,6 +20219,8 @@ var DEFAULT_SYNC_SCOPE = {
    * 手机与电脑的工作区绝对路径不同，但折算后落到同一前缀，所以两端不会错位。
    */
   workspaceFiles: true,
+  /** 用户自己加的任意目录（配置里的 customFolders 映射表），与工作区文件并列 */
+  customFolders: true,
   /** session-titles.json 会话标题索引（很小，但缺了列表会没名字） */
   sessionTitles: true,
   /** attachments/ 图片与文件 */
@@ -20262,6 +20264,7 @@ var NasSyncSchema = z.object({
     sessions: z.boolean().default(DEFAULT_SYNC_SCOPE.sessions),
     workspaces: z.boolean().default(DEFAULT_SYNC_SCOPE.workspaces),
     workspaceFiles: z.boolean().default(DEFAULT_SYNC_SCOPE.workspaceFiles),
+    customFolders: z.boolean().default(DEFAULT_SYNC_SCOPE.customFolders),
     sessionTitles: z.boolean().default(DEFAULT_SYNC_SCOPE.sessionTitles),
     attachments: z.boolean().default(DEFAULT_SYNC_SCOPE.attachments),
     skills: z.boolean().default(DEFAULT_SYNC_SCOPE.skills),
@@ -20277,7 +20280,22 @@ var NasSyncSchema = z.object({
    * ② 用户勾满所有技能时归一化成空数组，将来新增的技能会自动纳入，不用回头再勾。
    * 想表达「一个技能都不同步」，把 `syncScope.skills` 关掉即可，不必用空列表表达。
    */
-  skillFilter: z.array(z.string()).default([])
+  skillFilter: z.array(z.string()).default([]),
+  /**
+   * 自定义文件夹：**每台机器各自维护**的「名字 → 本机路径」映射表。
+   *
+   * 为什么不是「两端同一个绝对路径」：手机和电脑的盘符/目录结构天然不同，
+   * 要求一致等于把这个功能限制成同机备份。所以用 `name` 当跨设备的稳定标识
+   * （rel 前缀 `custom-folders/<name>/`），`path` 只在本机有意义 ——
+   * 同一份远端数据，在电脑上落到 `D:\Projects\foo`、在手机上落到别的目录都行。
+   *
+   * 上传：扫 `path` 目录，rel 记作 `custom-folders/<name>/…`
+   * 下载：按 rel 里的 `<name>` 查出本机 `path`，落到那里（见 engine 的 resolveLocal）
+   */
+  customFolders: z.array(z.object({
+    name: z.string(),
+    path: z.string()
+  })).default([])
 });
 function normalizeSyncScope(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
@@ -20299,6 +20317,24 @@ function parseNasSyncConfig(raw) {
   else throw new Error("\u65E0\u6CD5\u89E3\u6790\u914D\u7F6E\uFF1Aschemastery \u6A21\u578B\u65E2\u4E0D\u53EF\u8C03\u7528\u4E5F\u6CA1\u6709 parse/validate");
   out.syncScope = normalizeSyncScope(out.syncScope);
   out.skillFilter = normalizeSkillFilter(out.skillFilter);
+  out.customFolders = normalizeCustomFolders(out.customFolders);
+  return out;
+}
+function normalizeCustomFolders(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item;
+    const name2 = typeof rec["name"] === "string" ? rec["name"].trim() : "";
+    const path4 = typeof rec["path"] === "string" ? rec["path"].trim() : "";
+    if (name2.length === 0 || path4.length === 0) continue;
+    const safe = name2.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/^\.+/, "_");
+    if (safe.length === 0 || seen.has(safe)) continue;
+    seen.add(safe);
+    out.push({ name: safe, path: path4 });
+  }
   return out;
 }
 function normalizeSkillFilter(raw) {
@@ -20372,7 +20408,7 @@ var Store = class {
 // src/sync/portable.ts
 init_paths();
 import * as zlib2 from "node:zlib";
-import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mkdir as mkdir2, stat as stat3 } from "node:fs/promises";
+import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mkdir as mkdir2, stat as stat3, rename } from "node:fs/promises";
 import { existsSync as existsSync2 } from "node:fs";
 import { join as join4, resolve, sep as sep3 } from "node:path";
 var zstdImpl = zlib2;
@@ -20479,10 +20515,14 @@ var WORKSPACE_SKIP_DIRS = /* @__PURE__ */ new Set([
   ".cache",
   "nas-sync"
 ]);
-async function* walkWorkspaceFiles(ws) {
-  yield* walkInto(ws.dir, ws.rel, 0);
+var DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
+function isElectronAsarPath(p) {
+  return /\.asar$/i.test(p);
 }
-async function* walkInto(dir, relBase, depth) {
+async function* walkWorkspaceFiles(ws, maxBytes = DEFAULT_MAX_FILE_BYTES) {
+  yield* walkInto(ws.dir, ws.rel, 0, maxBytes);
+}
+async function* walkInto(dir, relBase, depth, maxBytes) {
   if (depth > 24) return;
   let names;
   try {
@@ -20500,13 +20540,35 @@ async function* walkInto(dir, relBase, depth) {
     }
     if (st.isDirectory()) {
       if (WORKSPACE_SKIP_DIRS.has(name2)) continue;
-      yield* walkInto(full, `${relBase}/${name2}`, depth + 1);
+      yield* walkInto(full, `${relBase}/${name2}`, depth + 1, maxBytes);
       continue;
     }
     if (!st.isFile()) continue;
+    if (isElectronAsarPath(full)) continue;
+    if (st.size > maxBytes) continue;
     if (name2.endsWith(".base") || name2.endsWith(".chunk-manifest.json") || name2.endsWith(".lock")) continue;
     yield { rel: `${relBase}/${name2}`, file: full };
   }
+}
+var CUSTOM_FOLDERS_PREFIX = "custom-folders";
+function customFolderRelOf(name2) {
+  return `${CUSTOM_FOLDERS_PREFIX}/${name2}`;
+}
+function customFolderLocalOf(rel, folders) {
+  const prefix = CUSTOM_FOLDERS_PREFIX + "/";
+  if (!rel.startsWith(prefix)) return null;
+  const rest = rel.slice(prefix.length);
+  if (rest.length === 0) return null;
+  const slash = rest.indexOf("/");
+  const name2 = slash === -1 ? rest : rest.slice(0, slash);
+  const sub = slash === -1 ? "" : rest.slice(slash + 1);
+  const folder = folders.find((f3) => f3.name === name2);
+  if (!folder || folder.path.length === 0) return null;
+  if (sub.split("/").some((seg) => seg === ".." || seg === "")) return null;
+  return { local: sub.length === 0 ? folder.path : join4(folder.path, sub), folder };
+}
+async function* walkCustomFolder(folder, maxBytes = DEFAULT_MAX_FILE_BYTES) {
+  yield* walkInto(folder.path, customFolderRelOf(folder.name), 0, maxBytes);
 }
 var ZSTD_MAGIC = 4247762216;
 function zstdFrameEnd(buf, start) {
@@ -20641,7 +20703,9 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
     globals["defaultWorkspaceId"] = globals["workspaceIds"][0];
   }
   await mkdir2(join4(home, "storages"), { recursive: true });
-  await writeFile2(localPath, JSON.stringify(local, null, 2) + "\n");
+  const tmp = localPath + ".nas-sync.tmp";
+  await writeFile2(tmp, JSON.stringify(local, null, 2) + "\n");
+  await rename(tmp, localPath);
   return { added, remapped, total: Object.keys(workspaces).length };
 }
 async function repairSessionCwd(home = dshHome()) {
@@ -20702,6 +20766,7 @@ var SYNC_CATEGORIES = [
    * 但 rel 空间一律记作 `workspaces/<名字>/…`，因此拉取端不需要任何特殊处理。
    */
   { key: "workspaceFiles", localDir: "workspaces", label: "\u5DE5\u4F5C\u533A\u6587\u4EF6", desc: "\u6BCF\u4E2A\u5DE5\u4F5C\u533A\u76EE\u5F55\u91CC\u7684\u6E90\u7801\u7B49\u6587\u4EF6\uFF08\u8DF3\u8FC7 node_modules\u3001.git \u7B49\uFF09", sensitive: false },
+  { key: "customFolders", localDir: "custom-folders", label: "\u81EA\u5B9A\u4E49\u6587\u4EF6\u5939", desc: "\u989D\u5916\u6307\u5B9A\u7684\u4EFB\u610F\u76EE\u5F55\uFF0C\u540D\u5B57\u76F8\u540C\u5373\u5BF9\u5E94\u540C\u4E00\u4EFD\u6570\u636E\uFF0C\u672C\u673A\u8DEF\u5F84\u5404\u81EA\u8BBE\u7F6E", sensitive: false },
   { key: "sessionTitles", localDir: "session-titles.json", label: "\u4F1A\u8BDD\u6807\u9898", desc: "\u4F1A\u8BDD\u5217\u8868\u7684\u6807\u9898\u7D22\u5F15", sensitive: false },
   { key: "attachments", localDir: "attachments", label: "\u9644\u4EF6", desc: "attachments/ \u56FE\u7247\u4E0E\u6587\u4EF6\uFF0C\u901A\u5E38\u6700\u5927", sensitive: false },
   { key: "skills", localDir: "skills", label: "\u6280\u80FD", desc: "skills/ \u81EA\u5B9A\u4E49\u6280\u80FD", sensitive: false },
@@ -20741,16 +20806,22 @@ var Scanner = class {
   rules;
   scope;
   skillFilter;
+  customFolders;
+  maxFileBytes;
   /**
    * @param opts.scope            分类勾选（缺省 = DEFAULT_SYNC_SCOPE）
    * @param opts.includeSensitive 已选分类**内部**是否连凭据文件一起同步
    * @param opts.skillFilter      技能白名单（空 = 全部，见 config.ts 的语义说明）
+   * @param opts.customFolders    自定义文件夹映射表（名字 + 本机路径）
+   * @param opts.maxFileBytes     单文件上限，超过直接跳过（见 portable.ts 的说明）
    * @param opts.rules            直接指定规则（测试用；给了就不看 scope）
    */
   constructor(opts = {}) {
     this.includeSensitive = opts.includeSensitive ?? false;
     this.scope = { ...DEFAULT_SYNC_SCOPE, ...opts.scope ?? {} };
     this.skillFilter = opts.skillFilter ?? [];
+    this.customFolders = opts.customFolders ?? [];
+    this.maxFileBytes = opts.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
     this.rules = opts.rules ?? this.rulesFromScope();
   }
   /** 勾选的分类 → 规则表。注意：这里**不**用 includeSensitive 过滤整体分类。 */
@@ -20781,6 +20852,10 @@ var Scanner = class {
     for (const rule of this.rules) {
       if (rule.key === "workspaceFiles") {
         out.push(...await this.manifestOfWorkspaceFiles(base));
+        continue;
+      }
+      if (rule.key === "customFolders") {
+        out.push(...await this.manifestOfCustomFolders());
         continue;
       }
       const local = resolve2(base, rule.localDir);
@@ -20832,6 +20907,32 @@ var Scanner = class {
     }
     return out;
   }
+  /**
+   * 「自定义文件夹」的清单。
+   *
+   * 目录来自配置里的映射表（`name → 本机 path`），本机没有这个目录就跳过 ——
+   * 典型场景是另一台机器刚配好映射、还没把文件拉下来，此时不该报错。
+   */
+  async manifestOfCustomFolders() {
+    const out = [];
+    for (const folder of this.customFolders) {
+      let st;
+      try {
+        st = await stat4(folder.path);
+      } catch {
+        continue;
+      }
+      if (!st.isDirectory()) continue;
+      try {
+        for await (const f3 of walkCustomFolder(folder, this.maxFileBytes)) {
+          if (!this.includeSensitive && this.isSensitive(f3.rel)) continue;
+          out.push(await this.toEntry(f3.file, f3.rel));
+        }
+      } catch {
+      }
+    }
+    return out;
+  }
   async toEntry(file, rel) {
     const s2 = statSync2(file);
     const buf = await readFile3(file);
@@ -20847,7 +20948,7 @@ async function summarizeCategories(opts) {
   const scope = { ...DEFAULT_SYNC_SCOPE, ...opts.scope };
   const out = {};
   for (const c of SYNC_CATEGORIES) out[c.key] = { files: 0, bytes: 0 };
-  const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter });
+  const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter, customFolders: opts.customFolders });
   for (const rule of sc.activeRules()) {
     if (rule.key === "workspaceFiles") {
       try {
@@ -20862,6 +20963,19 @@ async function summarizeCategories(opts) {
           }
         }
       } catch {
+      }
+      continue;
+    }
+    if (rule.key === "customFolders") {
+      for (const folder of opts.customFolders ?? []) {
+        try {
+          for await (const f3 of walkCustomFolder(folder)) {
+            const s2 = await stat4(f3.file);
+            out[rule.key].files += 1;
+            out[rule.key].bytes += s2.size;
+          }
+        } catch {
+        }
       }
       continue;
     }
@@ -21098,6 +21212,20 @@ var Engine = class {
   abort = null;
   /** scan() 缓存的远端清单（resolve 时回写用） */
   remoteManifest = [];
+  /**
+   * rel → 本机绝对路径。
+   *
+   * 绝大多数分类就是 `localOf(rel)`（落在 $DSH_HOME 下）。**唯一例外是自定义文件夹**：
+   * 它们的落点由本机配置的映射表决定（电脑上是 `D:\Projects\foo`、手机上可能是别的），
+   * 所以必须先按 rel 里的 `<name>` 查表，查不到才回落到 $DSH_HOME。
+   *
+   * 所有读写路径一律过这里 —— 漏一处就会出现「上传扫的是配置目录、下载却写进 .dsh」
+   * 这种一半对一半错的状态。
+   */
+  resolveLocal(rel) {
+    const hit = customFolderLocalOf(rel, this.deps.config.customFolders ?? []);
+    return hit ? hit.local : localOf(rel);
+  }
   constructor(deps) {
     this.deps = deps;
     this.scanner = new Scanner({
@@ -21105,7 +21233,9 @@ var Engine = class {
       scope: deps.config.syncScope,
       includeSensitive: deps.config.includeSensitive,
       // 技能白名单（空 = 全部），只影响 skills/ 下的一级目录
-      skillFilter: deps.config.skillFilter
+      skillFilter: deps.config.skillFilter,
+      // 自定义文件夹映射表：rel 里的名字 → 本机路径，全靠它
+      customFolders: deps.config.customFolders
     });
     this.chunker = new Chunker(deps.transport, {
       chunkSize: deps.config.chunkSize,
@@ -21294,7 +21424,7 @@ var Engine = class {
   /** 上传单个文件（整体密文；大文件走分块）。remoteHash 存在且为可合并文本时先存 .base。 */
   async pushFile(rel, size, remoteHash) {
     this.setPhase("uploading");
-    const localAbs = localOf(rel);
+    const localAbs = this.resolveLocal(rel);
     const remote = "/dsh/" + rel;
     if (isMergeable(rel) && remoteHash) {
       await this.saveBase(rel);
@@ -21317,7 +21447,7 @@ var Engine = class {
       await mergeWorkspaceRegistry(Buffer.from(plain).toString("utf8"));
       return;
     }
-    const localAbs = localOf(rel);
+    const localAbs = this.resolveLocal(rel);
     const cut = Math.max(localAbs.lastIndexOf("/"), localAbs.lastIndexOf("\\"));
     await mkdir3(localAbs.slice(0, cut), { recursive: true });
     if (isSessionRel(rel)) {
@@ -21336,7 +21466,7 @@ var Engine = class {
     const c = this.deps.store.conflicts.find((x2) => x2.rel === rel);
     if (!c) throw new Error("\u51B2\u7A81\u8BB0\u5F55\u4E0D\u5B58\u5728\uFF1A" + rel);
     if (resolution === "local") {
-      const localAbs = localOf(rel);
+      const localAbs = this.resolveLocal(rel);
       const st = await stat5(localAbs);
       await this.saveBase(rel);
       await this.pushFile(rel, st.size, c.remoteHash);
@@ -21351,7 +21481,7 @@ var Engine = class {
       await this.writeRemoteManifest(this.remoteManifest);
     } else if (resolution === "remote") {
       await this.downloadEntry(rel);
-      const localAbs = localOf(rel);
+      const localAbs = this.resolveLocal(rel);
       const st = await stat5(localAbs);
       const data = await readFile4(localAbs);
       this.remoteManifest = this.remoteManifest.filter((e2) => e2.rel !== rel);
@@ -21807,6 +21937,7 @@ function apply(ctx, config) {
       includeSensitive: { type: "boolean" },
       enabled: { type: "json" },
       skillFilter: { type: "json" },
+      customFolders: { type: "json" },
       skills: { type: "json" },
       totalFiles: { type: "integer" },
       totalBytes: { type: "integer" },
@@ -21818,11 +21949,12 @@ function apply(ctx, config) {
     name: "nas_sync_scope",
     // 分类清单从 SYNC_CATEGORIES 拼，不写死 —— 上一版这里漏掉了新增的「工作区」相关分类，
     // 工具说明与实际能力对不上，用户照着说明勾选会找不到。
-    description: `\u67E5\u770B\u6216\u4FEE\u6539\u300C\u6309\u5206\u7C7B\u52FE\u9009\u540C\u6B65\u5185\u5BB9\u300D\u3002\u4E0D\u5E26\u53C2\u6570\u8C03\u7528 = \u53EA\u8BFB\u67E5\u770B\uFF1A\u8FD4\u56DE ${SYNC_CATEGORIES.length} \u4E2A\u5206\u7C7B\uFF08` + SYNC_CATEGORIES.map((c) => `${c.key} ${c.label}`).join(" / ") + '\uFF09\u7684\u52FE\u9009\u72B6\u6001\u3001\u6587\u4EF6\u6570\u4E0E\u4F53\u79EF\uFF08\u4F53\u79EF\u6309**\u5168\u90E8**\u5206\u7C7B\u7EDF\u8BA1\uFF0C\u4E0D\u53D7\u5F53\u524D\u52FE\u9009\u5F71\u54CD\uFF0C\u4FBF\u4E8E\u5224\u65AD\u5173\u6389\u67D0\u9879\u80FD\u7701\u591A\u5C11\uFF09\u3002\u4F20 set \u5219\u4FEE\u6539\u52FE\u9009\uFF08\u5C40\u90E8\u5408\u5E76\uFF0C\u5982 {"attachments":false} \u53EA\u5173\u9644\u4EF6\uFF0C\u5176\u4F59\u4E0D\u53D8\uFF09\u3002includeSensitive \u63A7\u5236\u5DF2\u9009\u5206\u7C7B**\u5185\u90E8**\u7684\u51ED\u636E\u6587\u4EF6\uFF08.credentials.yaml \u7B49\uFF09\u662F\u5426\u4E00\u8D77\u540C\u6B65\u3002\u6280\u80FD\u53EF\u518D\u6309\u540D\u5B57\u7EC6\u5206\uFF1A\u4F20 skillFilter\uFF08\u5982 ["pdf","xlsx"]\uFF09\u53EA\u540C\u6B65\u8FD9\u51E0\u4E2A\u6280\u80FD\uFF1B\u4F20 [] \u8868\u793A\u5168\u90E8\u6280\u80FD\uFF08\u4E5F\u5305\u542B\u4EE5\u540E\u65B0\u589E\u7684\uFF09\u3002\u4E0D\u5E26 skillFilter \u5219\u4FDD\u6301\u539F\u503C\u3002',
+    description: `\u67E5\u770B\u6216\u4FEE\u6539\u300C\u6309\u5206\u7C7B\u52FE\u9009\u540C\u6B65\u5185\u5BB9\u300D\u3002\u4E0D\u5E26\u53C2\u6570\u8C03\u7528 = \u53EA\u8BFB\u67E5\u770B\uFF1A\u8FD4\u56DE ${SYNC_CATEGORIES.length} \u4E2A\u5206\u7C7B\uFF08` + SYNC_CATEGORIES.map((c) => `${c.key} ${c.label}`).join(" / ") + '\uFF09\u7684\u52FE\u9009\u72B6\u6001\u3001\u6587\u4EF6\u6570\u4E0E\u4F53\u79EF\uFF08\u4F53\u79EF\u6309**\u5168\u90E8**\u5206\u7C7B\u7EDF\u8BA1\uFF0C\u4E0D\u53D7\u5F53\u524D\u52FE\u9009\u5F71\u54CD\uFF0C\u4FBF\u4E8E\u5224\u65AD\u5173\u6389\u67D0\u9879\u80FD\u7701\u591A\u5C11\uFF09\u3002\u4F20 set \u5219\u4FEE\u6539\u52FE\u9009\uFF08\u5C40\u90E8\u5408\u5E76\uFF0C\u5982 {"attachments":false} \u53EA\u5173\u9644\u4EF6\uFF0C\u5176\u4F59\u4E0D\u53D8\uFF09\u3002includeSensitive \u63A7\u5236\u5DF2\u9009\u5206\u7C7B**\u5185\u90E8**\u7684\u51ED\u636E\u6587\u4EF6\uFF08.credentials.yaml \u7B49\uFF09\u662F\u5426\u4E00\u8D77\u540C\u6B65\u3002\u6280\u80FD\u53EF\u518D\u6309\u540D\u5B57\u7EC6\u5206\uFF1A\u4F20 skillFilter\uFF08\u5982 ["pdf","xlsx"]\uFF09\u53EA\u540C\u6B65\u8FD9\u51E0\u4E2A\u6280\u80FD\uFF1B\u4F20 [] \u8868\u793A\u5168\u90E8\u6280\u80FD\uFF08\u4E5F\u5305\u542B\u4EE5\u540E\u65B0\u589E\u7684\uFF09\u3002\u4E0D\u5E26 skillFilter \u5219\u4FDD\u6301\u539F\u503C\u3002\u81EA\u5B9A\u4E49\u6587\u4EF6\u5939\u4F20 customFolders\uFF08\u5982 [{"name":"projects","path":"D:\\\\Projects"}]\uFF09\uFF1Aname \u662F\u8DE8\u8BBE\u5907\u7684\u7A33\u5B9A\u6807\u8BC6\uFF08rel \u524D\u7F00 custom-folders/<name>/\uFF09\uFF0Cpath \u53EA\u5728\u672C\u673A\u751F\u6548\uFF0C\u6240\u4EE5\u4E24\u53F0\u673A\u5668\u53EF\u4EE5\u540C name \u4E0D\u540C\u8DEF\u5F84\uFF1B\u6574\u8868\u66FF\u6362\uFF0C\u4F20 [] \u8868\u793A\u6E05\u7A7A\u3002',
     parameters: {
       set: { type: "json", description: '\u8981\u4FEE\u6539\u7684\u5206\u7C7B\u952E\u503C\uFF0C\u5982 {"attachments": false, "skills": true}\uFF1B\u7701\u7565=\u53EA\u67E5\u770B' },
       includeSensitive: { type: "boolean", description: "\u5DF2\u9009\u5206\u7C7B\u5185\u90E8\u662F\u5426\u8FDE\u51ED\u636E\u6587\u4EF6\u4E00\u8D77\u540C\u6B65\uFF0C\u9ED8\u8BA4\u4FDD\u6301\u539F\u503C" },
-      skillFilter: { type: "json", description: "\u6280\u80FD\u767D\u540D\u5355\u6570\u7EC4\uFF08\u53EA\u540C\u6B65\u8FD9\u4E9B\u6280\u80FD\u540D\uFF09\uFF1B\u4F20 [] = \u5168\u90E8\u6280\u80FD\uFF1B\u7701\u7565=\u4E0D\u6539" }
+      skillFilter: { type: "json", description: "\u6280\u80FD\u767D\u540D\u5355\u6570\u7EC4\uFF08\u53EA\u540C\u6B65\u8FD9\u4E9B\u6280\u80FD\u540D\uFF09\uFF1B\u4F20 [] = \u5168\u90E8\u6280\u80FD\uFF1B\u7701\u7565=\u4E0D\u6539" },
+      customFolders: { type: "json", description: "\u81EA\u5B9A\u4E49\u6587\u4EF6\u5939\u6620\u5C04\u8868 [{name,path}]\uFF1B\u6574\u8868\u66FF\u6362\uFF1B\u7701\u7565=\u4E0D\u6539" }
     },
     output: {
       schema: scopeOutputSchema,
@@ -21865,11 +21997,15 @@ function apply(ctx, config) {
         patch.skillFilter = normalizeSkillFilter(args.skillFilter);
         changed = true;
       }
+      if (args?.customFolders !== void 0) {
+        patch.customFolders = normalizeCustomFolders(args.customFolders);
+        changed = true;
+      }
       if (changed) applyConfigPatch(patch);
       const allOn = Object.fromEntries(SYNC_CATEGORIES.map((c) => [c.key, true]));
       let summary = {};
       try {
-        summary = await summarizeCategories({ scope: allOn, includeSensitive: cfg.includeSensitive });
+        summary = await summarizeCategories({ scope: allOn, includeSensitive: cfg.includeSensitive, customFolders: cfg.customFolders });
       } catch (e2) {
         warn("\u5206\u7C7B\u7EDF\u8BA1\u5931\u8D25\uFF1A" + e2.message);
       }
@@ -21901,6 +22037,7 @@ function apply(ctx, config) {
         includeSensitive: cfg.includeSensitive,
         enabled: enabledScopeKeys(normalizeSyncScope(cfg.syncScope)),
         skillFilter: cfg.skillFilter ?? [],
+        customFolders: cfg.customFolders ?? [],
         skills: skillRows,
         totalFiles: on.reduce((n, c) => n + c.files, 0),
         totalBytes: on.reduce((n, c) => n + c.bytes, 0),

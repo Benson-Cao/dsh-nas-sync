@@ -25,7 +25,7 @@
  */
 
 import * as zlib from 'node:zlib';
-import { readdir, readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { readdir, readFile, writeFile, mkdir, stat, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { dshHome } from '../paths.js';
@@ -209,19 +209,38 @@ const WORKSPACE_SKIP_DIRS = new Set([
 ]);
 
 /**
+ * 单文件大小上限（默认 64 MiB）。超过就跳过，不再尝试读进来。
+ *
+ * 这不是省磁盘，是保命：
+ *   · 大文件要整块读进内存再 scrypt+secretbox 加密，几百 MB 就能把宿主进程拖死；
+ *   · Electron 对**任何路径里带 `.asar` 的文件**都会当成归档去解析，一个 116 MB 的
+ *     `app.patched.asar`（asar 打包产物，常见于构建目录）会让 `Failed to parse
+ *     header` 刷满 debug.log，而且每次 stat/read 都触发一次。
+ * 真要同步大文件，用户可以把它放进 attachments 分类（那条链路走分块上传）。
+ */
+export const DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
+
+/** Electron 会把 `.asar` 当归档；`stat`/`read` 都会触发解析，直接不碰。 */
+export function isElectronAsarPath(p: string): boolean {
+  return /\.asar$/i.test(p);
+}
+
+/**
  * 遍历一个工作区目录，产出 `[rel 空间路径, 本地绝对路径]`。
- * rel 一定以 `workspaces/<名字>/` 开头 —— 拉取端 localOf(rel) 直接落到同一位置。
+ * rel 一定以 `workspaces/<名字>/` 开头 —— 拉取端 resolveLocal(rel) 直接落到同一位置。
  */
 export async function* walkWorkspaceFiles(
   ws: WorkspaceDir,
+  maxBytes: number = DEFAULT_MAX_FILE_BYTES,
 ): AsyncGenerator<{ rel: string; file: string }, void, void> {
-  yield* walkInto(ws.dir, ws.rel, 0);
+  yield* walkInto(ws.dir, ws.rel, 0, maxBytes);
 }
 
 async function* walkInto(
   dir: string,
   relBase: string,
   depth: number,
+  maxBytes: number,
 ): AsyncGenerator<{ rel: string; file: string }, void, void> {
   if (depth > 24) return; // 防符号链接环 / 病态深目录
   let names: string[];
@@ -240,13 +259,67 @@ async function* walkInto(
     }
     if (st.isDirectory()) {
       if (WORKSPACE_SKIP_DIRS.has(name)) continue;
-      yield* walkInto(full, `${relBase}/${name}`, depth + 1);
+      yield* walkInto(full, `${relBase}/${name}`, depth + 1, maxBytes);
       continue;
     }
     if (!st.isFile()) continue; // 跳过 socket / fifo
+    if (isElectronAsarPath(full)) continue;
+    if (st.size > maxBytes) continue;
     if (name.endsWith('.base') || name.endsWith('.chunk-manifest.json') || name.endsWith('.lock')) continue;
     yield { rel: `${relBase}/${name}`, file: full };
   }
+}
+
+// ---------------------------------------------------------------------------
+// 自定义文件夹（每台机器各自的「名字 → 本机路径」映射）
+// ---------------------------------------------------------------------------
+
+/** 自定义文件夹在 rel 空间的前缀。 */
+export const CUSTOM_FOLDERS_PREFIX = 'custom-folders';
+
+/** `name` → rel 挂载点，如 `custom-folders/projects`。 */
+export function customFolderRelOf(name: string): string {
+  return `${CUSTOM_FOLDERS_PREFIX}/${name}`;
+}
+
+export interface CustomFolderLike {
+  name: string;
+  path: string;
+}
+
+/**
+ * 按 rel 里的 `<name>` 找出本机的落点。
+ *
+ * 这是「各自指定映射」的关键：远端只有 `custom-folders/projects/a.md`，
+ * 至于这个 `projects` 在电脑上是 `D:\Projects`、在手机上是别的目录，
+ * 完全由**本机配置**决定，所以同一条同步记录能在两台结构不同的机器上各就各位。
+ *
+ * @returns null 表示 rel 不属于自定义文件夹，或本机没配这个名字
+ */
+export function customFolderLocalOf(
+  rel: string,
+  folders: CustomFolderLike[],
+): { local: string; folder: CustomFolderLike } | null {
+  const prefix = CUSTOM_FOLDERS_PREFIX + '/';
+  if (!rel.startsWith(prefix)) return null;
+  const rest = rel.slice(prefix.length);
+  if (rest.length === 0) return null;
+  const slash = rest.indexOf('/');
+  const name = slash === -1 ? rest : rest.slice(0, slash);
+  const sub = slash === -1 ? '' : rest.slice(slash + 1);
+  const folder = folders.find((f) => f.name === name);
+  if (!folder || folder.path.length === 0) return null;
+  // sub 来自 rel，可能含 ../（恶意/损坏的远端清单），这里必须挡住
+  if (sub.split('/').some((seg) => seg === '..' || seg === '')) return null;
+  return { local: sub.length === 0 ? folder.path : join(folder.path, sub), folder };
+}
+
+/** 扫一个自定义文件夹目录，产出 rel = `custom-folders/<name>/…`。 */
+export async function* walkCustomFolder(
+  folder: CustomFolderLike,
+  maxBytes: number = DEFAULT_MAX_FILE_BYTES,
+): AsyncGenerator<{ rel: string; file: string }, void, void> {
+  yield* walkInto(folder.path, customFolderRelOf(folder.name), 0, maxBytes);
 }
 
 /**
@@ -460,7 +533,17 @@ export async function mergeWorkspaceRegistry(
   }
 
   await mkdir(join(home, 'storages'), { recursive: true });
-  await writeFile(localPath, JSON.stringify(local, null, 2) + '\n');
+  /**
+   * 原子写：先写同目录临时文件再 rename。
+   *
+   * workspace.json 是 dsh 运行时也在读的注册表。原来直接 `writeFile` 会先截断再写，
+   * 如果 dsh 正好在这个窗口里读，拿到的是半截 JSON —— registry 初始化抛错会顺着
+   * 依赖链把 workspaceController 一起带走（表现是「无法选择文件夹，服务不可用」）。
+   * rename 在同一分区上是原子的，读方要么看到旧版本、要么看到新版本。
+   */
+  const tmp = localPath + '.nas-sync.tmp';
+  await writeFile(tmp, JSON.stringify(local, null, 2) + '\n');
+  await rename(tmp, localPath);
   return { added, remapped, total: Object.keys(workspaces).length };
 }
 

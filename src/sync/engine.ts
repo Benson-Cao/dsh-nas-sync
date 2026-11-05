@@ -26,6 +26,7 @@ import type { NasSyncConfig, Store } from '../config.js';
 import { isMergeable } from './merger.js';
 import { localOf } from '../paths.js';
 import {
+  customFolderLocalOf,
   isSessionRel,
   isWorkspaceRegistryRel,
   mergeWorkspaceRegistry,
@@ -56,6 +57,21 @@ export class Engine {
   /** scan() 缓存的远端清单（resolve 时回写用） */
   private remoteManifest: ManifestEntry[] = [];
 
+  /**
+   * rel → 本机绝对路径。
+   *
+   * 绝大多数分类就是 `localOf(rel)`（落在 $DSH_HOME 下）。**唯一例外是自定义文件夹**：
+   * 它们的落点由本机配置的映射表决定（电脑上是 `D:\Projects\foo`、手机上可能是别的），
+   * 所以必须先按 rel 里的 `<name>` 查表，查不到才回落到 $DSH_HOME。
+   *
+   * 所有读写路径一律过这里 —— 漏一处就会出现「上传扫的是配置目录、下载却写进 .dsh」
+   * 这种一半对一半错的状态。
+   */
+  private resolveLocal(rel: string): string {
+    const hit = customFolderLocalOf(rel, this.deps.config.customFolders ?? []);
+    return hit ? hit.local : localOf(rel);
+  }
+
   constructor(deps: EngineDeps) {
     this.deps = deps;
     this.scanner = new Scanner({
@@ -64,6 +80,8 @@ export class Engine {
       includeSensitive: deps.config.includeSensitive,
       // 技能白名单（空 = 全部），只影响 skills/ 下的一级目录
       skillFilter: deps.config.skillFilter,
+      // 自定义文件夹映射表：rel 里的名字 → 本机路径，全靠它
+      customFolders: deps.config.customFolders,
     });
     this.chunker = new Chunker(deps.transport, {
       chunkSize: deps.config.chunkSize,
@@ -294,7 +312,7 @@ export class Engine {
   /** 上传单个文件（整体密文；大文件走分块）。remoteHash 存在且为可合并文本时先存 .base。 */
   private async pushFile(rel: string, size: number, remoteHash?: string): Promise<void> {
     this.setPhase('uploading');
-    const localAbs = localOf(rel);
+    const localAbs = this.resolveLocal(rel);
     const remote = '/dsh/' + rel;
 
     // 可合并文本且远端已有版本 → 先把远端旧内容存为 .base（三路合并公共祖先）
@@ -329,7 +347,7 @@ export class Engine {
       return;
     }
 
-    const localAbs = localOf(rel);
+    const localAbs = this.resolveLocal(rel);
     const cut = Math.max(localAbs.lastIndexOf('/'), localAbs.lastIndexOf('\\'));
     await mkdir(localAbs.slice(0, cut), { recursive: true });
 
@@ -360,7 +378,7 @@ export class Engine {
     if (!c) throw new Error('冲突记录不存在：' + rel);
 
     if (resolution === 'local') {
-      const localAbs = localOf(rel);
+      const localAbs = this.resolveLocal(rel);
       const st = await stat(localAbs);
       // 冲突场景：远端旧内容正是公共祖先，务必先存 .base
       await this.saveBase(rel);
@@ -378,7 +396,7 @@ export class Engine {
     } else if (resolution === 'remote') {
       await this.downloadEntry(rel);
       // 回写远端 manifest：本地 mtime 已变化，记录最新指纹
-      const localAbs = localOf(rel);
+      const localAbs = this.resolveLocal(rel);
       const st = await stat(localAbs);
       const data = await readFile(localAbs);
       this.remoteManifest = this.remoteManifest.filter((e) => e.rel !== rel);

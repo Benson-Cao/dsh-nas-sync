@@ -11,9 +11,9 @@ window.__ModuleLoader__.load({
 
     // ---- 同步内容分类（与服务端 SYNC_CATEGORIES 一一对应，顺序即展示顺序）----
     // 服务端是权威：这里只是为了渲染勾选框；对不上的键服务端会忽略并告警。
-    const SCOPE_ORDER = ['sessions', 'workspaces', 'workspaceFiles', 'sessionTitles', 'attachments', 'skills', 'profiles', 'settings', 'pluginPatch'];
+    const SCOPE_ORDER = ['sessions', 'workspaces', 'workspaceFiles', 'customFolders', 'sessionTitles', 'attachments', 'skills', 'profiles', 'settings', 'pluginPatch'];
     const SCOPE_DEFAULT = {
-      sessions: true, workspaces: true, workspaceFiles: true, sessionTitles: true, attachments: true, skills: true,
+      sessions: true, workspaces: true, workspaceFiles: true, customFolders: true, sessionTitles: true, attachments: true, skills: true,
       profiles: false, settings: false, pluginPatch: false,
     };
     const SCOPE_SENSITIVE = { profiles: true, settings: true, pluginPatch: true };
@@ -56,8 +56,9 @@ window.__ModuleLoader__.load({
       cfgPush: '只上传',
       cfgPull: '只下载',
       cfgMirror: '双向',
-      cfgInterval: '间隔（分钟）',
-      cfgSensitive: '包含敏感文件（profiles/凭据）',
+      cfgInterval: '同步间隔',
+      cfgIntervalCustom: '自定义',
+      cfgIntervalUnit: '分钟',
       cfgScope: '同步内容',
       cfgScopeHint: '只同步勾选的内容。取消勾选后，已上传到 NAS 的旧文件不会被删除，只是不再参与同步。',
       scopeSensitive: '敏感',
@@ -70,6 +71,13 @@ window.__ModuleLoader__.load({
       scopeSessions: '会话记录',
       scopeWorkspaces: '工作区清单',
       scopeWorkspaceFiles: '工作区文件',
+      scopeCustomFolders: '自定义文件夹',
+      cfgCustomFolders: '自定义文件夹',
+      cfgCustomFoldersHint: '名字是两台设备之间的对应关系（同名 = 同一份数据）；路径只在本机生效，两台电脑可以不一样。',
+      cfgCustomFolderAdd: '+ 添加文件夹',
+      cfgCustomFolderName: '名字',
+      cfgCustomFolderPath: '本机路径',
+      cfgCustomFolderRemove: '移除',
       scopeSessionTitles: '会话标题',
       scopeAttachments: '附件',
       scopeSkills: '技能',
@@ -135,8 +143,9 @@ window.__ModuleLoader__.load({
       cfgPush: 'Push only',
       cfgPull: 'Pull only',
       cfgMirror: 'Mirror',
-      cfgInterval: 'Interval (minutes)',
-      cfgSensitive: 'Include sensitive files (profiles/credentials)',
+      cfgInterval: 'Sync interval',
+      cfgIntervalCustom: 'Custom',
+      cfgIntervalUnit: 'min',
       cfgScope: 'What to sync',
       cfgScopeHint: 'Only checked categories sync. Unchecking never deletes what is already on the NAS — it just stops being synced.',
       scopeSensitive: 'sensitive',
@@ -149,6 +158,13 @@ window.__ModuleLoader__.load({
       scopeSessions: 'Sessions',
       scopeWorkspaces: 'Workspace list',
       scopeWorkspaceFiles: 'Workspace files',
+      scopeCustomFolders: 'Custom folders',
+      cfgCustomFolders: 'Custom folders',
+      cfgCustomFoldersHint: 'Name links the two devices (same name = same data); the path is local only and may differ per machine.',
+      cfgCustomFolderAdd: '+ Add folder',
+      cfgCustomFolderName: 'Name',
+      cfgCustomFolderPath: 'Local path',
+      cfgCustomFolderRemove: 'Remove',
       scopeSessionTitles: 'Session titles',
       scopeAttachments: 'Attachments',
       scopeSkills: 'Skills',
@@ -227,6 +243,13 @@ window.__ModuleLoader__.load({
       input: { height: '28px', padding: '0 8px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', boxSizing: 'border-box', width: '100%' },
       field: { display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '220px', flex: '1 1 220px' },
       label: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' },
+      inputNarrow: { height: '28px', padding: '0 8px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', boxSizing: 'border-box', width: '96px' },
+      intervalCustomRow: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' },
+      cfBlock: { marginTop: '8px' },
+      cfRow: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' },
+      cfName: { height: '28px', padding: '0 8px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', boxSizing: 'border-box', width: '132px', flex: '0 0 auto' },
+      cfPath: { height: '28px', padding: '0 8px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', boxSizing: 'border-box', flex: '1 1 auto', minWidth: '0' },
+      cfDel: { flex: '0 0 auto', width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'none', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', font: 'inherit', fontSize: '14px', lineHeight: '1' },
       hint: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' },
       fileRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 4px', borderBottom: '1px solid var(--dsw-alias-border-l1)', minHeight: '32px' },
       fileName: { fontFamily: 'monospace', fontSize: '12px', wordBreak: 'break-all', flex: 1 },
@@ -355,6 +378,10 @@ window.__ModuleLoader__.load({
       // null = 还没拉到；[] = 拉到了但一个技能都没有。两者要区分开，否则会把
       // 「正在加载」误显示成「你没有装任何技能」。
       const [skills, setSkills] = useState(null);
+      // 「自定义间隔」是纯视图状态：当前值不在预设档位里时，自动展开输入框。
+      // 用独立 state 而不是把 intervalMin 置成 0/-1 之类的哨兵值 —— 哨兵会被
+      // 一并 POST 到后端，触发 schema 的 min(1) 校验失败。
+      const [customInterval, setCustomInterval] = useState(false);
 
       const refreshAll = useCallback(async () => {
         if (!c.ready) return;
@@ -449,11 +476,15 @@ window.__ModuleLoader__.load({
             webdav,
             mountRoot: cfg.mountRoot,
             autoSync: cfg.autoSync,
-            includeSensitive: cfg.includeSensitive,
+            // includeSensitive 不再由面板提交：那个复选框已按用户要求移除。
+            // 不提交 = 保持后端原值（默认 false），工具侧仍可显式设置，
+            // 避免「界面上看不见但偷偷被翻成 true」这种情况。
             // 分类勾选：整对象提交（服务端做二级合并 + 归一化，缺键会回落默认值）
             syncScope: cfg.syncScope || SCOPE_DEFAULT,
             // 技能白名单：[] = 全部技能（含以后新增的）
             skillFilter: Array.isArray(cfg.skillFilter) ? cfg.skillFilter : [],
+            // 自定义文件夹映射表：整表替换（服务端归一化，非法 name/path 会被丢掉）
+            customFolders: Array.isArray(cfg.customFolders) ? cfg.customFolders : [],
           };
           if (passDraft) patch.passphrase = passDraft;
           await c.call('/config', { method: 'POST', body: { config: patch } });
@@ -512,6 +543,21 @@ window.__ModuleLoader__.load({
         const all = {};
         for (const k of SCOPE_ORDER) all[k] = v;
         setCfgField('syncScope', all);
+      };
+
+      // ---- 自定义文件夹映射表（「自定义文件夹」分类下的第二层）----
+      // 每行 = { name, path }。name 决定远端 rel 前缀，path 只在本机生效，
+      // 所以两台机器同名不同路径也能对上（见 portable.ts 的 customFolderLocalOf）。
+      const customFoldersNow = () => (Array.isArray(cfg.customFolders) ? cfg.customFolders : []);
+      const updateCustomFolder = (index, key, value) => {
+        const list = customFoldersNow().map((f, i) => (i === index ? Object.assign({}, f, { [key]: value }) : f));
+        setCfgField('customFolders', list);
+      };
+      const addCustomFolder = () => {
+        setCfgField('customFolders', customFoldersNow().concat([{ name: '', path: '' }]));
+      };
+      const removeCustomFolder = (index) => {
+        setCfgField('customFolders', customFoldersNow().filter((_, i) => i !== index));
       };
 
       // ---- 技能白名单（「技能」分类下的第二层）----
@@ -705,6 +751,39 @@ window.__ModuleLoader__.load({
               }),
             ),
             h('span', { style: S.hint }, t('cfgScopeHint')),
+            // 自定义文件夹编辑器：只在「自定义文件夹」这一类被勾上时展开，
+            // 跟「技能」下的明细一致 —— 关掉的分类不该还占着屏幕。
+            (Object.assign({}, SCOPE_DEFAULT, cfg.syncScope || {}).customFolders === true)
+              ? h('div', { style: S.cfBlock },
+                  h('label', { style: S.label }, t('cfgCustomFolders')),
+                  h('div', { style: S.hint, marginBottom: '6px' }, t('cfgCustomFoldersHint')),
+                  customFoldersNow().map((f, i) =>
+                    h('div', { key: 'cf-' + i, style: S.cfRow },
+                      h('input', {
+                        style: S.cfName,
+                        type: 'text',
+                        placeholder: t('cfgCustomFolderName'),
+                        value: f.name || '',
+                        onChange: (e) => updateCustomFolder(i, 'name', e.target.value),
+                      }),
+                      h('input', {
+                        style: S.cfPath,
+                        type: 'text',
+                        placeholder: t('cfgCustomFolderPath'),
+                        value: f.path || '',
+                        onChange: (e) => updateCustomFolder(i, 'path', e.target.value),
+                      }),
+                      h('button', {
+                        type: 'button',
+                        style: S.cfDel,
+                        title: t('cfgCustomFolderRemove'),
+                        onClick: () => removeCustomFolder(i),
+                      }, '×'),
+                    ),
+                  ),
+                  h('button', { type: 'button', style: S.scopeBtn, onClick: addCustomFolder }, t('cfgCustomFolderAdd')),
+                )
+              : null,
           ),
           h('div', { style: S.row },
             h('div', { style: S.field },
@@ -724,22 +803,44 @@ window.__ModuleLoader__.load({
               ),
             ),
             cfg.autoSync && cfg.autoSync.enabled
-              ? h('div', { style: S.field },
-                  h('label', { style: S.label }, t('cfgInterval')),
-                  h('input', { style: S.input, type: 'number', min: 1, max: 1440, value: cfg.autoSync.intervalMin, onChange: (e) => setCfgField('autoSync.intervalMin', Number(e.target.value) || 30) }),
-                )
+              ? (() => {
+                  // 间隔也做成平铺按钮：跟上面的「关闭/只上传/只下载/双向」保持同一种交互，
+                  // 手机上不用弹系统数字键盘就能改。最后一档「自定义」才展开输入框。
+                  const INTERVAL_PRESETS = [5, 15, 30, 60, 120];
+                  const cur = Number(cfg.autoSync.intervalMin) || 30;
+                  const showCustom = customInterval || INTERVAL_PRESETS.indexOf(cur) === -1;
+                  return h('div', { style: S.field },
+                    h('label', { style: S.label }, t('cfgInterval')),
+                    h('div', { style: S.segRow },
+                      INTERVAL_PRESETS.map((v) => h('button', {
+                        key: 'iv-' + v,
+                        type: 'button',
+                        'data-interval': v,
+                        style: Object.assign({}, S.seg, (!showCustom && cur === v) ? S.segOn : null),
+                        onClick: () => { setCustomInterval(false); setCfgField('autoSync.intervalMin', v); },
+                      }, v + ' ' + t('cfgIntervalUnit'))),
+                      h('button', {
+                        key: 'iv-custom',
+                        type: 'button',
+                        'data-interval': 'custom',
+                        style: Object.assign({}, S.seg, showCustom ? S.segOn : null),
+                        onClick: () => setCustomInterval(true),
+                      }, t('cfgIntervalCustom')),
+                    ),
+                    showCustom
+                      ? h('div', { style: S.intervalCustomRow },
+                          h('input', {
+                            style: S.inputNarrow,
+                            type: 'number', min: 1, max: 1440,
+                            value: cur,
+                            onChange: (e) => setCfgField('autoSync.intervalMin', Number(e.target.value) || 30),
+                          }),
+                          h('span', { style: S.hint }, t('cfgIntervalUnit') + '（1–1440）'),
+                        )
+                      : null,
+                  );
+                })()
               : null,
-            // r174：原来把文字放在 label 里、checkbox 单独塞进 column 布局，
-            // 结果复选框跑到右边甚至居中（用户截图）。改成标准的「框在左、字在右」一行。
-            h('label', { style: S.checkRow },
-              h('input', {
-                type: 'checkbox',
-                style: S.checkBox,
-                checked: Boolean(cfg.includeSensitive),
-                onChange: (e) => setCfgField('includeSensitive', e.target.checked),
-              }),
-              h('span', null, t('cfgSensitive')),
-            ),
           ),
           h('div', { style: S.row },
             h('button', { style: Object.assign({}, S.btn, S.btnPrimary, busy === 'save' ? S.btnDisabled : {}), disabled: busy === 'save', onClick: () => saveConfig() }, busy === 'save' ? t('saving') : t('save')),

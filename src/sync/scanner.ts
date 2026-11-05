@@ -15,7 +15,7 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { dshHome, localOf, relFromRemote } from '../paths.js';
 import { DEFAULT_SYNC_SCOPE, type SyncScope, type SyncScopeKey } from '../config.js';
-import { collectWorkspaceDirs, walkWorkspaceFiles, type WorkspaceDir } from './portable.js';
+import { collectWorkspaceDirs, walkWorkspaceFiles, walkCustomFolder, DEFAULT_MAX_FILE_BYTES, type WorkspaceDir, type CustomFolderLike } from './portable.js';
 
 export interface ManifestEntry {
   rel: string;
@@ -49,6 +49,7 @@ export const SYNC_CATEGORIES: CategoryMeta[] = [
    * 但 rel 空间一律记作 `workspaces/<名字>/…`，因此拉取端不需要任何特殊处理。
    */
   { key: 'workspaceFiles', localDir: 'workspaces', label: '工作区文件', desc: '每个工作区目录里的源码等文件（跳过 node_modules、.git 等）', sensitive: false },
+  { key: 'customFolders', localDir: 'custom-folders', label: '自定义文件夹', desc: '额外指定的任意目录，名字相同即对应同一份数据，本机路径各自设置', sensitive: false },
   { key: 'sessionTitles', localDir: 'session-titles.json', label: '会话标题', desc: '会话列表的标题索引', sensitive: false },
   { key: 'attachments', localDir: 'attachments', label: '附件', desc: 'attachments/ 图片与文件，通常最大', sensitive: false },
   { key: 'skills', localDir: 'skills', label: '技能', desc: 'skills/ 自定义技能', sensitive: false },
@@ -108,17 +109,30 @@ export class Scanner {
   private rules: Rule[];
   private scope: SyncScope;
   private skillFilter: string[];
+  private customFolders: CustomFolderLike[];
+  private maxFileBytes: number;
 
   /**
    * @param opts.scope            分类勾选（缺省 = DEFAULT_SYNC_SCOPE）
    * @param opts.includeSensitive 已选分类**内部**是否连凭据文件一起同步
    * @param opts.skillFilter      技能白名单（空 = 全部，见 config.ts 的语义说明）
+   * @param opts.customFolders    自定义文件夹映射表（名字 + 本机路径）
+   * @param opts.maxFileBytes     单文件上限，超过直接跳过（见 portable.ts 的说明）
    * @param opts.rules            直接指定规则（测试用；给了就不看 scope）
    */
-  constructor(opts: { scope?: Partial<SyncScope>; includeSensitive?: boolean; skillFilter?: string[]; rules?: Rule[] } = {}) {
+  constructor(opts: {
+    scope?: Partial<SyncScope>;
+    includeSensitive?: boolean;
+    skillFilter?: string[];
+    customFolders?: CustomFolderLike[];
+    maxFileBytes?: number;
+    rules?: Rule[];
+  } = {}) {
     this.includeSensitive = opts.includeSensitive ?? false;
     this.scope = { ...DEFAULT_SYNC_SCOPE, ...(opts.scope ?? {}) } as SyncScope;
     this.skillFilter = opts.skillFilter ?? [];
+    this.customFolders = opts.customFolders ?? [];
+    this.maxFileBytes = opts.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
     this.rules = opts.rules ?? this.rulesFromScope();
   }
 
@@ -159,6 +173,11 @@ export class Scanner {
       // 工作区文件是唯一「目录来源不是 rule.localDir」的分类，单独走一条支线
       if (rule.key === 'workspaceFiles') {
         out.push(...(await this.manifestOfWorkspaceFiles(base)));
+        continue;
+      }
+      // 自定义文件夹同理：目录来自配置里的映射表，不是 $DSH_HOME/custom-folders
+      if (rule.key === 'customFolders') {
+        out.push(...(await this.manifestOfCustomFolders()));
         continue;
       }
       const local = resolve(base, rule.localDir);
@@ -214,6 +233,34 @@ export class Scanner {
     return out;
   }
 
+  /**
+   * 「自定义文件夹」的清单。
+   *
+   * 目录来自配置里的映射表（`name → 本机 path`），本机没有这个目录就跳过 ——
+   * 典型场景是另一台机器刚配好映射、还没把文件拉下来，此时不该报错。
+   */
+  private async manifestOfCustomFolders(): Promise<ManifestEntry[]> {
+    const out: ManifestEntry[] = [];
+    for (const folder of this.customFolders) {
+      let st;
+      try {
+        st = await stat(folder.path);
+      } catch {
+        continue;
+      }
+      if (!st.isDirectory()) continue;
+      try {
+        for await (const f of walkCustomFolder(folder, this.maxFileBytes)) {
+          if (!this.includeSensitive && this.isSensitive(f.rel)) continue;
+          out.push(await this.toEntry(f.file, f.rel));
+        }
+      } catch {
+        /* 单个目录读不了（权限/被占用）不该让整轮扫描失败 */
+      }
+    }
+    return out;
+  }
+
   private async toEntry(file: string, rel: string): Promise<ManifestEntry> {    const s = statSync(file);
     const buf = await readFile(file);
     return {
@@ -254,11 +301,11 @@ export type CategorySummary = Record<SyncScopeKey, { files: number; bytes: numbe
  * 不能复用 buildManifest()：它对每个文件 `readFile` 算 sha256，attachments 一大就是
  * 几百 MB 的读盘，光为了显示一个数字不值得。
  */
-export async function summarizeCategories(opts: { scope: Partial<SyncScope>; includeSensitive?: boolean; skillFilter?: string[] }): Promise<CategorySummary> {
+export async function summarizeCategories(opts: { scope: Partial<SyncScope>; includeSensitive?: boolean; skillFilter?: string[]; customFolders?: CustomFolderLike[] }): Promise<CategorySummary> {
   const scope = { ...DEFAULT_SYNC_SCOPE, ...opts.scope } as SyncScope;
   const out = {} as CategorySummary;
   for (const c of SYNC_CATEGORIES) out[c.key] = { files: 0, bytes: 0 };
-  const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter });
+  const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter, customFolders: opts.customFolders });
   for (const rule of sc.activeRules()) {
     // 工作区文件：目录来源是注册表里的真实路径，stat 名义前缀会算出假数字
     if (rule.key === 'workspaceFiles') {
@@ -273,6 +320,19 @@ export async function summarizeCategories(opts: { scope: Partial<SyncScope>; inc
           }
         }
       } catch { /* 注册表读不了就当 0 */ }
+      continue;
+    }
+    // 自定义文件夹：目录来自配置映射表，同样不能 stat 名义前缀
+    if (rule.key === 'customFolders') {
+      for (const folder of opts.customFolders ?? []) {
+        try {
+          for await (const f of walkCustomFolder(folder)) {
+            const s = await stat(f.file);
+            out[rule.key].files += 1;
+            out[rule.key].bytes += s.size;
+          }
+        } catch { /* 忽略不可读目录 */ }
+      }
       continue;
     }
     const local = resolve(dshHome(), rule.localDir);
