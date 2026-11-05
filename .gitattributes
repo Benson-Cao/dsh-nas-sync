@@ -1,0 +1,14 @@
+# Normalize text files to LF in the repository and on checkout.
+# Without this, `core.autocrlf=true` (common on Windows) rewrites the
+# committed build artefacts to CRLF during a git-dependency checkout,
+# which changes their byte size and makes integrity diffs noisy.
+* text=auto eol=lf
+
+# Build artefacts are generated single-file bundles. Keep their bytes
+# exactly as produced by esbuild — no EOL conversion, no diff noise.
+dist/index.js -text
+client.js -text
+
+*.png binary
+*.jpg binary
+*.tgz binary
