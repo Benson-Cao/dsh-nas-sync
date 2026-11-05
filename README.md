@@ -186,6 +186,7 @@ registerNasSyncUi(ctx, HostBridge(scope))
 | 插件列表里没有 | bundle 没进 `dsh.profile.bundles` | 重跑 `dsh plugin add` 看报错 |
 | 列表有但不挂载 | `package.json` 缺 `dsh.bundle.patch` | 补声明后重装 |
 | 列表有、`cordis.patch.yml` 也指向了，仍然静默不生效 | patch 层**顶层写成了 map**（`services:` / 直接 `- id:`） | 必须写成 `- insert: [...]`，见下方说明 |
+| 面板能渲染出来，但一直显示「页面没有拿到请求令牌」 | 桌面端**只消费结构化 `index-inject`** 的 boot payload，`ctx.webServer.tapIndex` 在桌面端完全不生效 | 见下方「桌面端注入」 |
 | 设置页没入口 | namespace 两端不一致，或 `dsh.client` 没被扫到 | Host `nas-sync` vs Client `key: nas-sync`；确认 patch 已 insert |
 | 密码框明文 | schema 没加 `role('secret')` | 补上，重启 |
 | 桌面端装不上 | 用 CLI 装 desktop | 改用 App 内插件面板 |
@@ -207,6 +208,34 @@ root 是 `[]`，所以直接的 `- id: ...` 写法永远插不进去 → 插件�
     - id: nas-sync
       name: dsh-nas-sync
 ```
+
+### 桌面端注入：`tapIndex` 不生效，必须用结构化 row
+
+`dsh-host-webserver` 的 index 注入有**两套渲染器，共用一张 table**：
+
+| 形态 | 渲染方式 | `tapIndex` 生效？ |
+|---|---|---|
+| `dsh web`（服务端） | `renderIndex(html)` = `applyIndexTaps(renderIndexInjections(html, rows))` | ✅ |
+| Electron 桌面端 | 不渲染服务端 HTML。`dsh-desktop-host` 在 `ready` 时把 `collectIndexInjections()` 通过 IPC 交给主进程，主进程 `serveWebDocument` 直接返回打包好的静态 `index.html`，row 再由**页面侧解释器**执行 | ❌ 完全不生效 |
+
+所以插件若只注册 `ctx.webServer.tapIndex(...)`，桌面端症状是：插件在列表里、
+面板也能渲染，但 `window.__DSH_NAS_SYNC_TOKEN__` 永远是 `undefined`，面板一直卡在
+「页面没有拿到请求令牌」。
+
+正确做法（照 `@deepseek-ai/dsh-client-ui-theme`）：
+
+```ts
+ctx.on('webserver/index-inject', (table) => {
+  table.push(
+    { kind: 'global', name: '__DSH_NAS_SYNC_TOKEN__', value: token },
+    { kind: 'global', name: '__DSH_NAS_SYNC_PREFIX__', value: BRIDGE_PREFIX },
+  );
+}, { prepend: true });
+```
+
+> 优先用 `kind: 'global'` 而不是 `kind: 'script'`：页面侧解释器对 `global` 直接
+> `globalThis[name] = value`，不创建 inline `<script>`，省掉转义也避开 CSP。
+> 本插件两条通道都注册：结构化 row 走主路，`tapIndex` 作服务端兜底（幂等）。
 
 
 ## 7. 已知限制

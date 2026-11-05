@@ -1,11 +1,28 @@
 /**
  * dsh-nas-sync · Web UI HTTP 桥（B 方案）
  * ----------------------------------------
- * 对齐旧 @local/dsh-plugin-nas 的已验证模式：
- *   - ctx.webServer.tapIndex(html => ...) 往页面注入 boot token
+ *   - 往页面注入 boot token：**两条通道都要走**，见下
  *   - ctx.webServer.register({ kind:'prefix', path, handler(req,res) }) 注册路由
  *   - 客户端带 x-nas-sync-token 头，timingSafeEqual 校验
  * 客户端面板（client.js）通过本桥读写同步状态/配置/冲突。
+ *
+ * ── 为什么必须走两条通道（真机踩坑） ──────────────────────────────
+ * dsh-host-webserver 的 index 注入有**两种渲染器**，共用一张 table：
+ *
+ *   1. served form：`dsh web` 类服务端在响应 index.html 时调
+ *      `renderIndex(html)` = `applyIndexTaps(renderIndexInjections(html, rows))`
+ *      —— 结构化 row 和 tapIndex 都会生效。
+ *   2. static / Electron desktop：不渲染服务端 HTML，而是把同一张 table
+ *      作为 **boot payload** 发给页面，由页面侧解释器消费。
+ *      **这条路上只有结构化 row，`tapIndex` 的裸字符串变换完全不生效。**
+ *
+ * 早先只注册了 tapIndex，于是桌面端表现成：插件列表里有、设置页也能渲染出
+ * 面板，但 `window.__DSH_NAS_SYNC_TOKEN__` 永远是 undefined，面板一直卡在
+ * 「页面没有拿到请求令牌」。tapIndex 是官方注释里明确的「escape hatch」，
+ * 不是跨两种部署形态的通用通道。
+ *
+ * 结论：结构化 row 走主路（两种形态都覆盖），tapIndex 保留作服务端兜底；
+ * 两者注入的值完全相同，重复注入是幂等的，不会互相干扰。
  */
 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -40,8 +57,14 @@ function tokenMatches(actual: unknown, expected: string): boolean {
   return timingSafeEqual(left, right);
 }
 
+/** 注入到页面的 boot 全局脚本体（不含 <script> 标签）。 */
+function bootGlobalsScript(token: string): string {
+  return `window.__DSH_NAS_SYNC_TOKEN__=${JSON.stringify(token)};`
+    + `window.__DSH_NAS_SYNC_PREFIX__=${JSON.stringify(BRIDGE_PREFIX)};`;
+}
+
 function injectBootGlobals(html: string, token: string): string {
-  const payload = `<script>window.__DSH_NAS_SYNC_TOKEN__=${JSON.stringify(token)};window.__DSH_NAS_SYNC_PREFIX__=${JSON.stringify(BRIDGE_PREFIX)};</script>`;
+  const payload = `<script>${bootGlobalsScript(token)}</script>`;
   const index = html.toLowerCase().lastIndexOf('</body>');
   if (index === -1) return html + payload;
   return html.slice(0, index) + payload + html.slice(index);
@@ -83,7 +106,24 @@ export interface BridgeDeps {
 export function createBridge(ctx: any, deps: BridgeDeps): void {
   const token = randomBytes(24).toString('base64url');
 
+  // 通道 1（主路）：结构化 index-inject。桌面端 boot payload 只认这个。
+  // 官方用法见 @deepseek-ai/dsh-client-ui-theme：ctx.on('webserver/index-inject', …)。
+  // 用 kind:'global' 而不是 kind:'script' —— 页面侧解释器对 global 直接赋值
+  // （globalThis[name] = value），不创建 inline <script> 元素，既省掉转义
+  // 也避开 CSP；两种渲染器（服务端 renderIndex / 桌面 boot payload）都支持它。
+  if (typeof ctx.on === 'function') {
+    ctx.on('webserver/index-inject', (table: any[]) => {
+      table.push(
+        { kind: 'global', name: '__DSH_NAS_SYNC_TOKEN__', value: token },
+        { kind: 'global', name: '__DSH_NAS_SYNC_PREFIX__', value: BRIDGE_PREFIX },
+      );
+    }, { prepend: true });
+  }
+
+  // 通道 2（兜底）：服务端渲染 index.html 时的裸字符串变换。
+  // 桌面端不会走这条路，但 `dsh web` 形态下它先于 boot 脚本执行，保留无害。
   ctx.effect(() => {
+    if (typeof ctx.webServer?.tapIndex !== 'function') return () => {};
     const dispose = ctx.webServer.tapIndex((html: string) => injectBootGlobals(html, token));
     return typeof dispose === 'function' ? dispose : () => {};
   }, 'dsh-nas-sync: page boot token');

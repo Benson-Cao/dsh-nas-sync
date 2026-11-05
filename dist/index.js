@@ -21009,8 +21009,11 @@ function tokenMatches(actual, expected) {
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
 }
+function bootGlobalsScript(token) {
+  return `window.__DSH_NAS_SYNC_TOKEN__=${JSON.stringify(token)};window.__DSH_NAS_SYNC_PREFIX__=${JSON.stringify(BRIDGE_PREFIX)};`;
+}
 function injectBootGlobals(html, token) {
-  const payload = `<script>window.__DSH_NAS_SYNC_TOKEN__=${JSON.stringify(token)};window.__DSH_NAS_SYNC_PREFIX__=${JSON.stringify(BRIDGE_PREFIX)};</script>`;
+  const payload = `<script>${bootGlobalsScript(token)}</script>`;
   const index = html.toLowerCase().lastIndexOf("</body>");
   if (index === -1) return html + payload;
   return html.slice(0, index) + payload + html.slice(index);
@@ -21039,7 +21042,17 @@ function publicConfig(cfg) {
 }
 function createBridge(ctx, deps) {
   const token = randomBytes3(24).toString("base64url");
+  if (typeof ctx.on === "function") {
+    ctx.on("webserver/index-inject", (table) => {
+      table.push(
+        { kind: "global", name: "__DSH_NAS_SYNC_TOKEN__", value: token },
+        { kind: "global", name: "__DSH_NAS_SYNC_PREFIX__", value: BRIDGE_PREFIX }
+      );
+    }, { prepend: true });
+  }
   ctx.effect(() => {
+    if (typeof ctx.webServer?.tapIndex !== "function") return () => {
+    };
     const dispose = ctx.webServer.tapIndex((html) => injectBootGlobals(html, token));
     return typeof dispose === "function" ? dispose : () => {
     };
