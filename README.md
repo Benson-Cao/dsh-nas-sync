@@ -9,7 +9,7 @@
 dsh-nas-sync/
 ├── package.json              # dsh.bundle / dsh.client 声明 + 依赖
 ├── cordis.patch.yml          # bundle patch 层：把服务 insert 进 Loader 树
-├── dist/index.js             # ⚠️ 已构建产物（814 KB，必须入库，见下文）
+├── dist/index.js             # ⚠️ 已构建产物（约 810 KB，必须入库，见下文）
 ├── client.js                 # 客户端半：window.__ModuleLoader__.load 手写模块
 ├── scripts/build.mjs         # esbuild 打包（esbuild → 单文件 ESM）
 ├── tsconfig.json             # Host 半类型检查
@@ -22,6 +22,7 @@ dsh-nas-sync/
     ├── data/models.ts        # 跨层数据模型
     ├── nas/                  # 传输层：transport / webdav / mount
     ├── sync/                 # 同步引擎：scanner / crypto / chunker / engine / merger
+    │   └── portable.ts       #   跨设备可移植：工作区清单合并 / 工作区文件 / 会话 cwd 改写
     └── client/               # 客户端半（Compose）
         ├── bridge.ts               # RPC 桥接口
         ├── SyncViewModel.ts       # 状态 + 动作
@@ -167,14 +168,57 @@ registerNasSyncUi(ctx, HostBridge(scope))
 
 ## 5. 同步规则
 
-- **白名单**：sessions、settings.yaml、attachments、profiles/web、skills
-- **明确排除**：`.credentials.yaml`、`.env`、`.token`、`node_modules/`、缓存
+- **按分类勾选**（`syncScope`，面板上有勾选框）：
+
+  | 键 | 内容 | 默认 |
+  |---|---|---|
+  | `sessions` | `sessions/` 会话正文 | 开 |
+  | `workspaces` | `storages/workspace.json` 工作区清单（侧栏的文件夹名与归属） | 开 |
+  | `workspaceFiles` | 每个工作区**目录内容**（源码等），跳过 `node_modules` / `.git` | 开 |
+  | `sessionTitles` | `session-titles.json` 标题索引 | 开 |
+  | `attachments` | `attachments/` 图片与文件 | 开 |
+  | `skills` | `skills/` 自定义技能（可再按名字细分） | 开 |
+  | `profiles` | `profiles/` 插件与 Profile | 关（敏感） |
+  | `settings` | `settings.yaml` | 关（敏感） |
+  | `pluginPatch` | `cordis.patch.yml` | 关（敏感） |
+
+- **明确排除**：`.credentials.yaml`、`.env`、`.token`、`node_modules/`、`.git/`、缓存
 - **判变**：`mtime + size + sha256` 三元组
 - **加密**：scrypt 派生密钥 → NaCl secretbox（encrypt-then-MAC）
 - **断点续传**：远端分块 `<base>.partNNNN`，清单 `<base>.chunk-manifest.json`；
   大小匹配即视为已完成，大小不匹配则删残块重传
 - **冲突**：两端 mtime 均晚于上次成功同步且 hash 不同 → 进入冲突列表
 - **路径**：全部以 `~/.dsh` 相对路径存储，换机器可恢复
+
+### 5.1 跨设备：工作区名与「会话不能续用」
+
+会话头和工作区清单里存的都是**绝对路径**，直接搬到另一台设备会撞两堵墙：
+
+1. 缺 `storages/workspace.json` → 侧栏工作区名全丢，同步来的会话落进「未分组」。
+2. 会话头 `cwd` 固化了原机器路径（手机上是
+   `/data/user/0/com.dsh.harness/files/home/wstest`）→ 打开就报
+   `本轮运行失败：working-directory does not exist`。
+   而 dsh **拒绝「换一个 cwd 打开已有会话」**（`ApiSessionCwdConflict`），
+   调用方临时指定 cwd 无效，只能改写记录本身。
+
+本插件在**落地时**处理：
+
+- 工作区清单**只合并不覆盖**：本地已有 id 保留 path/title、只并 `sessionIds`，
+  绝不抹掉本机自己的 `default-workspace`。
+- 远端绝对路径在本机不存在时，映射到 `$DSH_HOME/workspaces/<名字>` 并 `mkdir`。
+- 会话文件落地时改写表头 `cwd` 为映射后的路径；每轮同步结束再做一次幂等修复。
+
+> **为什么映射到 `~/.dsh/workspaces/`**：它仍在 `$DSH_HOME` 之内，于是「工作区文件」
+> 可以当成 rel 前缀 `workspaces/` 的普通分类来同步；同时手机上的
+> `/data/.../home/wstest` 与电脑上的 `~/.dsh/workspaces/wstest` 在 rel 空间里
+> 收敛成同一个 `workspaces/wstest/`，两端算法一致就不会错位。
+
+> **⚠️ 会话文件是「多帧追加」的 zstd**：每写一批记录就 append 一个 frame。
+> Node 的 `zstdDecompressSync` / `createZstdDecompress()` **都只解第一帧**（实测：
+> 一个 2035 字节、13 帧、共 2789 字节内容的会话文件，只拿到 224 字节表头）。
+> 所以「整文件解开 → 改 → 整文件压缩」会把历史截成只剩表头。
+> 正确做法是解析帧边界、**只重写第 0 帧**，后续帧逐字节保留 —— 见
+> `src/sync/portable.ts` 的 `zstdFrameEnd()`。
 
 ## 6. 排错
 
@@ -191,6 +235,9 @@ registerNasSyncUi(ctx, HostBridge(scope))
 | 设置页没入口 | namespace 两端不一致，或 `dsh.client` 没被扫到 | Host `nas-sync` vs Client `key: nas-sync`；确认 patch 已 insert |
 | 密码框明文 | schema 没加 `role('secret')` | 补上，重启 |
 | 桌面端装不上 | 用 CLI 装 desktop | 改用 App 内插件面板 |
+| 同步完成，但侧栏还是「未分组」、工作区名没有 | 没勾 `workspaces`（工作区清单不在白名单里，`storages/workspace.json` 根本不会传） | 面板勾上「工作区清单」再同步一次 |
+| 同步来的会话一打开就报 `working-directory does not exist` | 会话头 `cwd` 是原机器绝对路径，本机没有该目录；而 dsh 拒绝换 cwd 打开老会话 | 见 5.1，落地时自动改写 cwd；已下地的旧文件跑一轮同步会被幂等修复 |
+| 工作区目录里明明有文件，`workspaceFiles` 却是 0 | 该工作区的 `path` 在本机不存在（清单先到、文件没到），或 path 被设成了家目录 / 盘符根（安全策略拒绝同步） | 正常现象；等清单与目录就位，或把工作区指到具体子目录 |
 | Compose 改了没生效 | Cordis 模块缓存 | 完全退出进程重开，不是关窗口 |
 
 ### `cordis.patch.yml` 必须是 `insert` 形式
@@ -249,6 +296,12 @@ ctx.on('webserver/index-inject', (table) => {
   退化为两路对比。
 - 自动同步定时器在配置变更后重建；间隔小于 1 分钟会被强制拉到 1 分钟。
 - `bridge.ts` 的 `DefaultBridge` 是骨架，**必须由宿主实现替换**，不可直接使用。
+- **工作区文件以目录基名做 rel 前缀**（`workspaces/<基名>`）。两个不同路径的工作区
+  恰好同名（如 `/a/demo` 与 `/b/demo`）时，会在 rel 空间撞到一起、文件互相覆盖。
+  这是刻意换取的简单性：换成 id 前缀就得在两端维护一份映射表，反而更容易错位。
+- **工作区无法映射回原路径**：从手机同步来的工作区在电脑上一律落在
+  `$DSH_HOME/workspaces/<名字>`，不会散落到 `Documents/` 之类的位置（那样风险更大）。
+  想放到别处，同步后在工作区设置里改 path 即可，后续同步不会覆盖已有条目的 path。
 
 ## 8. 开源与许可
 

@@ -27,6 +27,13 @@ export const NS_NAS_SYNC = 'nas-sync';
 export const DEFAULT_SYNC_SCOPE = {
   /** sessions/ 会话记录本体（聊天内容，不含凭据） */
   sessions: true,
+  /** storages/workspace.json 工作区注册表（缺了它，同步过来的会话只能落到「未分组」） */
+  workspaces: true,
+  /**
+   * 工作区**目录内容**（源码等）。rel 空间统一挂在 `workspaces/<名字>/` 下，
+   * 手机与电脑的工作区绝对路径不同，但折算后落到同一前缀，所以两端不会错位。
+   */
+  workspaceFiles: true,
   /** session-titles.json 会话标题索引（很小，但缺了列表会没名字） */
   sessionTitles: true,
   /** attachments/ 图片与文件 */
@@ -72,6 +79,8 @@ export const NasSyncSchema = z.object({
   /** r3：按分类勾选同步内容（未列出的键走 DEFAULT_SYNC_SCOPE） */
   syncScope: z.object({
     sessions: z.boolean().default(DEFAULT_SYNC_SCOPE.sessions),
+    workspaces: z.boolean().default(DEFAULT_SYNC_SCOPE.workspaces),
+    workspaceFiles: z.boolean().default(DEFAULT_SYNC_SCOPE.workspaceFiles),
     sessionTitles: z.boolean().default(DEFAULT_SYNC_SCOPE.sessionTitles),
     attachments: z.boolean().default(DEFAULT_SYNC_SCOPE.attachments),
     skills: z.boolean().default(DEFAULT_SYNC_SCOPE.skills),
@@ -93,7 +102,7 @@ export const NasSyncSchema = z.object({
 export type NasSyncConfig = ReturnType<typeof NasSyncSchema.parse>;
 
 /**
- * 把任意来源的 syncScope 归一成**完整**的 7 键对象。
+ * 把任意来源的 syncScope 归一成**完整**的键对象。
  *
  * 为什么必须做：配置是三层叠加（schema 默认 < patch entry config < store.userConfig），
  * 而顶层是浅展开 —— 用户层只要存过 `{syncScope:{attachments:false}}` 这样的**局部**对象，

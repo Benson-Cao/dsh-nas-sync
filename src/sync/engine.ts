@@ -25,6 +25,13 @@ import type { NasTransport } from '../nas/transport.js';
 import type { NasSyncConfig, Store } from '../config.js';
 import { isMergeable } from './merger.js';
 import { localOf } from '../paths.js';
+import {
+  isSessionRel,
+  isWorkspaceRegistryRel,
+  mergeWorkspaceRegistry,
+  repairSessionCwd,
+  rewriteSessionCwd,
+} from './portable.js';
 
 export type SyncMode = 'push' | 'pull' | 'mirror';
 
@@ -252,6 +259,17 @@ export class Engine {
         this.deps.store.save();
       }
 
+      // 收尾修复：把本次以及**以前**同步进来的会话统一检查一遍 cwd。
+      // 幂等（cwd 本机已存在就跳过），所以每次 pull 都跑也不会有额外开销；
+      // 这样即便上次同步时还没有这套逻辑，下一次 pull 也能把历史的坑填上。
+      if (!this.abort.signal.aborted) {
+        try {
+          await repairSessionCwd();
+        } catch {
+          /* 修复失败不该让整轮同步判失败 */
+        }
+      }
+
       // 回写 manifest：用最新本地状态重建（下载过的文件也反映进来）
       if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
@@ -295,14 +313,43 @@ export class Engine {
     }
   }
 
-  /** 下载单个文件并解密写盘。 */
+  /** 下载单个文件并解密写盘。工作区注册表与会话头要额外处理，见各分支注释。 */
   private async downloadEntry(rel: string): Promise<void> {
     this.setPhase('downloading');
     const plain = await this.fetchRemotePlain('/dsh/' + rel);
     if (!plain) throw new Error('远端不存在: ' + rel);
 
+    // ① 工作区注册表：直接覆盖会把本机的工作区整片抹掉（本地 default-workspace 也没了），
+    //    所以这里**只合并不覆盖**，并把远端绝对路径映射成本机真实目录。
+    if (isWorkspaceRegistryRel(rel)) {
+      // 注意：plain 是 Uint8Array，`plain.toString('utf8')` 会走 Array.prototype.toString
+      // 得到 "123,34,..." 这样的逗号串（encoding 参数被忽略），JSON.parse 必失败，
+      // 整个合并就成了静默 no-op。必须显式经过 Buffer。
+      await mergeWorkspaceRegistry(Buffer.from(plain).toString('utf8'));
+      return;
+    }
+
     const localAbs = localOf(rel);
-    await mkdir(localAbs.slice(0, localAbs.lastIndexOf('/')), { recursive: true });
+    const cut = Math.max(localAbs.lastIndexOf('/'), localAbs.lastIndexOf('\\'));
+    await mkdir(localAbs.slice(0, cut), { recursive: true });
+
+    // ② 会话头里的 cwd 是**原机器**的绝对路径（手机上形如
+    //    /data/user/0/com.dsh.harness/files/home/wstest），到本机不存在就会
+    //    「本轮运行失败: working-directory does not exist」。而 dsh 明确拒绝
+    //    「换一个 cwd 打开已有会话」（ApiSessionCwdConflict），调用方临时指定也没用
+    //    —— 唯一可行的是落地时就把记录里的路径改写成本机路径。
+    if (isSessionRel(rel)) {
+      // 同样必须 Buffer.from：rewriteSessionCwd 用的是 readUInt32LE/subarray 这套
+      // Buffer 专有 API，直接传 Uint8Array 会在帧解析处抛错并被吞掉，
+      // 表现成「会话拉下来了但 cwd 永远是手机路径」。
+      const out = rewriteSessionCwd(Buffer.from(plain));
+      if (out !== null) {
+        await mkdir(out.dir, { recursive: true });
+        await writeFile(localAbs, out.buf);
+        return;
+      }
+    }
+
     await writeFile(localAbs, plain);
   }
 

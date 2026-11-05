@@ -51,7 +51,12 @@ export interface PendingFile {
   size: number;
   /** upload = 本地新于远端，需推送；download = 反之；delete = 仅一端存在需删除 */
   action: 'upload' | 'download' | 'delete';
-  priority: number;
+  /**
+   * 早期排序用的权重（当前引擎按「先上传后下载、小文件优先」现算，不再读它）。
+   * 保留字段但改为可选：历史上没有任何一处赋值，写成必填只会让所有
+   * `pending.push({rel,size,action})` 都变成类型错误。
+   */
+  priority?: number;
 }
 
 /** 分页结果 */

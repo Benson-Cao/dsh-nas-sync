@@ -272,9 +272,12 @@ function apply(ctx: any, config: any): void {
 
   ctx.tools.register(defineTool({
     name: 'nas_sync_scope',
+    // 分类清单从 SYNC_CATEGORIES 拼，不写死 —— 上一版这里漏掉了新增的「工作区」相关分类，
+    // 工具说明与实际能力对不上，用户照着说明勾选会找不到。
     description: '查看或修改「按分类勾选同步内容」。'
-      + '不带参数调用 = 只读查看：返回 7 个分类（sessions 会话记录 / sessionTitles 会话标题 / attachments 附件 / '
-      + 'skills 技能 / profiles 插件与 Profile / settings 主设置 / pluginPatch 插件补丁）的勾选状态、'
+      + `不带参数调用 = 只读查看：返回 ${SYNC_CATEGORIES.length} 个分类（`
+      + SYNC_CATEGORIES.map((c) => `${c.key} ${c.label}`).join(' / ')
+      + '）的勾选状态、'
       + '文件数与体积（体积按**全部**分类统计，不受当前勾选影响，便于判断关掉某项能省多少）。'
       + '传 set 则修改勾选（局部合并，如 {"attachments":false} 只关附件，其余不变）。'
       + 'includeSensitive 控制已选分类**内部**的凭据文件（.credentials.yaml 等）是否一起同步。'
@@ -569,7 +572,8 @@ function apply(ctx: any, config: any): void {
   // 8.5 nas_set_config：修改并持久化配置（自管配置层）
   ctx.tools.register(defineTool({
     name: 'nas_set_config',
-    description: '修改 NAS 同步配置并持久化（重启引擎后仍生效）。可改：type(webdav/mount)、webdav.{url,remotePath(共享文件夹),username,password}、mountRoot、passphrase(加密口令)、autoSync.{enabled,mode,intervalMin}、chunkThreshold、chunkSize、concurrency、includeSensitive、syncScope.{sessions,sessionTitles,attachments,skills,profiles,settings,pluginPatch}（分类勾选，二级合并）。传部分字段即可；只想改勾选请优先用 nas_sync_scope。',
+    description: '修改 NAS 同步配置并持久化（重启引擎后仍生效）。可改：type(webdav/mount)、webdav.{url,remotePath(共享文件夹),username,password}、mountRoot、passphrase(加密口令)、autoSync.{enabled,mode,intervalMin}、chunkThreshold、chunkSize、concurrency、includeSensitive、'
+      + `syncScope.{${SYNC_CATEGORIES.map((c) => c.key).join(',')}}（分类勾选，二级合并）。传部分字段即可；只想改勾选请优先用 nas_sync_scope。`,
     parameters: {
       config: {
         type: 'object',

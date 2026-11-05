@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { dshHome, localOf, relFromRemote } from '../paths.js';
 import { DEFAULT_SYNC_SCOPE, type SyncScope, type SyncScopeKey } from '../config.js';
+import { collectWorkspaceDirs, walkWorkspaceFiles, type WorkspaceDir } from './portable.js';
 
 export interface ManifestEntry {
   rel: string;
@@ -41,6 +42,13 @@ export interface CategoryMeta {
  */
 export const SYNC_CATEGORIES: CategoryMeta[] = [
   { key: 'sessions', localDir: 'sessions', label: '会话记录', desc: 'sessions/ 下的对话内容', sensitive: false },
+  { key: 'workspaces', localDir: 'storages/workspace.json', label: '工作区清单', desc: '侧栏的工作区/文件夹名与会话归属；拉取时合并并自动映射路径', sensitive: false },
+  /**
+   * 注意：这一项的 localDir 只是「名义前缀」，实际扫的是注册表里每个工作区的真实目录
+   * （手机上它们在 $DSH_HOME 之外），见 Scanner#manifestOfWorkspaceFiles。
+   * 但 rel 空间一律记作 `workspaces/<名字>/…`，因此拉取端不需要任何特殊处理。
+   */
+  { key: 'workspaceFiles', localDir: 'workspaces', label: '工作区文件', desc: '每个工作区目录里的源码等文件（跳过 node_modules、.git 等）', sensitive: false },
   { key: 'sessionTitles', localDir: 'session-titles.json', label: '会话标题', desc: '会话列表的标题索引', sensitive: false },
   { key: 'attachments', localDir: 'attachments', label: '附件', desc: 'attachments/ 图片与文件，通常最大', sensitive: false },
   { key: 'skills', localDir: 'skills', label: '技能', desc: 'skills/ 自定义技能', sensitive: false },
@@ -148,6 +156,11 @@ export class Scanner {
     const base = dshHome();
     const out: ManifestEntry[] = [];
     for (const rule of this.rules) {
+      // 工作区文件是唯一「目录来源不是 rule.localDir」的分类，单独走一条支线
+      if (rule.key === 'workspaceFiles') {
+        out.push(...(await this.manifestOfWorkspaceFiles(base)));
+        continue;
+      }
       const local = resolve(base, rule.localDir);
       let st;
       try {
@@ -172,8 +185,36 @@ export class Scanner {
     return out;
   }
 
-  private async toEntry(file: string, rel: string): Promise<ManifestEntry> {
-    const s = statSync(file);
+  /**
+   * 「工作区文件」的清单。
+   *
+   * 工作区的真实目录来自 `storages/workspace.json`，不是 `$DSH_HOME/workspaces`
+   * —— 手机上的工作区在 home 之外的 `/data/.../home/wstest`。两端都折算成
+   * `workspaces/<名字>/…` 这个 rel 前缀，所以拉取端 localOf(rel) 天然落到
+   * 合并清单时映射出来的同一目录，无需引擎特判。
+   */
+  private async manifestOfWorkspaceFiles(base: string): Promise<ManifestEntry[]> {
+    const out: ManifestEntry[] = [];
+    let dirs: WorkspaceDir[];
+    try {
+      dirs = await collectWorkspaceDirs(base);
+    } catch {
+      return out;
+    }
+    for (const ws of dirs) {
+      try {
+        for await (const f of walkWorkspaceFiles(ws)) {
+          if (!this.includeSensitive && this.isSensitive(f.rel)) continue;
+          out.push(await this.toEntry(f.file, f.rel));
+        }
+      } catch {
+        /* 单个工作区读不了（权限/被占用）不该让整轮扫描失败 */
+      }
+    }
+    return out;
+  }
+
+  private async toEntry(file: string, rel: string): Promise<ManifestEntry> {    const s = statSync(file);
     const buf = await readFile(file);
     return {
       rel,
@@ -219,6 +260,21 @@ export async function summarizeCategories(opts: { scope: Partial<SyncScope>; inc
   for (const c of SYNC_CATEGORIES) out[c.key] = { files: 0, bytes: 0 };
   const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter });
   for (const rule of sc.activeRules()) {
+    // 工作区文件：目录来源是注册表里的真实路径，stat 名义前缀会算出假数字
+    if (rule.key === 'workspaceFiles') {
+      try {
+        for (const ws of await collectWorkspaceDirs(dshHome())) {
+          for await (const f of walkWorkspaceFiles(ws)) {
+            try {
+              const fs2 = await stat(f.file);
+              out[rule.key].files += 1;
+              out[rule.key].bytes += fs2.size;
+            } catch { /* 忽略消失的文件 */ }
+          }
+        }
+      } catch { /* 注册表读不了就当 0 */ }
+      continue;
+    }
     const local = resolve(dshHome(), rule.localDir);
     let st;
     try { st = await stat(local); } catch { continue; }

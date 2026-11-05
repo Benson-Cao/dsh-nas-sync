@@ -11,9 +11,9 @@ window.__ModuleLoader__.load({
 
     // ---- 同步内容分类（与服务端 SYNC_CATEGORIES 一一对应，顺序即展示顺序）----
     // 服务端是权威：这里只是为了渲染勾选框；对不上的键服务端会忽略并告警。
-    const SCOPE_ORDER = ['sessions', 'sessionTitles', 'attachments', 'skills', 'profiles', 'settings', 'pluginPatch'];
+    const SCOPE_ORDER = ['sessions', 'workspaces', 'workspaceFiles', 'sessionTitles', 'attachments', 'skills', 'profiles', 'settings', 'pluginPatch'];
     const SCOPE_DEFAULT = {
-      sessions: true, sessionTitles: true, attachments: true, skills: true,
+      sessions: true, workspaces: true, workspaceFiles: true, sessionTitles: true, attachments: true, skills: true,
       profiles: false, settings: false, pluginPatch: false,
     };
     const SCOPE_SENSITIVE = { profiles: true, settings: true, pluginPatch: true };
@@ -68,6 +68,8 @@ window.__ModuleLoader__.load({
       skillsHint: '只同步勾选的技能。全部勾上时按「全部技能」处理，以后新增的技能会自动包含。',
       skillsAllOn: '（当前 = 全部技能）',
       scopeSessions: '会话记录',
+      scopeWorkspaces: '工作区清单',
+      scopeWorkspaceFiles: '工作区文件',
       scopeSessionTitles: '会话标题',
       scopeAttachments: '附件',
       scopeSkills: '技能',
@@ -145,6 +147,8 @@ window.__ModuleLoader__.load({
       skillsHint: 'Only checked skills sync. Checking all is treated as "all skills", so skills added later are included automatically.',
       skillsAllOn: '(currently = all skills)',
       scopeSessions: 'Sessions',
+      scopeWorkspaces: 'Workspace list',
+      scopeWorkspaceFiles: 'Workspace files',
       scopeSessionTitles: 'Session titles',
       scopeAttachments: 'Attachments',
       scopeSkills: 'Skills',

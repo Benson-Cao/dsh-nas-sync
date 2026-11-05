@@ -226,7 +226,7 @@ var require_url_parse = __commonJS({
         rest
       };
     }
-    function resolve2(relative2, base) {
+    function resolve3(relative2, base) {
       if (relative2 === "") return base;
       var path4 = (base || "/").split("/").slice(0, -1).concat(relative2.split("/")), i2 = path4.length, last = path4[i2 - 1], unshift = false, up = 0;
       while (i2--) {
@@ -296,7 +296,7 @@ var require_url_parse = __commonJS({
       }
       if (parser) url.query = parser(url.query);
       if (relative2 && location.slashes && url.pathname.charAt(0) !== "/" && (url.pathname !== "" || location.pathname !== "")) {
-        url.pathname = resolve2(url.pathname, location.pathname);
+        url.pathname = resolve3(url.pathname, location.pathname);
       }
       if (url.pathname.charAt(0) !== "/" && isSpecial(url.protocol)) {
         url.pathname = "/" + url.pathname;
@@ -1672,7 +1672,7 @@ var require_ponyfill_es2018 = __commonJS({
         return new originalPromise(executor);
       }
       function promiseResolvedWith(value) {
-        return newPromise((resolve2) => resolve2(value));
+        return newPromise((resolve3) => resolve3(value));
       }
       function promiseRejectedWith(reason) {
         return originalPromiseReject(reason);
@@ -1842,8 +1842,8 @@ var require_ponyfill_es2018 = __commonJS({
         return new TypeError("Cannot " + name2 + " a stream using a released reader");
       }
       function defaultReaderClosedPromiseInitialize(reader) {
-        reader._closedPromise = newPromise((resolve2, reject) => {
-          reader._closedPromise_resolve = resolve2;
+        reader._closedPromise = newPromise((resolve3, reject) => {
+          reader._closedPromise_resolve = resolve3;
           reader._closedPromise_reject = reject;
         });
       }
@@ -2017,8 +2017,8 @@ var require_ponyfill_es2018 = __commonJS({
           }
           let resolvePromise;
           let rejectPromise;
-          const promise = newPromise((resolve2, reject) => {
-            resolvePromise = resolve2;
+          const promise = newPromise((resolve3, reject) => {
+            resolvePromise = resolve3;
             rejectPromise = reject;
           });
           const readRequest = {
@@ -2123,8 +2123,8 @@ var require_ponyfill_es2018 = __commonJS({
           const reader = this._reader;
           let resolvePromise;
           let rejectPromise;
-          const promise = newPromise((resolve2, reject) => {
-            resolvePromise = resolve2;
+          const promise = newPromise((resolve3, reject) => {
+            resolvePromise = resolve3;
             rejectPromise = reject;
           });
           const readRequest = {
@@ -3143,8 +3143,8 @@ var require_ponyfill_es2018 = __commonJS({
           }
           let resolvePromise;
           let rejectPromise;
-          const promise = newPromise((resolve2, reject) => {
-            resolvePromise = resolve2;
+          const promise = newPromise((resolve3, reject) => {
+            resolvePromise = resolve3;
             rejectPromise = reject;
           });
           const readIntoRequest = {
@@ -3456,10 +3456,10 @@ var require_ponyfill_es2018 = __commonJS({
           wasAlreadyErroring = true;
           reason = void 0;
         }
-        const promise = newPromise((resolve2, reject) => {
+        const promise = newPromise((resolve3, reject) => {
           stream._pendingAbortRequest = {
             _promise: void 0,
-            _resolve: resolve2,
+            _resolve: resolve3,
             _reject: reject,
             _reason: reason,
             _wasAlreadyErroring: wasAlreadyErroring
@@ -3476,9 +3476,9 @@ var require_ponyfill_es2018 = __commonJS({
         if (state === "closed" || state === "errored") {
           return promiseRejectedWith(new TypeError(`The stream (in ${state} state) is not in the writable state and cannot be closed`));
         }
-        const promise = newPromise((resolve2, reject) => {
+        const promise = newPromise((resolve3, reject) => {
           const closeRequest = {
-            _resolve: resolve2,
+            _resolve: resolve3,
             _reject: reject
           };
           stream._closeRequest = closeRequest;
@@ -3491,9 +3491,9 @@ var require_ponyfill_es2018 = __commonJS({
         return promise;
       }
       function WritableStreamAddWriteRequest(stream) {
-        const promise = newPromise((resolve2, reject) => {
+        const promise = newPromise((resolve3, reject) => {
           const writeRequest = {
-            _resolve: resolve2,
+            _resolve: resolve3,
             _reject: reject
           };
           stream._writeRequests.push(writeRequest);
@@ -4109,8 +4109,8 @@ var require_ponyfill_es2018 = __commonJS({
         return new TypeError("Cannot " + name2 + " a stream using a released writer");
       }
       function defaultWriterClosedPromiseInitialize(writer) {
-        writer._closedPromise = newPromise((resolve2, reject) => {
-          writer._closedPromise_resolve = resolve2;
+        writer._closedPromise = newPromise((resolve3, reject) => {
+          writer._closedPromise_resolve = resolve3;
           writer._closedPromise_reject = reject;
           writer._closedPromiseState = "pending";
         });
@@ -4146,8 +4146,8 @@ var require_ponyfill_es2018 = __commonJS({
         writer._closedPromiseState = "resolved";
       }
       function defaultWriterReadyPromiseInitialize(writer) {
-        writer._readyPromise = newPromise((resolve2, reject) => {
-          writer._readyPromise_resolve = resolve2;
+        writer._readyPromise = newPromise((resolve3, reject) => {
+          writer._readyPromise_resolve = resolve3;
           writer._readyPromise_reject = reject;
         });
         writer._readyPromiseState = "pending";
@@ -4234,7 +4234,7 @@ var require_ponyfill_es2018 = __commonJS({
         source._disturbed = true;
         let shuttingDown = false;
         let currentWrite = promiseResolvedWith(void 0);
-        return newPromise((resolve2, reject) => {
+        return newPromise((resolve3, reject) => {
           let abortAlgorithm;
           if (signal !== void 0) {
             abortAlgorithm = () => {
@@ -4379,7 +4379,7 @@ var require_ponyfill_es2018 = __commonJS({
             if (isError2) {
               reject(error);
             } else {
-              resolve2(void 0);
+              resolve3(void 0);
             }
             return null;
           }
@@ -4660,8 +4660,8 @@ var require_ponyfill_es2018 = __commonJS({
         let branch1;
         let branch2;
         let resolveCancelPromise;
-        const cancelPromise = newPromise((resolve2) => {
-          resolveCancelPromise = resolve2;
+        const cancelPromise = newPromise((resolve3) => {
+          resolveCancelPromise = resolve3;
         });
         function pullAlgorithm() {
           if (reading) {
@@ -4752,8 +4752,8 @@ var require_ponyfill_es2018 = __commonJS({
         let branch1;
         let branch2;
         let resolveCancelPromise;
-        const cancelPromise = newPromise((resolve2) => {
-          resolveCancelPromise = resolve2;
+        const cancelPromise = newPromise((resolve3) => {
+          resolveCancelPromise = resolve3;
         });
         function forwardReaderError(thisReader) {
           uponRejection(thisReader._closedPromise, (r2) => {
@@ -5533,8 +5533,8 @@ var require_ponyfill_es2018 = __commonJS({
           const writableHighWaterMark = ExtractHighWaterMark(writableStrategy, 1);
           const writableSizeAlgorithm = ExtractSizeAlgorithm(writableStrategy);
           let startPromise_resolve;
-          const startPromise = newPromise((resolve2) => {
-            startPromise_resolve = resolve2;
+          const startPromise = newPromise((resolve3) => {
+            startPromise_resolve = resolve3;
           });
           InitializeTransformStream(this, startPromise, writableHighWaterMark, writableSizeAlgorithm, readableHighWaterMark, readableSizeAlgorithm);
           SetUpTransformStreamDefaultControllerFromTransformer(this, transformer);
@@ -5627,8 +5627,8 @@ var require_ponyfill_es2018 = __commonJS({
         if (stream._backpressureChangePromise !== void 0) {
           stream._backpressureChangePromise_resolve();
         }
-        stream._backpressureChangePromise = newPromise((resolve2) => {
-          stream._backpressureChangePromise_resolve = resolve2;
+        stream._backpressureChangePromise = newPromise((resolve3) => {
+          stream._backpressureChangePromise_resolve = resolve3;
         });
         stream._backpressure = backpressure;
       }
@@ -5796,8 +5796,8 @@ var require_ponyfill_es2018 = __commonJS({
           return controller._finishPromise;
         }
         const readable = stream._readable;
-        controller._finishPromise = newPromise((resolve2, reject) => {
-          controller._finishPromise_resolve = resolve2;
+        controller._finishPromise = newPromise((resolve3, reject) => {
+          controller._finishPromise_resolve = resolve3;
           controller._finishPromise_reject = reject;
         });
         const cancelPromise = controller._cancelAlgorithm(reason);
@@ -5823,8 +5823,8 @@ var require_ponyfill_es2018 = __commonJS({
           return controller._finishPromise;
         }
         const readable = stream._readable;
-        controller._finishPromise = newPromise((resolve2, reject) => {
-          controller._finishPromise_resolve = resolve2;
+        controller._finishPromise = newPromise((resolve3, reject) => {
+          controller._finishPromise_resolve = resolve3;
           controller._finishPromise_reject = reject;
         });
         const flushPromise = controller._flushAlgorithm();
@@ -5854,8 +5854,8 @@ var require_ponyfill_es2018 = __commonJS({
           return controller._finishPromise;
         }
         const writable = stream._writable;
-        controller._finishPromise = newPromise((resolve2, reject) => {
-          controller._finishPromise_resolve = resolve2;
+        controller._finishPromise = newPromise((resolve3, reject) => {
+          controller._finishPromise_resolve = resolve3;
           controller._finishPromise_reject = reject;
         });
         const cancelPromise = controller._cancelAlgorithm(reason);
@@ -7734,7 +7734,7 @@ import zlib from "node:zlib";
 import Stream2, { PassThrough as PassThrough2, pipeline as pump } from "node:stream";
 import { Buffer as Buffer3 } from "node:buffer";
 async function fetch(url, options_) {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     const request2 = new Request(url, options_);
     const { parsedURL, options } = getNodeRequestOptions(request2);
     if (!supportedSchemas.has(parsedURL.protocol)) {
@@ -7743,7 +7743,7 @@ async function fetch(url, options_) {
     if (parsedURL.protocol === "data:") {
       const data = dist_default(request2.url);
       const response2 = new Response(data, { headers: { "Content-Type": data.typeFull } });
-      resolve2(response2);
+      resolve3(response2);
       return;
     }
     const send = (parsedURL.protocol === "https:" ? https : http2).request;
@@ -7865,7 +7865,7 @@ async function fetch(url, options_) {
             if (responseReferrerPolicy) {
               requestOptions.referrerPolicy = responseReferrerPolicy;
             }
-            resolve2(fetch(new Request(locationURL, requestOptions)));
+            resolve3(fetch(new Request(locationURL, requestOptions)));
             finalize();
             return;
           }
@@ -7898,7 +7898,7 @@ async function fetch(url, options_) {
       const codings = headers.get("Content-Encoding");
       if (!request2.compress || request2.method === "HEAD" || codings === null || response_.statusCode === 204 || response_.statusCode === 304) {
         response = new Response(body, responseOptions);
-        resolve2(response);
+        resolve3(response);
         return;
       }
       const zlibOptions = {
@@ -7912,7 +7912,7 @@ async function fetch(url, options_) {
           }
         });
         response = new Response(body, responseOptions);
-        resolve2(response);
+        resolve3(response);
         return;
       }
       if (codings === "deflate" || codings === "x-deflate") {
@@ -7936,12 +7936,12 @@ async function fetch(url, options_) {
             });
           }
           response = new Response(body, responseOptions);
-          resolve2(response);
+          resolve3(response);
         });
         raw.once("end", () => {
           if (!response) {
             response = new Response(body, responseOptions);
-            resolve2(response);
+            resolve3(response);
           }
         });
         return;
@@ -7953,11 +7953,11 @@ async function fetch(url, options_) {
           }
         });
         response = new Response(body, responseOptions);
-        resolve2(response);
+        resolve3(response);
         return;
       }
       response = new Response(body, responseOptions);
-      resolve2(response);
+      resolve3(response);
     });
     writeToStream(request_, request2).catch(reject);
   });
@@ -13016,21 +13016,21 @@ var init_Matcher = __esm({
        * @returns {string}
        */
       toString(separator, includeNamespace = true) {
-        const sep3 = separator || this.separator;
-        const isDefault = sep3 === this.separator && includeNamespace === true;
+        const sep4 = separator || this.separator;
+        const isDefault = sep4 === this.separator && includeNamespace === true;
         if (isDefault) {
           if (this._pathStringCache !== null) {
             return this._pathStringCache;
           }
           const result = this.path.map(
             (n) => n.namespace ? `${n.namespace}:${n.tag}` : n.tag
-          ).join(sep3);
+          ).join(sep4);
           this._pathStringCache = result;
           return result;
         }
         return this.path.map(
           (n) => includeNamespace && n.namespace ? `${n.namespace}:${n.tag}` : n.tag
-        ).join(sep3);
+        ).join(sep4);
       }
       /**
        * Get path as array of tag names.
@@ -16143,18 +16143,18 @@ function parseXML(xml, context) {
     attributeParsers: [],
     tagParsers: [displaynameTagParser]
   };
-  return new Promise((resolve2) => {
+  return new Promise((resolve3) => {
     const result = getParser(context).parse(xml);
     if (context.clarkNotationProps) {
       applyClarkNotation(result, context.attributeNamePrefix ?? "@");
     }
-    resolve2(normaliseResult(result));
+    resolve3(normaliseResult(result));
   });
 }
 function prepareFileFromProps(props, filename, isDetailed = false) {
   const { getlastmodified: lastMod = null, getcontentlength: rawSize = "0", resourcetype: resourceType = null, getcontenttype: mimeType = null, getetag: etag = null } = props;
   const type = resourceType && typeof resourceType === "object" && typeof resourceType.collection !== "undefined" ? "directory" : "file";
-  const stat5 = {
+  const stat6 = {
     filename,
     basename: import_path_posix2.default.basename(filename),
     lastmod: lastMod,
@@ -16163,15 +16163,15 @@ function prepareFileFromProps(props, filename, isDetailed = false) {
     etag: typeof etag === "string" ? etag.replace(/"/g, "") : null
   };
   if (type === "file") {
-    stat5.mime = mimeType && typeof mimeType === "string" ? mimeType.split(";")[0] : "";
+    stat6.mime = mimeType && typeof mimeType === "string" ? mimeType.split(";")[0] : "";
   }
   if (isDetailed) {
     if (typeof props.displayname !== "undefined") {
       props.displayname = String(props.displayname);
     }
-    stat5.props = props;
+    stat6.props = props;
   }
-  return stat5;
+  return stat6;
 }
 function parseStat(result, filename, isDetailed = false) {
   let responseItem = null;
@@ -16263,8 +16263,8 @@ async function getStat(context, filename, options = {}) {
   handleResponseCode(context, response);
   const responseData = await response.text();
   const result = await parseXML(responseData, context.parsing);
-  const stat5 = parseStat(result, filename, isDetailed);
-  return processResponsePayload(response, stat5, isDetailed);
+  const stat6 = parseStat(result, filename, isDetailed);
+  return processResponsePayload(response, stat6, isDetailed);
 }
 var init_stat = __esm({
   "node_modules/webdav/dist/node/operations/stat.js"() {
@@ -20043,7 +20043,7 @@ var require_scrypt = __commonJS({
       }
       const lib = {
         scrypt: function(password, salt, N, r2, p, dkLen, progressCallback) {
-          return new Promise(function(resolve2, reject) {
+          return new Promise(function(resolve3, reject) {
             let lastProgress = 0;
             if (progressCallback) {
               progressCallback(0);
@@ -20055,7 +20055,7 @@ var require_scrypt = __commonJS({
                 if (progressCallback && lastProgress !== 1) {
                   progressCallback(1);
                 }
-                resolve2(new Uint8Array(key));
+                resolve3(new Uint8Array(key));
               } else if (progressCallback && progress !== lastProgress) {
                 lastProgress = progress;
                 return progressCallback(progress);
@@ -20188,18 +20188,18 @@ var init_merger = __esm({
 // src/index.ts
 init_nas();
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3 } from "node:fs/promises";
+import { readFile as readFile5, writeFile as writeFile4, mkdir as mkdir4 } from "node:fs/promises";
 
 // src/sync/engine.ts
-import { readFile as readFile3, writeFile as writeFile2, mkdir as mkdir2 } from "node:fs/promises";
-import { stat as stat4 } from "node:fs/promises";
+import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3 } from "node:fs/promises";
+import { stat as stat5 } from "node:fs/promises";
 import { createHash as createHash2 } from "node:crypto";
 
 // src/sync/scanner.ts
 init_paths();
-import { readdir as readdir2, stat as stat3, readFile as readFile2 } from "node:fs/promises";
+import { readdir as readdir3, stat as stat4, readFile as readFile3 } from "node:fs/promises";
 import { statSync as statSync2 } from "node:fs";
-import { join as join4, resolve } from "node:path";
+import { join as join5, resolve as resolve2 } from "node:path";
 import { createHash } from "node:crypto";
 
 // src/config.ts
@@ -20212,6 +20212,13 @@ var NS_NAS_SYNC = "nas-sync";
 var DEFAULT_SYNC_SCOPE = {
   /** sessions/ 会话记录本体（聊天内容，不含凭据） */
   sessions: true,
+  /** storages/workspace.json 工作区注册表（缺了它，同步过来的会话只能落到「未分组」） */
+  workspaces: true,
+  /**
+   * 工作区**目录内容**（源码等）。rel 空间统一挂在 `workspaces/<名字>/` 下，
+   * 手机与电脑的工作区绝对路径不同，但折算后落到同一前缀，所以两端不会错位。
+   */
+  workspaceFiles: true,
   /** session-titles.json 会话标题索引（很小，但缺了列表会没名字） */
   sessionTitles: true,
   /** attachments/ 图片与文件 */
@@ -20253,6 +20260,8 @@ var NasSyncSchema = z.object({
   /** r3：按分类勾选同步内容（未列出的键走 DEFAULT_SYNC_SCOPE） */
   syncScope: z.object({
     sessions: z.boolean().default(DEFAULT_SYNC_SCOPE.sessions),
+    workspaces: z.boolean().default(DEFAULT_SYNC_SCOPE.workspaces),
+    workspaceFiles: z.boolean().default(DEFAULT_SYNC_SCOPE.workspaceFiles),
     sessionTitles: z.boolean().default(DEFAULT_SYNC_SCOPE.sessionTitles),
     attachments: z.boolean().default(DEFAULT_SYNC_SCOPE.attachments),
     skills: z.boolean().default(DEFAULT_SYNC_SCOPE.skills),
@@ -20360,9 +20369,339 @@ var Store = class {
   }
 };
 
+// src/sync/portable.ts
+init_paths();
+import * as zlib2 from "node:zlib";
+import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mkdir as mkdir2, stat as stat3 } from "node:fs/promises";
+import { existsSync as existsSync2 } from "node:fs";
+import { join as join4, resolve, sep as sep3 } from "node:path";
+var zstdImpl = zlib2;
+var zstdCompress = zstdImpl.zstdCompressSync ?? null;
+var zstdDecompress = zstdImpl.zstdDecompressSync ?? null;
+var WORKSPACE_REGISTRY_REL = "storages/workspace.json";
+var WORKSPACES_DIR = "workspaces";
+var WORKSPACE_FILES_PREFIX = WORKSPACES_DIR;
+var SESSION_FILE_RE = /^session\.v\d+\.jsonl\.zstd$/;
+var SESSION_REL_RE = /^sessions\/[^/]+\/[^/]+\/session\.v\d+\.jsonl\.zstd$/;
+function isSessionRel(rel) {
+  return SESSION_REL_RE.test(rel);
+}
+function isWorkspaceRegistryRel(rel) {
+  return rel === WORKSPACE_REGISTRY_REL;
+}
+function safeName(p) {
+  if (typeof p !== "string" || p.length === 0) return "workspace";
+  const parts = p.split(/[\\/]+/).filter(Boolean);
+  const base = parts.length > 0 ? parts[parts.length - 1] : "";
+  const cleaned = base.replace(/[<>:"|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/, "");
+  return cleaned.length > 0 ? cleaned : "workspace";
+}
+function mapRemotePath(remotePath, home = dshHome()) {
+  if (typeof remotePath === "string" && remotePath.length > 0) {
+    try {
+      if (existsSync2(remotePath)) return { local: remotePath, mapped: false };
+    } catch {
+    }
+  }
+  return { local: join4(home, WORKSPACES_DIR, safeName(remotePath)), mapped: true };
+}
+function workspaceRelOf(dirPath) {
+  return `${WORKSPACE_FILES_PREFIX}/${safeName(dirPath)}`;
+}
+function isUnsafeWorkspaceRoot(dir, home) {
+  let norm;
+  let h2;
+  try {
+    norm = resolve(dir);
+    h2 = resolve(home);
+  } catch {
+    return true;
+  }
+  if (norm === h2 || h2 === norm || h2.startsWith(norm.endsWith(sep3) ? norm : norm + sep3)) return true;
+  const segs = norm.split(/[\\/]+/).filter((s2) => s2.length > 0);
+  return segs.length <= 1;
+}
+async function collectWorkspaceDirs(home = dshHome()) {
+  const out = [];
+  const seenDir = /* @__PURE__ */ new Set();
+  const seenRel = /* @__PURE__ */ new Set();
+  const push = async (id, title, dir) => {
+    if (typeof dir !== "string" || dir.length === 0) return;
+    if (isUnsafeWorkspaceRoot(dir, home)) return;
+    let st;
+    try {
+      st = await stat3(dir);
+    } catch {
+      return;
+    }
+    if (!st.isDirectory()) return;
+    const abs = resolve(dir);
+    const rel = workspaceRelOf(abs);
+    if (seenDir.has(abs) || seenRel.has(rel)) return;
+    seenDir.add(abs);
+    seenRel.add(rel);
+    out.push({ id, title, dir: abs, rel });
+  };
+  let parsed;
+  try {
+    parsed = JSON.parse(await readFile2(join4(home, WORKSPACE_REGISTRY_REL), "utf8"));
+  } catch {
+    parsed = null;
+  }
+  const spaces = parsed?.["tables"]?.["workspaces"] ?? {};
+  for (const [id, w] of Object.entries(spaces)) {
+    const title = typeof w?.["title"] === "string" ? w["title"] : "";
+    await push(id, title, w?.["path"]);
+  }
+  let names = [];
+  try {
+    names = await readdir2(join4(home, WORKSPACES_DIR));
+  } catch {
+    names = [];
+  }
+  for (const name2 of names) {
+    if (name2.startsWith(".")) continue;
+    await push("", name2, join4(home, WORKSPACES_DIR, name2));
+  }
+  return out;
+}
+var WORKSPACE_SKIP_DIRS = /* @__PURE__ */ new Set([
+  "node_modules",
+  ".git",
+  ".svn",
+  ".hg",
+  "__pycache__",
+  ".venv",
+  "venv",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  ".cache",
+  "nas-sync"
+]);
+async function* walkWorkspaceFiles(ws) {
+  yield* walkInto(ws.dir, ws.rel, 0);
+}
+async function* walkInto(dir, relBase, depth) {
+  if (depth > 24) return;
+  let names;
+  try {
+    names = await readdir2(dir);
+  } catch {
+    return;
+  }
+  for (const name2 of names) {
+    const full = join4(dir, name2);
+    let st;
+    try {
+      st = await stat3(full);
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) {
+      if (WORKSPACE_SKIP_DIRS.has(name2)) continue;
+      yield* walkInto(full, `${relBase}/${name2}`, depth + 1);
+      continue;
+    }
+    if (!st.isFile()) continue;
+    if (name2.endsWith(".base") || name2.endsWith(".chunk-manifest.json") || name2.endsWith(".lock")) continue;
+    yield { rel: `${relBase}/${name2}`, file: full };
+  }
+}
+var ZSTD_MAGIC = 4247762216;
+function zstdFrameEnd(buf, start) {
+  if (buf.length - start < 8) throw new Error("zstd: \u7F13\u51B2\u533A\u8FC7\u77ED");
+  if (buf.readUInt32LE(start) !== ZSTD_MAGIC) throw new Error("zstd: magic \u4E0D\u5339\u914D");
+  let p = start + 4;
+  const fhd = buf[p];
+  p += 1;
+  const fcsFlag = fhd >> 6;
+  const singleSegment = fhd >> 5 & 1;
+  const hasChecksum = fhd >> 2 & 1;
+  const dictFlag = fhd & 3;
+  if (singleSegment === 0) p += 1;
+  p += [0, 1, 2, 4][dictFlag] ?? 0;
+  const fcsSize = fcsFlag === 0 ? singleSegment === 1 ? 1 : 0 : fcsFlag === 1 ? 2 : fcsFlag === 2 ? 4 : 8;
+  p += fcsSize;
+  for (; ; ) {
+    if (p + 3 > buf.length) throw new Error("zstd: block header \u8D8A\u754C");
+    const bh = buf[p] | buf[p + 1] << 8 | buf[p + 2] << 16;
+    p += 3;
+    const last = bh & 1;
+    const type = bh >> 1 & 3;
+    const size = bh >>> 3;
+    if (type === 3) throw new Error("zstd: \u4FDD\u7559 block \u7C7B\u578B");
+    p += type === 1 ? 1 : size;
+    if (p > buf.length) throw new Error("zstd: block \u8D8A\u754C");
+    if (last === 1) break;
+  }
+  if (hasChecksum === 1) p += 4;
+  if (p > buf.length) throw new Error("zstd: checksum \u8D8A\u754C");
+  return p;
+}
+function decodeFirstFrame(buf) {
+  if (zstdDecompress === null) return null;
+  try {
+    const end = zstdFrameEnd(buf, 0);
+    return zstdDecompress(buf.subarray(0, end)).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+function readHeaderCwd(buf) {
+  const text = decodeFirstFrame(buf);
+  if (text === null) return null;
+  const nl = text.indexOf("\n");
+  const headLine = nl === -1 ? text : text.slice(0, nl);
+  let header;
+  try {
+    header = JSON.parse(headLine);
+  } catch {
+    return null;
+  }
+  if (typeof header !== "object" || header === null) return null;
+  const h2 = header;
+  if (h2["type"] !== "session" || typeof h2["cwd"] !== "string") return null;
+  return { header: h2, rest: nl === -1 ? "" : text.slice(nl) };
+}
+function rewriteSessionCwd(buf, home = dshHome()) {
+  if (zstdCompress === null) return null;
+  const parsed = readHeaderCwd(buf);
+  if (!parsed) return null;
+  const { local, mapped } = mapRemotePath(parsed.header["cwd"], home);
+  if (!mapped) return null;
+  let end;
+  try {
+    end = zstdFrameEnd(buf, 0);
+  } catch {
+    return null;
+  }
+  parsed.header["cwd"] = local;
+  const headFrame = zstdCompress(Buffer.from(JSON.stringify(parsed.header) + parsed.rest, "utf8"));
+  return { buf: Buffer.concat([headFrame, buf.subarray(end)]), dir: local };
+}
+async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
+  let remote;
+  try {
+    remote = JSON.parse(remoteText);
+  } catch {
+    return { added: 0, remapped: 0, total: 0 };
+  }
+  const localPath = join4(home, WORKSPACE_REGISTRY_REL);
+  let local;
+  try {
+    const parsed = JSON.parse(await readFile2(localPath, "utf8"));
+    local = typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    local = {};
+  }
+  local["unit"] ??= { name: "workspace", version: 2 };
+  local["global"] ??= { initialized: true };
+  const globals = local["global"];
+  globals["workspaceIds"] ??= [];
+  globals["archivedSessionIds"] ??= [];
+  globals["pinnedSessionIds"] ??= [];
+  local["tables"] ??= {};
+  const tables = local["tables"];
+  tables["workspaces"] ??= {};
+  const workspaces = tables["workspaces"];
+  const remoteWorkspaces = remote?.["tables"]?.["workspaces"] ?? {};
+  let added = 0;
+  let remapped = 0;
+  for (const [id, raw] of Object.entries(remoteWorkspaces)) {
+    const rw = raw ?? {};
+    const existing = workspaces[id];
+    if (existing !== void 0) {
+      const set = new Set(Array.isArray(existing["sessionIds"]) ? existing["sessionIds"] : []);
+      for (const s2 of Array.isArray(rw["sessionIds"]) ? rw["sessionIds"] : []) set.add(String(s2));
+      existing["sessionIds"] = [...set];
+      const currentPath = existing["path"];
+      const badPath = typeof currentPath !== "string" || currentPath.length === 0 || !existsSync2(currentPath);
+      if (badPath) {
+        const m3 = mapRemotePath(currentPath ?? rw["path"], home);
+        await mkdir2(m3.local, { recursive: true });
+        existing["path"] = m3.local;
+        remapped += 1;
+      }
+      if (!globals["workspaceIds"].includes(id)) globals["workspaceIds"].push(id);
+      continue;
+    }
+    const m2 = mapRemotePath(rw["path"], home);
+    await mkdir2(m2.local, { recursive: true });
+    workspaces[id] = {
+      ...rw,
+      path: m2.local,
+      sessionIds: Array.isArray(rw["sessionIds"]) ? [...rw["sessionIds"]] : []
+    };
+    if (!globals["workspaceIds"].includes(id)) globals["workspaceIds"].push(id);
+    added += 1;
+  }
+  globals["initialized"] ??= true;
+  if (!globals["defaultWorkspaceId"] && globals["workspaceIds"].length > 0) {
+    globals["defaultWorkspaceId"] = globals["workspaceIds"][0];
+  }
+  await mkdir2(join4(home, "storages"), { recursive: true });
+  await writeFile2(localPath, JSON.stringify(local, null, 2) + "\n");
+  return { added, remapped, total: Object.keys(workspaces).length };
+}
+async function repairSessionCwd(home = dshHome()) {
+  const root = join4(home, "sessions");
+  let workspaceDirs;
+  try {
+    workspaceDirs = await readdir2(root);
+  } catch {
+    return { fixed: 0, scanned: 0 };
+  }
+  let fixed = 0;
+  let scanned = 0;
+  for (const dir of workspaceDirs) {
+    if (!dir.startsWith("--")) continue;
+    const wdir = join4(root, dir);
+    let sessionDirs;
+    try {
+      sessionDirs = await readdir2(wdir);
+    } catch {
+      continue;
+    }
+    for (const sid of sessionDirs) {
+      const sdir = join4(wdir, sid);
+      let files;
+      try {
+        files = await readdir2(sdir);
+      } catch {
+        continue;
+      }
+      for (const name2 of files) {
+        if (!SESSION_FILE_RE.test(name2)) continue;
+        const file = join4(sdir, name2);
+        let buf;
+        try {
+          buf = await readFile2(file);
+        } catch {
+          continue;
+        }
+        scanned += 1;
+        const out = rewriteSessionCwd(buf, home);
+        if (!out) continue;
+        await mkdir2(out.dir, { recursive: true });
+        await writeFile2(file, out.buf);
+        fixed += 1;
+      }
+    }
+  }
+  return { fixed, scanned };
+}
+
 // src/sync/scanner.ts
 var SYNC_CATEGORIES = [
   { key: "sessions", localDir: "sessions", label: "\u4F1A\u8BDD\u8BB0\u5F55", desc: "sessions/ \u4E0B\u7684\u5BF9\u8BDD\u5185\u5BB9", sensitive: false },
+  { key: "workspaces", localDir: "storages/workspace.json", label: "\u5DE5\u4F5C\u533A\u6E05\u5355", desc: "\u4FA7\u680F\u7684\u5DE5\u4F5C\u533A/\u6587\u4EF6\u5939\u540D\u4E0E\u4F1A\u8BDD\u5F52\u5C5E\uFF1B\u62C9\u53D6\u65F6\u5408\u5E76\u5E76\u81EA\u52A8\u6620\u5C04\u8DEF\u5F84", sensitive: false },
+  /**
+   * 注意：这一项的 localDir 只是「名义前缀」，实际扫的是注册表里每个工作区的真实目录
+   * （手机上它们在 $DSH_HOME 之外），见 Scanner#manifestOfWorkspaceFiles。
+   * 但 rel 空间一律记作 `workspaces/<名字>/…`，因此拉取端不需要任何特殊处理。
+   */
+  { key: "workspaceFiles", localDir: "workspaces", label: "\u5DE5\u4F5C\u533A\u6587\u4EF6", desc: "\u6BCF\u4E2A\u5DE5\u4F5C\u533A\u76EE\u5F55\u91CC\u7684\u6E90\u7801\u7B49\u6587\u4EF6\uFF08\u8DF3\u8FC7 node_modules\u3001.git \u7B49\uFF09", sensitive: false },
   { key: "sessionTitles", localDir: "session-titles.json", label: "\u4F1A\u8BDD\u6807\u9898", desc: "\u4F1A\u8BDD\u5217\u8868\u7684\u6807\u9898\u7D22\u5F15", sensitive: false },
   { key: "attachments", localDir: "attachments", label: "\u9644\u4EF6", desc: "attachments/ \u56FE\u7247\u4E0E\u6587\u4EF6\uFF0C\u901A\u5E38\u6700\u5927", sensitive: false },
   { key: "skills", localDir: "skills", label: "\u6280\u80FD", desc: "skills/ \u81EA\u5B9A\u4E49\u6280\u80FD", sensitive: false },
@@ -20375,15 +20714,15 @@ var SENSITIVE_NAMES = [".credentials.yaml", ".credentials", ".env", ".token"];
 async function* walkFiles(dir) {
   let names;
   try {
-    names = await readdir2(dir);
+    names = await readdir3(dir);
   } catch {
     return;
   }
   for (const name2 of names) {
-    const full = join4(dir, name2);
+    const full = join5(dir, name2);
     let st;
     try {
-      st = await stat3(full);
+      st = await stat4(full);
     } catch {
       continue;
     }
@@ -20440,10 +20779,14 @@ var Scanner = class {
     const base = dshHome();
     const out = [];
     for (const rule of this.rules) {
-      const local = resolve(base, rule.localDir);
+      if (rule.key === "workspaceFiles") {
+        out.push(...await this.manifestOfWorkspaceFiles(base));
+        continue;
+      }
+      const local = resolve2(base, rule.localDir);
       let st;
       try {
-        st = await stat3(local);
+        st = await stat4(local);
       } catch {
         continue;
       }
@@ -20462,9 +20805,36 @@ var Scanner = class {
     }
     return out;
   }
+  /**
+   * 「工作区文件」的清单。
+   *
+   * 工作区的真实目录来自 `storages/workspace.json`，不是 `$DSH_HOME/workspaces`
+   * —— 手机上的工作区在 home 之外的 `/data/.../home/wstest`。两端都折算成
+   * `workspaces/<名字>/…` 这个 rel 前缀，所以拉取端 localOf(rel) 天然落到
+   * 合并清单时映射出来的同一目录，无需引擎特判。
+   */
+  async manifestOfWorkspaceFiles(base) {
+    const out = [];
+    let dirs;
+    try {
+      dirs = await collectWorkspaceDirs(base);
+    } catch {
+      return out;
+    }
+    for (const ws of dirs) {
+      try {
+        for await (const f3 of walkWorkspaceFiles(ws)) {
+          if (!this.includeSensitive && this.isSensitive(f3.rel)) continue;
+          out.push(await this.toEntry(f3.file, f3.rel));
+        }
+      } catch {
+      }
+    }
+    return out;
+  }
   async toEntry(file, rel) {
     const s2 = statSync2(file);
-    const buf = await readFile2(file);
+    const buf = await readFile3(file);
     return {
       rel,
       mtime: s2.mtimeMs,
@@ -20479,10 +20849,26 @@ async function summarizeCategories(opts) {
   for (const c of SYNC_CATEGORIES) out[c.key] = { files: 0, bytes: 0 };
   const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter });
   for (const rule of sc.activeRules()) {
-    const local = resolve(dshHome(), rule.localDir);
+    if (rule.key === "workspaceFiles") {
+      try {
+        for (const ws of await collectWorkspaceDirs(dshHome())) {
+          for await (const f3 of walkWorkspaceFiles(ws)) {
+            try {
+              const fs2 = await stat4(f3.file);
+              out[rule.key].files += 1;
+              out[rule.key].bytes += fs2.size;
+            } catch {
+            }
+          }
+        }
+      } catch {
+      }
+      continue;
+    }
+    const local = resolve2(dshHome(), rule.localDir);
     let st;
     try {
-      st = await stat3(local);
+      st = await stat4(local);
     } catch {
       continue;
     }
@@ -20495,7 +20881,7 @@ async function summarizeCategories(opts) {
       const rel = f3.slice(dshHome().length + 1).split(/[\\/]/).join("/");
       if (!skillAllowed(rel, opts.skillFilter ?? [])) continue;
       try {
-        const fs2 = await stat3(f3);
+        const fs2 = await stat4(f3);
         out[rule.key].files += 1;
         out[rule.key].bytes += fs2.size;
       } catch {
@@ -20511,20 +20897,20 @@ function skillAllowed(rel, filter2) {
   return filter2.includes(parts[1]);
 }
 async function listSkills() {
-  const dir = resolve(dshHome(), "skills");
+  const dir = resolve2(dshHome(), "skills");
   let names;
   try {
-    names = await readdir2(dir);
+    names = await readdir3(dir);
   } catch {
     return [];
   }
   const out = [];
   for (const name2 of names) {
     if (name2.startsWith(".")) continue;
-    const full = join4(dir, name2);
+    const full = join5(dir, name2);
     let st;
     try {
-      st = await stat3(full);
+      st = await stat4(full);
     } catch {
       continue;
     }
@@ -20533,7 +20919,7 @@ async function listSkills() {
     let bytes = 0;
     for await (const f3 of walkFiles(full)) {
       try {
-        const s2 = await stat3(f3);
+        const s2 = await stat4(f3);
         files += 1;
         bytes += s2.size;
       } catch {
@@ -20640,7 +21026,7 @@ var Chunker = class {
     for (let i2 = 0; i2 < num; i2++) queue.push(i2);
     let active = 0;
     let failed = null;
-    await new Promise((resolve2, reject) => {
+    await new Promise((resolve3, reject) => {
       const spawn = () => {
         if (failed) return;
         while (queue.length > 0 && active < this.opts.concurrency) {
@@ -20648,7 +21034,7 @@ var Chunker = class {
           active++;
           this.uploadOne(cipher, i2, remotePath).then(() => {
             active--;
-            if (queue.length === 0 && active === 0) resolve2();
+            if (queue.length === 0 && active === 0) resolve3();
             else spawn();
           }).catch((e2) => {
             failed = e2;
@@ -20884,6 +21270,12 @@ var Engine = class {
         this.deps.store.save();
       }
       if (!this.abort.signal.aborted) {
+        try {
+          await repairSessionCwd();
+        } catch {
+        }
+      }
+      if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
         await this.writeRemoteManifest(fresh);
         this.remoteManifest = fresh;
@@ -20907,7 +21299,7 @@ var Engine = class {
     if (isMergeable(rel) && remoteHash) {
       await this.saveBase(rel);
     }
-    const data = await readFile3(localAbs);
+    const data = await readFile4(localAbs);
     const plainHash = sha256Hex(data);
     const cipher = await Crypto.encrypt(data, this.deps.config.passphrase, this.deps.store.salt());
     if (size >= this.deps.config.chunkThreshold) {
@@ -20916,14 +21308,27 @@ var Engine = class {
       await this.deps.transport.putBuffer(cipher, remote, { mkdirs: true });
     }
   }
-  /** 下载单个文件并解密写盘。 */
+  /** 下载单个文件并解密写盘。工作区注册表与会话头要额外处理，见各分支注释。 */
   async downloadEntry(rel) {
     this.setPhase("downloading");
     const plain = await this.fetchRemotePlain("/dsh/" + rel);
     if (!plain) throw new Error("\u8FDC\u7AEF\u4E0D\u5B58\u5728: " + rel);
+    if (isWorkspaceRegistryRel(rel)) {
+      await mergeWorkspaceRegistry(Buffer.from(plain).toString("utf8"));
+      return;
+    }
     const localAbs = localOf(rel);
-    await mkdir2(localAbs.slice(0, localAbs.lastIndexOf("/")), { recursive: true });
-    await writeFile2(localAbs, plain);
+    const cut = Math.max(localAbs.lastIndexOf("/"), localAbs.lastIndexOf("\\"));
+    await mkdir3(localAbs.slice(0, cut), { recursive: true });
+    if (isSessionRel(rel)) {
+      const out = rewriteSessionCwd(Buffer.from(plain));
+      if (out !== null) {
+        await mkdir3(out.dir, { recursive: true });
+        await writeFile3(localAbs, out.buf);
+        return;
+      }
+    }
+    await writeFile3(localAbs, plain);
   }
   /** 解决冲突：local = 推本地覆盖远端；remote = 拉远程覆盖本地；skip = 仅移出冲突列表。 */
   async resolve(rel, resolution) {
@@ -20932,10 +21337,10 @@ var Engine = class {
     if (!c) throw new Error("\u51B2\u7A81\u8BB0\u5F55\u4E0D\u5B58\u5728\uFF1A" + rel);
     if (resolution === "local") {
       const localAbs = localOf(rel);
-      const st = await stat4(localAbs);
+      const st = await stat5(localAbs);
       await this.saveBase(rel);
       await this.pushFile(rel, st.size, c.remoteHash);
-      const data = await readFile3(localAbs);
+      const data = await readFile4(localAbs);
       this.remoteManifest = this.remoteManifest.filter((e2) => e2.rel !== rel);
       this.remoteManifest.push({
         rel,
@@ -20947,8 +21352,8 @@ var Engine = class {
     } else if (resolution === "remote") {
       await this.downloadEntry(rel);
       const localAbs = localOf(rel);
-      const st = await stat4(localAbs);
-      const data = await readFile3(localAbs);
+      const st = await stat5(localAbs);
+      const data = await readFile4(localAbs);
       this.remoteManifest = this.remoteManifest.filter((e2) => e2.rel !== rel);
       this.remoteManifest.push({
         rel,
@@ -21411,7 +21816,9 @@ function apply(ctx, config) {
   };
   ctx.tools.register(defineTool({
     name: "nas_sync_scope",
-    description: '\u67E5\u770B\u6216\u4FEE\u6539\u300C\u6309\u5206\u7C7B\u52FE\u9009\u540C\u6B65\u5185\u5BB9\u300D\u3002\u4E0D\u5E26\u53C2\u6570\u8C03\u7528 = \u53EA\u8BFB\u67E5\u770B\uFF1A\u8FD4\u56DE 7 \u4E2A\u5206\u7C7B\uFF08sessions \u4F1A\u8BDD\u8BB0\u5F55 / sessionTitles \u4F1A\u8BDD\u6807\u9898 / attachments \u9644\u4EF6 / skills \u6280\u80FD / profiles \u63D2\u4EF6\u4E0E Profile / settings \u4E3B\u8BBE\u7F6E / pluginPatch \u63D2\u4EF6\u8865\u4E01\uFF09\u7684\u52FE\u9009\u72B6\u6001\u3001\u6587\u4EF6\u6570\u4E0E\u4F53\u79EF\uFF08\u4F53\u79EF\u6309**\u5168\u90E8**\u5206\u7C7B\u7EDF\u8BA1\uFF0C\u4E0D\u53D7\u5F53\u524D\u52FE\u9009\u5F71\u54CD\uFF0C\u4FBF\u4E8E\u5224\u65AD\u5173\u6389\u67D0\u9879\u80FD\u7701\u591A\u5C11\uFF09\u3002\u4F20 set \u5219\u4FEE\u6539\u52FE\u9009\uFF08\u5C40\u90E8\u5408\u5E76\uFF0C\u5982 {"attachments":false} \u53EA\u5173\u9644\u4EF6\uFF0C\u5176\u4F59\u4E0D\u53D8\uFF09\u3002includeSensitive \u63A7\u5236\u5DF2\u9009\u5206\u7C7B**\u5185\u90E8**\u7684\u51ED\u636E\u6587\u4EF6\uFF08.credentials.yaml \u7B49\uFF09\u662F\u5426\u4E00\u8D77\u540C\u6B65\u3002\u6280\u80FD\u53EF\u518D\u6309\u540D\u5B57\u7EC6\u5206\uFF1A\u4F20 skillFilter\uFF08\u5982 ["pdf","xlsx"]\uFF09\u53EA\u540C\u6B65\u8FD9\u51E0\u4E2A\u6280\u80FD\uFF1B\u4F20 [] \u8868\u793A\u5168\u90E8\u6280\u80FD\uFF08\u4E5F\u5305\u542B\u4EE5\u540E\u65B0\u589E\u7684\uFF09\u3002\u4E0D\u5E26 skillFilter \u5219\u4FDD\u6301\u539F\u503C\u3002',
+    // 分类清单从 SYNC_CATEGORIES 拼，不写死 —— 上一版这里漏掉了新增的「工作区」相关分类，
+    // 工具说明与实际能力对不上，用户照着说明勾选会找不到。
+    description: `\u67E5\u770B\u6216\u4FEE\u6539\u300C\u6309\u5206\u7C7B\u52FE\u9009\u540C\u6B65\u5185\u5BB9\u300D\u3002\u4E0D\u5E26\u53C2\u6570\u8C03\u7528 = \u53EA\u8BFB\u67E5\u770B\uFF1A\u8FD4\u56DE ${SYNC_CATEGORIES.length} \u4E2A\u5206\u7C7B\uFF08` + SYNC_CATEGORIES.map((c) => `${c.key} ${c.label}`).join(" / ") + '\uFF09\u7684\u52FE\u9009\u72B6\u6001\u3001\u6587\u4EF6\u6570\u4E0E\u4F53\u79EF\uFF08\u4F53\u79EF\u6309**\u5168\u90E8**\u5206\u7C7B\u7EDF\u8BA1\uFF0C\u4E0D\u53D7\u5F53\u524D\u52FE\u9009\u5F71\u54CD\uFF0C\u4FBF\u4E8E\u5224\u65AD\u5173\u6389\u67D0\u9879\u80FD\u7701\u591A\u5C11\uFF09\u3002\u4F20 set \u5219\u4FEE\u6539\u52FE\u9009\uFF08\u5C40\u90E8\u5408\u5E76\uFF0C\u5982 {"attachments":false} \u53EA\u5173\u9644\u4EF6\uFF0C\u5176\u4F59\u4E0D\u53D8\uFF09\u3002includeSensitive \u63A7\u5236\u5DF2\u9009\u5206\u7C7B**\u5185\u90E8**\u7684\u51ED\u636E\u6587\u4EF6\uFF08.credentials.yaml \u7B49\uFF09\u662F\u5426\u4E00\u8D77\u540C\u6B65\u3002\u6280\u80FD\u53EF\u518D\u6309\u540D\u5B57\u7EC6\u5206\uFF1A\u4F20 skillFilter\uFF08\u5982 ["pdf","xlsx"]\uFF09\u53EA\u540C\u6B65\u8FD9\u51E0\u4E2A\u6280\u80FD\uFF1B\u4F20 [] \u8868\u793A\u5168\u90E8\u6280\u80FD\uFF08\u4E5F\u5305\u542B\u4EE5\u540E\u65B0\u589E\u7684\uFF09\u3002\u4E0D\u5E26 skillFilter \u5219\u4FDD\u6301\u539F\u503C\u3002',
     parameters: {
       set: { type: "json", description: '\u8981\u4FEE\u6539\u7684\u5206\u7C7B\u952E\u503C\uFF0C\u5982 {"attachments": false, "skills": true}\uFF1B\u7701\u7565=\u53EA\u67E5\u770B' },
       includeSensitive: { type: "boolean", description: "\u5DF2\u9009\u5206\u7C7B\u5185\u90E8\u662F\u5426\u8FDE\u51ED\u636E\u6587\u4EF6\u4E00\u8D77\u540C\u6B65\uFF0C\u9ED8\u8BA4\u4FDD\u6301\u539F\u503C" },
@@ -21669,7 +22076,7 @@ function apply(ctx, config) {
   }));
   ctx.tools.register(defineTool({
     name: "nas_set_config",
-    description: "\u4FEE\u6539 NAS \u540C\u6B65\u914D\u7F6E\u5E76\u6301\u4E45\u5316\uFF08\u91CD\u542F\u5F15\u64CE\u540E\u4ECD\u751F\u6548\uFF09\u3002\u53EF\u6539\uFF1Atype(webdav/mount)\u3001webdav.{url,remotePath(\u5171\u4EAB\u6587\u4EF6\u5939),username,password}\u3001mountRoot\u3001passphrase(\u52A0\u5BC6\u53E3\u4EE4)\u3001autoSync.{enabled,mode,intervalMin}\u3001chunkThreshold\u3001chunkSize\u3001concurrency\u3001includeSensitive\u3001syncScope.{sessions,sessionTitles,attachments,skills,profiles,settings,pluginPatch}\uFF08\u5206\u7C7B\u52FE\u9009\uFF0C\u4E8C\u7EA7\u5408\u5E76\uFF09\u3002\u4F20\u90E8\u5206\u5B57\u6BB5\u5373\u53EF\uFF1B\u53EA\u60F3\u6539\u52FE\u9009\u8BF7\u4F18\u5148\u7528 nas_sync_scope\u3002",
+    description: `\u4FEE\u6539 NAS \u540C\u6B65\u914D\u7F6E\u5E76\u6301\u4E45\u5316\uFF08\u91CD\u542F\u5F15\u64CE\u540E\u4ECD\u751F\u6548\uFF09\u3002\u53EF\u6539\uFF1Atype(webdav/mount)\u3001webdav.{url,remotePath(\u5171\u4EAB\u6587\u4EF6\u5939),username,password}\u3001mountRoot\u3001passphrase(\u52A0\u5BC6\u53E3\u4EE4)\u3001autoSync.{enabled,mode,intervalMin}\u3001chunkThreshold\u3001chunkSize\u3001concurrency\u3001includeSensitive\u3001syncScope.{${SYNC_CATEGORIES.map((c) => c.key).join(",")}}\uFF08\u5206\u7C7B\u52FE\u9009\uFF0C\u4E8C\u7EA7\u5408\u5E76\uFF09\u3002\u4F20\u90E8\u5206\u5B57\u6BB5\u5373\u53EF\uFF1B\u53EA\u60F3\u6539\u52FE\u9009\u8BF7\u4F18\u5148\u7528 nas_sync_scope\u3002`,
     parameters: {
       config: {
         type: "object",
@@ -21748,7 +22155,7 @@ function apply(ctx, config) {
       }
       let local;
       try {
-        local = (await readFile4(localOf(rel))).toString("utf-8");
+        local = (await readFile5(localOf(rel))).toString("utf-8");
       } catch {
         return { success: false, applied: null, reason: "\u672C\u5730\u6587\u4EF6\u4E0D\u5B58\u5728\uFF1A" + rel };
       }
@@ -21769,8 +22176,8 @@ function apply(ctx, config) {
       let applied = null;
       if (args.apply && result.success && result.mergedContent !== void 0) {
         const p = localOf(rel);
-        await mkdir3(p.slice(0, p.lastIndexOf("/")), { recursive: true });
-        await writeFile3(p, result.mergedContent, "utf-8");
+        await mkdir4(p.slice(0, p.lastIndexOf("/")), { recursive: true });
+        await writeFile4(p, result.mergedContent, "utf-8");
         applied = true;
       }
       return {
@@ -21821,7 +22228,7 @@ function apply(ctx, config) {
       const rel = args.file;
       let local = "";
       try {
-        local = (await readFile4(localOf(rel))).toString("utf-8");
+        local = (await readFile5(localOf(rel))).toString("utf-8");
       } catch {
       }
       let remote = "";
