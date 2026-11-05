@@ -28,6 +28,7 @@ import * as zlib from 'node:zlib';
 import { readdir, readFile, writeFile, mkdir, stat, rename, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
+import * as os from 'node:os';
 import { dshHome } from '../paths.js';
 
 /**
@@ -566,6 +567,31 @@ export interface RepairResult {
  * 把已经落在本地的同步会话逐个检查一遍：cwd 在本机不存在就改写。
  * 幂等——改完的文件下次读到 `mapRemotePath().mapped === false`，直接跳过。
  */
+/**
+ * 本机设备标识，形如 `win32:DESKTOP-ABC` / `android:V2458A`。
+ *
+ * 为什么用「平台:主机名」而不是随机 UUID：主机名对人可读，出问题时一眼能对上
+ * 是哪台机器；平台前缀则让前端不用额外查就能选对 emoji。同名不同机的情况
+ * 在个人使用场景里可以忽略（真撞了也只是 emoji 标错，不影响同步）。
+ */
+export function selfDevice(): string {
+  let host = '';
+  try {
+    host = os.hostname();
+  } catch {
+    /* 某些沙箱没有 hostname，退回默认值 */
+  }
+  const clean = host.replace(/[^\w.-]/g, '').slice(0, 24) || 'device';
+  return process.platform + ':' + clean;
+}
+
+/** 设备标识 → 前端用的平台前缀（`win32:xxx` → `win32`）。 */
+export function devicePlatform(device: string | undefined): string {
+  if (!device) return '';
+  const i = device.indexOf(':');
+  return i === -1 ? device : device.slice(0, i);
+}
+
 /**
  * 把绝对路径编码成 dsh 的会话目录名。
  *

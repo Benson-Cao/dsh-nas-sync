@@ -15,14 +15,12 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { dshHome, localOf, relFromRemote } from '../paths.js';
 import { DEFAULT_SYNC_SCOPE, type SyncScope, type SyncScopeKey } from '../config.js';
-import { collectWorkspaceDirs, walkWorkspaceFiles, walkCustomFolder, DEFAULT_MAX_FILE_BYTES, type WorkspaceDir, type CustomFolderLike } from './portable.js';
+import { collectWorkspaceDirs, walkWorkspaceFiles, walkCustomFolder, DEFAULT_MAX_FILE_BYTES, selfDevice, type WorkspaceDir, type CustomFolderLike } from './portable.js';
 
-export interface ManifestEntry {
-  rel: string;
-  mtime: number;
-  size: number;
-  hash: string;
-}
+// ManifestEntry 统一定义在 data/models.ts（带 device 字段）。
+// 这里曾有一份同名副本，导致 scanner 写出的条目缺 device 而编译器不报错。
+import type { ManifestEntry } from '../data/models.js';
+export type { ManifestEntry };
 
 /** 一个同步分类的静态元数据。key 与 config 的 syncScope 一一对应。 */
 export interface CategoryMeta {
@@ -261,13 +259,17 @@ export class Scanner {
     return out;
   }
 
-  private async toEntry(file: string, rel: string): Promise<ManifestEntry> {    const s = statSync(file);
+  private async toEntry(file: string, rel: string): Promise<ManifestEntry> {
+    const s = statSync(file);
     const buf = await readFile(file);
     return {
       rel,
       mtime: s.mtimeMs,
       size: s.size,
       hash: createHash('sha256').update(buf).digest('hex'),
+      // 扫描到即认为「本机拥有/上传了它」。engine 写远端清单时会用「内容没变就
+      // 保留原来源」的规则把它改回真正的上传方，所以这里填本机是安全的。
+      device: selfDevice(),
     };
   }
 }

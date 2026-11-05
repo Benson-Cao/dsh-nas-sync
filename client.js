@@ -16,6 +16,27 @@ window.__ModuleLoader__.load({
       sessions: true, workspaces: true, workspaceFiles: true, customFolders: true, sessionTitles: true, attachments: true, skills: true,
       profiles: false, settings: false, pluginPatch: false,
     };
+
+    /**
+     * 设备 → emoji。只做平台级区分：目的是一眼看出「这个文件夹主要是谁在用」，
+     * 不需要精确到具体机器，所以同平台多台设备共用一个图标。
+     */
+    const DEVICE_EMOJI = { win32: '💻', android: '📱', darwin: '🖥️', linux: '🐧' };
+    const deviceEmoji = (d) => DEVICE_EMOJI[String(d || '').split(':')[0]] || '💾';
+
+    /** 分类 key → 远端清单里的前缀（必须与 SYNC_CATEGORIES 的 localDir 对应）。 */
+    const CATEGORY_PREFIX = {
+      sessions: 'sessions',
+      workspaces: 'storages',
+      workspaceFiles: 'workspaces',
+      customFolders: 'custom-folders',
+      sessionTitles: 'session-titles.json',
+      attachments: 'attachments',
+      skills: 'skills',
+      profiles: 'profiles',
+      settings: 'settings.yaml',
+      pluginPatch: 'cordis.patch.yml',
+    };
     const SCOPE_SENSITIVE = { profiles: true, settings: true, pluginPatch: true };
 
     const zh = {
@@ -249,6 +270,8 @@ window.__ModuleLoader__.load({
       cfRow: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' },
       cfName: { height: '28px', padding: '0 8px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', boxSizing: 'border-box', width: '132px', flex: '0 0 auto' },
       cfPath: { height: '28px', padding: '0 8px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', boxSizing: 'border-box', flex: '1 1 auto', minWidth: '0' },
+      deviceBadges: { display: 'inline-flex', alignItems: 'center', gap: '2px', marginLeft: '4px', fontSize: '12px', lineHeight: '1', flex: '0 0 auto', cursor: 'default' },
+      deviceBadge: { opacity: '0.85' },
       cfDel: { flex: '0 0 auto', width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'none', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', font: 'inherit', fontSize: '14px', lineHeight: '1' },
       hint: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' },
       fileRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 4px', borderBottom: '1px solid var(--dsw-alias-border-l1)', minHeight: '32px' },
@@ -382,6 +405,10 @@ window.__ModuleLoader__.load({
       // 用独立 state 而不是把 intervalMin 置成 0/-1 之类的哨兵值 —— 哨兵会被
       // 一并 POST 到后端，触发 schema 的 min(1) 校验失败。
       const [customInterval, setCustomInterval] = useState(false);
+      // 来源设备：{ self, byPrefix: { <前缀>: [{device, files}] } }
+      // 数据来自远端清单记录的「最后上传者」，所以首次同步前是 null —— 此时不显示任何标记，
+      // 而不是显示一个"未知设备"的占位，免得用户以为同步坏了。
+      const [devices, setDevices] = useState(null);
 
       const refreshAll = useCallback(async () => {
         if (!c.ready) return;
@@ -392,7 +419,13 @@ window.__ModuleLoader__.load({
           setPassSet(Boolean(st.config.passphraseSet));
           const pd = await c.call('/pending?page=1&pageSize=100');
           setPending(pd);
-          const cf = await c.call('/conflicts');
+          setConflicts(cf);
+          // 来源设备统计依赖远端清单，网络慢时不该拖住整个面板渲染
+          try {
+            setDevices(await c.call('/devices'));
+          } catch (e) {
+            setDevices(null);
+          }
           setConflicts(cf);
           // 技能名单单独拉：它只依赖磁盘上的 skills/ 目录，跟同步状态无关。
           // 失败不阻断整个刷新 —— 面板其它部分仍然可用，只是技能子列表空着。
@@ -536,6 +569,23 @@ window.__ModuleLoader__.load({
           o[keys[keys.length - 1]] = value;
           return next;
         });
+      };
+
+      /**
+       * 某个前缀的来源设备标记。
+       *
+       * **本机不显示**：自己传上去的文件标个自己的图标没有信息量，只会让界面变吵。
+       * 没有统计（首次同步前）也返回 null —— 空着比显示"未知"更好。
+       */
+      const deviceBadges = (prefix) => {
+        if (!prefix || !devices || !devices.byPrefix) return null;
+        const list = devices.byPrefix[prefix] || [];
+        const others = list.filter((x) => x.device && x.device !== devices.self);
+        if (others.length === 0) return null;
+        return h('span', {
+          style: S.deviceBadges,
+          title: others.map((x) => x.device + ' · ' + x.files + ' 个文件').join('\n'),
+        }, others.map((x) => h('span', { key: x.device, style: S.deviceBadge }, deviceEmoji(x.device))));
       };
 
       // 一键全选/全不选：7 个复选框逐个点太烦。整对象替换（单段路径，setCfgField 直接赋值）。
@@ -716,6 +766,8 @@ window.__ModuleLoader__.load({
                   h('input', { type: 'checkbox', 'data-scope': k, checked: on, onChange: (e) => setCfgField('syncScope.' + k, e.target.checked) }),
                   h('span', null, t(keyLabel)),
                   SCOPE_SENSITIVE[k] ? h('span', { style: S.badge }, t('scopeSensitive')) : null,
+                  // 该分类的数据主要来自哪台设备（本机不显示）
+                  deviceBadges(CATEGORY_PREFIX[k]),
                 );
                 // 「技能」是唯一有第二层的分类：勾上它才展开技能名单，
                 // 没勾时藏起来，免得用户以为关掉的技能仍在同步。
@@ -773,6 +825,9 @@ window.__ModuleLoader__.load({
                         value: f.path || '',
                         onChange: (e) => updateCustomFolder(i, 'path', e.target.value),
                       }),
+                      // 每个自定义文件夹单独标来源：同名文件夹在两端各自落地，
+                      // 但数据是谁传上去的仍要看清单里的 device
+                      deviceBadges('custom-folders/' + (f.name || '')),
                       h('button', {
                         type: 'button',
                         style: S.cfDel,

@@ -185,6 +185,19 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
         return ok(res, { skills: await listSkills() });
       }
 
+      // ---- 来源设备 ----
+      // 面板在分类/自定义文件夹旁标 💻/📱 用。数据来自远端清单里记录的
+      // 「最后上传者」，所以首次同步前是空的（前端按"未知"处理即可）。
+      if (sub === '/devices' && method === 'GET') {
+        try {
+          const r = await engine.sourceDevices();
+          return ok(res, { self: r.self, byPrefix: r.byPrefix });
+        } catch (e) {
+          // 远端不可达不该让面板报错，返回空统计即可
+          return ok(res, { self: '', byPrefix: {}, error: (e as Error).message });
+        }
+      }
+
       // ---- 连接测试 ----
       if (sub === '/test' && method === 'POST') {
         try {

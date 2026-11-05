@@ -28,6 +28,7 @@ import { localOf } from '../paths.js';
 import {
   customFolderLocalOf,
   encodeCwd,
+  selfDevice,
   isSessionRel,
   isWorkspaceRegistryRel,
   mergeWorkspaceRegistry,
@@ -42,6 +43,19 @@ const MANIFEST_REMOTE = '/dsh/manifest.json';
 
 function sha256Hex(data: Uint8Array): string {
   return createHash('sha256').update(data).digest('hex');
+}
+
+/**
+ * 把一个 rel 归到「文件夹前缀」，用于按目录统计来源设备。
+ *
+ * `custom-folders/<name>` 要保留两级（否则所有自定义文件夹会合并成一条统计）；
+ * 其余分类只取第一级（`sessions`、`attachments`、`skills`…）。
+ */
+function prefixOf(rel: string): string {
+  const parts = rel.split('/');
+  if (parts.length === 0 || !parts[0]) return '';
+  if (parts[0] === 'custom-folders' && parts[1]) return 'custom-folders/' + parts[1];
+  return parts[0];
 }
 
 export interface EngineDeps {
@@ -89,6 +103,52 @@ export class Engine {
       chunkSize: deps.config.chunkSize,
       concurrency: deps.config.concurrency,
     });
+  }
+
+  /**
+   * 按「文件夹前缀」统计来源设备，供面板在分类/自定义文件夹旁标 emoji。
+   *
+   * 前缀口径与面板展示一致：
+   *   · 分类级 → 该分类在 rel 空间的根（`sessions`、`attachments`、`custom-folders/<name>`…）
+   *   · 自定义文件夹 → `custom-folders/<name>`
+   *
+   * 数据取自远端清单（`remoteManifest`）：它记录的是每个文件**最后上传的设备**，
+   * 正是"这份数据来自哪台机器"的答案。清单里没有 device 字段的旧条目一律忽略，
+   * 不让历史数据把统计搅浑。
+   *
+   * @returns `{ self, byPrefix }`，`self` 是本机标识（前端据此隐藏本机 emoji）
+   */
+  async sourceDevices(): Promise<{ self: string; byPrefix: Record<string, Array<{ device: string; files: number }>> }> {
+    this.checkReady();
+    // 清单在 scan() 里缓存；面板可能先于扫描打开，这里按需补一次
+    if (this.remoteManifest.length === 0) {
+      try {
+        this.remoteManifest = await this.readRemoteManifest();
+      } catch {
+        /* 远端不可达：返回空统计，面板显示"未知"即可，不阻塞 */
+      }
+    }
+
+    const counters = new Map<string, Map<string, number>>();
+    for (const e of this.remoteManifest) {
+      if (!e.device) continue;
+      const prefix = prefixOf(e.rel);
+      if (!prefix) continue;
+      let m = counters.get(prefix);
+      if (!m) {
+        m = new Map();
+        counters.set(prefix, m);
+      }
+      m.set(e.device, (m.get(e.device) ?? 0) + 1);
+    }
+
+    const byPrefix: Record<string, Array<{ device: string; files: number }>> = {};
+    for (const [prefix, m] of counters) {
+      byPrefix[prefix] = [...m.entries()]
+        .map(([device, files]) => ({ device, files }))
+        .sort((a, b) => b.files - a.files);
+    }
+    return { self: selfDevice(), byPrefix };
   }
 
   isRunning(): boolean {
@@ -293,8 +353,19 @@ export class Engine {
       // 回写 manifest：用最新本地状态重建（下载过的文件也反映进来）
       if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
-        await this.writeRemoteManifest(fresh);
-        this.remoteManifest = fresh;
+        /**
+         * 来源设备合并：`buildManifest` 会把扫到的每个文件都标成本机（它只知道
+         * 「我这儿有这个文件」）。但清单要回答的是「谁传上来的」，所以内容哈希
+         * 与上一轮一致的条目**保留原来源**，只有真正变了的才归给本机。
+         * 不做这一步，来源每同步一次就被刷成"本机"，等于没记。
+         */
+        const prev = new Map(this.remoteManifest.map((e) => [e.rel, e] as const));
+        const merged = fresh.map((e) => {
+          const old = prev.get(e.rel);
+          return old && old.device && old.hash === e.hash ? { ...e, device: old.device } : e;
+        });
+        await this.writeRemoteManifest(merged);
+        this.remoteManifest = merged;
         this.deps.store.snapshot.lastSyncTime = Date.now();
 
         // 收尾刷新待办：不留「同步成功但仍显示待同步 N 项」的假状态。
@@ -420,6 +491,8 @@ export class Engine {
         mtime: st.mtimeMs,
         size: st.size,
         hash: sha256Hex(data),
+        // 本地版本胜出 = 本机上传，来源记为当前设备
+        device: selfDevice(),
       });
       await this.writeRemoteManifest(this.remoteManifest);
     } else if (resolution === 'remote') {
@@ -428,12 +501,15 @@ export class Engine {
       const localAbs = this.resolveLocal(rel);
       const st = await stat(localAbs);
       const data = await readFile(localAbs);
+      // 远端版本胜出 = 内容来自对方设备，来源必须保留，否则会被刷成"本机"
+      const prevDevice = this.remoteManifest.find((e) => e.rel === rel)?.device;
       this.remoteManifest = this.remoteManifest.filter((e) => e.rel !== rel);
       this.remoteManifest.push({
         rel,
         mtime: st.mtimeMs,
         size: st.size,
         hash: sha256Hex(data),
+        device: prevDevice,
       });
       await this.writeRemoteManifest(this.remoteManifest);
     }

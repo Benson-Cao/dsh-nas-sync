@@ -237,6 +237,8 @@ registerNasSyncUi(ctx, HostBridge(scope))
 > 正确做法是解析帧边界、**只重写第 0 帧**，后续帧逐字节保留 —— 见
 > `src/sync/portable.ts` 的 `zstdFrameEnd()`。
 
+
+
 ### 5.2 自定义文件夹：每台机器各自映射
 
 工作区文件只覆盖「工作区」这一种目录。要同步别的目录（比如 `D:\Projects`），
@@ -256,6 +258,22 @@ registerNasSyncUi(ctx, HostBridge(scope))
 安全约束（`normalizeCustomFolders` + `customFolderLocalOf`）：
 `name` 会清掉路径分隔符与 Windows 非法字符（否则 `../x` 能写到 rel 空间之外）；
 重名只保留第一条；下载时 rel 里出现 `..` 或空段直接拒绝。
+
+### 5.3 文件夹来源设备标记
+
+面板里「同步内容」的每个分类、以及「自定义文件夹」的每一行，会显示一个来源设备
+emoji（💻 Windows / 📱 Android / 🖥️ macOS / 🐧 Linux）。**本机不显示**——自己传的
+数据标自己的图标没有信息量。
+
+实现要点：
+
+- `ManifestEntry.device` 记录每个文件**最后上传的设备**（`平台:主机名`，如
+  `win32:Benson` / `android:V2458A`）。
+- 写远端清单时用「**内容哈希没变就保留原来源**」合并，否则每次同步都会把来源
+  刷成本机，等于没记（见 `engine.sync()` 收尾）。
+- `GET /devices` 按 rel 前缀统计来源，前端据此渲染；首次同步前清单里没有
+  `device`，标记留空而不是显示「未知」。
+- 旧版清单没有 `device` 字段，读到时按未知忽略，同步不受影响。
 
 ## 6. 排错
 

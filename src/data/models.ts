@@ -32,6 +32,14 @@ export interface ManifestEntry {
   mtime: number;
   size: number;
   hash: string;
+  /**
+   * 最后上传这个文件的设备，形如 `win32:DESKTOP-ABC` / `android:V2458A`。
+   *
+   * 用途：面板上标「这份数据来自哪台设备」。判定原则是**内容没变就保留原来源**
+   * （见 engine.sync 收尾），否则每次同步都会被刷成"本机"，等于没记。
+   * 旧版本清单没有这个字段，读到时按未知处理，不影响同步。
+   */
+  device?: string;
 }
 
 /** 冲突记录：同一文件在两端均有变更，无法自动判定 */

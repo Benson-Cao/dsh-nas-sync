@@ -20411,6 +20411,7 @@ import * as zlib2 from "node:zlib";
 import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mkdir as mkdir2, stat as stat3, rename, rm as rm2 } from "node:fs/promises";
 import { existsSync as existsSync2 } from "node:fs";
 import { join as join4, resolve, sep as sep3 } from "node:path";
+import * as os from "node:os";
 var zstdImpl = zlib2;
 var zstdCompress = zstdImpl.zstdCompressSync ?? null;
 var zstdDecompress = zstdImpl.zstdDecompressSync ?? null;
@@ -20708,6 +20709,15 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
   await rename(tmp, localPath);
   return { added, remapped, total: Object.keys(workspaces).length };
 }
+function selfDevice() {
+  let host = "";
+  try {
+    host = os.hostname();
+  } catch {
+  }
+  const clean = host.replace(/[^\w.-]/g, "").slice(0, 24) || "device";
+  return process.platform + ":" + clean;
+}
 function encodeCwd(p) {
   const ascii = p.replace(
     /[^\x20-\x7e]/g,
@@ -20967,7 +20977,10 @@ var Scanner = class {
       rel,
       mtime: s2.mtimeMs,
       size: s2.size,
-      hash: createHash("sha256").update(buf).digest("hex")
+      hash: createHash("sha256").update(buf).digest("hex"),
+      // 扫描到即认为「本机拥有/上传了它」。engine 写远端清单时会用「内容没变就
+      // 保留原来源」的规则把它改回真正的上传方，所以这里填本机是安全的。
+      device: selfDevice()
     };
   }
 };
@@ -21231,6 +21244,12 @@ var MANIFEST_REMOTE = "/dsh/manifest.json";
 function sha256Hex(data) {
   return createHash2("sha256").update(data).digest("hex");
 }
+function prefixOf(rel) {
+  const parts = rel.split("/");
+  if (parts.length === 0 || !parts[0]) return "";
+  if (parts[0] === "custom-folders" && parts[1]) return "custom-folders/" + parts[1];
+  return parts[0];
+}
 var Engine = class {
   deps;
   scanner;
@@ -21268,6 +21287,45 @@ var Engine = class {
       chunkSize: deps.config.chunkSize,
       concurrency: deps.config.concurrency
     });
+  }
+  /**
+   * 按「文件夹前缀」统计来源设备，供面板在分类/自定义文件夹旁标 emoji。
+   *
+   * 前缀口径与面板展示一致：
+   *   · 分类级 → 该分类在 rel 空间的根（`sessions`、`attachments`、`custom-folders/<name>`…）
+   *   · 自定义文件夹 → `custom-folders/<name>`
+   *
+   * 数据取自远端清单（`remoteManifest`）：它记录的是每个文件**最后上传的设备**，
+   * 正是"这份数据来自哪台机器"的答案。清单里没有 device 字段的旧条目一律忽略，
+   * 不让历史数据把统计搅浑。
+   *
+   * @returns `{ self, byPrefix }`，`self` 是本机标识（前端据此隐藏本机 emoji）
+   */
+  async sourceDevices() {
+    this.checkReady();
+    if (this.remoteManifest.length === 0) {
+      try {
+        this.remoteManifest = await this.readRemoteManifest();
+      } catch {
+      }
+    }
+    const counters = /* @__PURE__ */ new Map();
+    for (const e2 of this.remoteManifest) {
+      if (!e2.device) continue;
+      const prefix = prefixOf(e2.rel);
+      if (!prefix) continue;
+      let m2 = counters.get(prefix);
+      if (!m2) {
+        m2 = /* @__PURE__ */ new Map();
+        counters.set(prefix, m2);
+      }
+      m2.set(e2.device, (m2.get(e2.device) ?? 0) + 1);
+    }
+    const byPrefix = {};
+    for (const [prefix, m2] of counters) {
+      byPrefix[prefix] = [...m2.entries()].map(([device, files]) => ({ device, files })).sort((a, b) => b.files - a.files);
+    }
+    return { self: selfDevice(), byPrefix };
   }
   isRunning() {
     return this.running;
@@ -21434,8 +21492,13 @@ var Engine = class {
       }
       if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
-        await this.writeRemoteManifest(fresh);
-        this.remoteManifest = fresh;
+        const prev = new Map(this.remoteManifest.map((e2) => [e2.rel, e2]));
+        const merged = fresh.map((e2) => {
+          const old = prev.get(e2.rel);
+          return old && old.device && old.hash === e2.hash ? { ...e2, device: old.device } : e2;
+        });
+        await this.writeRemoteManifest(merged);
+        this.remoteManifest = merged;
         this.deps.store.snapshot.lastSyncTime = Date.now();
         this.deps.store.pendingFiles = [...remaining];
         this.deps.store.snapshot.pendingCount = remaining.size;
@@ -21521,7 +21584,9 @@ var Engine = class {
         rel,
         mtime: st.mtimeMs,
         size: st.size,
-        hash: sha256Hex(data)
+        hash: sha256Hex(data),
+        // 本地版本胜出 = 本机上传，来源记为当前设备
+        device: selfDevice()
       });
       await this.writeRemoteManifest(this.remoteManifest);
     } else if (resolution === "remote") {
@@ -21529,12 +21594,14 @@ var Engine = class {
       const localAbs = this.resolveLocal(rel);
       const st = await stat5(localAbs);
       const data = await readFile4(localAbs);
+      const prevDevice = this.remoteManifest.find((e2) => e2.rel === rel)?.device;
       this.remoteManifest = this.remoteManifest.filter((e2) => e2.rel !== rel);
       this.remoteManifest.push({
         rel,
         mtime: st.mtimeMs,
         size: st.size,
-        hash: sha256Hex(data)
+        hash: sha256Hex(data),
+        device: prevDevice
       });
       await this.writeRemoteManifest(this.remoteManifest);
     }
@@ -21686,6 +21753,14 @@ function createBridge(ctx, deps) {
       }
       if (sub === "/skills" && method === "GET") {
         return ok(res, { skills: await listSkills() });
+      }
+      if (sub === "/devices" && method === "GET") {
+        try {
+          const r2 = await engine.sourceDevices();
+          return ok(res, { self: r2.self, byPrefix: r2.byPrefix });
+        } catch (e2) {
+          return ok(res, { self: "", byPrefix: {}, error: e2.message });
+        }
       }
       if (sub === "/test" && method === "POST") {
         try {
