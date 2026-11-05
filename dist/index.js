@@ -20716,7 +20716,8 @@ function selfDevice() {
   } catch {
   }
   const clean = host.replace(/[^\w.-]/g, "").slice(0, 24) || "device";
-  return process.platform + ":" + clean;
+  const plat = process.platform === "linux" && (process.env.ANDROID_ROOT || process.env.ANDROID_DATA) ? "android" : process.platform;
+  return plat + ":" + clean;
 }
 function encodeCwd(p) {
   const ascii = p.replace(
@@ -21241,6 +21242,8 @@ var Chunker = class {
 init_merger();
 init_paths();
 var MANIFEST_REMOTE = "/dsh/manifest.json";
+var DEVICES_REMOTE = "/dsh/devices";
+var deviceClaimFile = (device) => DEVICES_REMOTE + "/" + device.replace(/[^A-Za-z0-9._-]/g, "_") + ".json";
 function sha256Hex(data) {
   return createHash2("sha256").update(data).digest("hex");
 }
@@ -21302,9 +21305,8 @@ var Engine = class {
    *   · 分类级 → 该分类在 rel 空间的根（`sessions`、`attachments`、`custom-folders/<name>`…）
    *   · 自定义文件夹 → `custom-folders/<name>`
    *
-   * 数据取自远端清单（`remoteManifest`）：它记录的是每个文件**最后上传的设备**，
-   * 正是"这份数据来自哪台机器"的答案。清单里没有 device 字段的旧条目一律忽略，
-   * 不让历史数据把统计搅浑。
+   * 主数据是 `/dsh/devices/` 下每台设备各自的声明文件（互不覆盖）；
+   * 远端清单里的 device 作为兼容兜底。旧条目没有 device 就忽略，不搅浑统计。
    *
    * @returns `{ self, byPrefix }`，`self` 是本机标识（前端据此隐藏本机 emoji）
    */
@@ -21317,16 +21319,35 @@ var Engine = class {
       }
     }
     const counters = /* @__PURE__ */ new Map();
-    for (const e2 of this.remoteManifest) {
-      if (!e2.device) continue;
-      const prefix = prefixOf(e2.rel);
-      if (!prefix) continue;
+    const bump = (prefix, device, n) => {
       let m2 = counters.get(prefix);
       if (!m2) {
         m2 = /* @__PURE__ */ new Map();
         counters.set(prefix, m2);
       }
-      m2.set(e2.device, (m2.get(e2.device) ?? 0) + 1);
+      m2.set(device, (m2.get(device) ?? 0) + n);
+    };
+    try {
+      const entries = await this.deps.transport.list(DEVICES_REMOTE);
+      for (const entry of entries) {
+        if (entry.type !== "file" || !entry.name.endsWith(".json")) continue;
+        try {
+          const raw = await this.deps.transport.getBuffer(DEVICES_REMOTE + "/" + entry.name);
+          const claim = JSON.parse(new TextDecoder().decode(raw));
+          if (!claim || typeof claim.device !== "string") continue;
+          for (const [prefix, n] of Object.entries(claim.prefixes ?? {})) {
+            const count = Number(n) || 0;
+            if (count > 0) bump(prefix, claim.device, count);
+          }
+        } catch {
+        }
+      }
+    } catch {
+    }
+    for (const e2 of this.remoteManifest) {
+      if (!e2.device) continue;
+      const prefix = prefixOf(e2.rel);
+      if (prefix) bump(prefix, e2.device, 1);
     }
     const byPrefix = {};
     for (const [prefix, m2] of counters) {
@@ -21372,6 +21393,27 @@ var Engine = class {
       this.deps.store.salt()
     );
     await this.deps.transport.putBuffer(enc, MANIFEST_REMOTE, { mkdirs: true });
+  }
+  /**
+   * 同步完成后写本机声明。明文即可 —— 里面只有目录名和计数，不是敏感数据；
+   * 而且明文让 sourceDevices 不用解密就能读，面板刷新更快。
+   */
+  async writeDeviceClaim(fresh) {
+    const prefixes = {};
+    for (const e2 of fresh) {
+      const p = prefixOf(e2.rel);
+      if (p) prefixes[p] = (prefixes[p] ?? 0) + 1;
+    }
+    const payload = JSON.stringify({
+      device: selfDevice(),
+      prefixes,
+      updatedAt: Date.now()
+    });
+    await this.deps.transport.putBuffer(
+      new TextEncoder().encode(payload),
+      deviceClaimFile(selfDevice()),
+      { mkdirs: true }
+    );
   }
   /** 拉取远端某文件并解密（自动识别分块/直传，分块时校验 plainHash）。不存在返回 null。 */
   async fetchRemotePlain(remote) {
@@ -21502,6 +21544,10 @@ var Engine = class {
         const merged = mergeManifestDevices(fresh, this.remoteManifest);
         await this.writeRemoteManifest(merged);
         this.remoteManifest = merged;
+        try {
+          await this.writeDeviceClaim(fresh);
+        } catch {
+        }
         this.deps.store.snapshot.lastSyncTime = Date.now();
         this.deps.store.pendingFiles = [...remaining];
         this.deps.store.snapshot.pendingCount = remaining.size;

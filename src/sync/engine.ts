@@ -41,6 +41,18 @@ export type SyncMode = 'push' | 'pull' | 'mirror';
 
 const MANIFEST_REMOTE = '/dsh/manifest.json';
 
+/**
+ * 每台设备各自写一份「我贡献了哪些目录」的声明，互不覆盖。
+ *
+ * 为什么不能只用 manifest 里的 device：manifest 是**单份共享文件**，两端交替
+ * 覆盖。内容相同的文件（同步后必然相同）会一直保留第一次写入的来源，于是
+ * 清单很容易变成清一色同一台设备 —— 本机过滤后就一个 emoji 都看不到。
+ * 设备声明按设备名分文件，天然不会互相覆盖，这才稳定回答「这份数据谁在用」。
+ */
+const DEVICES_REMOTE = '/dsh/devices';
+const deviceClaimFile = (device: string) =>
+  DEVICES_REMOTE + '/' + device.replace(/[^A-Za-z0-9._-]/g, '_') + '.json';
+
 function sha256Hex(data: Uint8Array): string {
   return createHash('sha256').update(data).digest('hex');
 }
@@ -129,9 +141,8 @@ export class Engine {
    *   · 分类级 → 该分类在 rel 空间的根（`sessions`、`attachments`、`custom-folders/<name>`…）
    *   · 自定义文件夹 → `custom-folders/<name>`
    *
-   * 数据取自远端清单（`remoteManifest`）：它记录的是每个文件**最后上传的设备**，
-   * 正是"这份数据来自哪台机器"的答案。清单里没有 device 字段的旧条目一律忽略，
-   * 不让历史数据把统计搅浑。
+   * 主数据是 `/dsh/devices/` 下每台设备各自的声明文件（互不覆盖）；
+   * 远端清单里的 device 作为兼容兜底。旧条目没有 device 就忽略，不搅浑统计。
    *
    * @returns `{ self, byPrefix }`，`self` 是本机标识（前端据此隐藏本机 emoji）
    */
@@ -147,16 +158,41 @@ export class Engine {
     }
 
     const counters = new Map<string, Map<string, number>>();
-    for (const e of this.remoteManifest) {
-      if (!e.device) continue;
-      const prefix = prefixOf(e.rel);
-      if (!prefix) continue;
+    const bump = (prefix: string, device: string, n: number) => {
       let m = counters.get(prefix);
       if (!m) {
         m = new Map();
         counters.set(prefix, m);
       }
-      m.set(e.device, (m.get(e.device) ?? 0) + 1);
+      m.set(device, (m.get(device) ?? 0) + n);
+    };
+
+    // ① 主来源：每台设备各自的声明文件（互不覆盖，最可靠）
+    try {
+      const entries = await this.deps.transport.list(DEVICES_REMOTE);
+      for (const entry of entries) {
+        if (entry.type !== 'file' || !entry.name.endsWith('.json')) continue;
+        try {
+          const raw = await this.deps.transport.getBuffer(DEVICES_REMOTE + '/' + entry.name);
+          const claim = JSON.parse(new TextDecoder().decode(raw));
+          if (!claim || typeof claim.device !== 'string') continue;
+          for (const [prefix, n] of Object.entries(claim.prefixes ?? {})) {
+            const count = Number(n) || 0;
+            if (count > 0) bump(prefix, claim.device, count);
+          }
+        } catch {
+          /* 单个声明损坏不该影响其它设备 */
+        }
+      }
+    } catch {
+      /* 目录还不存在（首次同步前），下面还有 manifest 兜底 */
+    }
+
+    // ② 兼容兜底：旧数据 / 声明文件还没生成时，用 manifest 里的 device
+    for (const e of this.remoteManifest) {
+      if (!e.device) continue;
+      const prefix = prefixOf(e.rel);
+      if (prefix) bump(prefix, e.device, 1);
     }
 
     const byPrefix: Record<string, Array<{ device: string; files: number }>> = {};
@@ -212,6 +248,28 @@ export class Engine {
       this.deps.store.salt(),
     );
     await this.deps.transport.putBuffer(enc, MANIFEST_REMOTE, { mkdirs: true });
+  }
+
+  /**
+   * 同步完成后写本机声明。明文即可 —— 里面只有目录名和计数，不是敏感数据；
+   * 而且明文让 sourceDevices 不用解密就能读，面板刷新更快。
+   */
+  private async writeDeviceClaim(fresh: ManifestEntry[]): Promise<void> {
+    const prefixes: Record<string, number> = {};
+    for (const e of fresh) {
+      const p = prefixOf(e.rel);
+      if (p) prefixes[p] = (prefixes[p] ?? 0) + 1;
+    }
+    const payload = JSON.stringify({
+      device: selfDevice(),
+      prefixes,
+      updatedAt: Date.now(),
+    });
+    await this.deps.transport.putBuffer(
+      new TextEncoder().encode(payload),
+      deviceClaimFile(selfDevice()),
+      { mkdirs: true },
+    );
   }
 
   /** 拉取远端某文件并解密（自动识别分块/直传，分块时校验 plainHash）。不存在返回 null。 */
@@ -379,6 +437,12 @@ export class Engine {
         const merged = mergeManifestDevices(fresh, this.remoteManifest);
         await this.writeRemoteManifest(merged);
         this.remoteManifest = merged;
+        // 写本机来源声明。失败不能让整轮同步判失败（只是少了 emoji 而已）。
+        try {
+          await this.writeDeviceClaim(fresh);
+        } catch {
+          /* 忽略 */
+        }
         this.deps.store.snapshot.lastSyncTime = Date.now();
 
         // 收尾刷新待办：不留「同步成功但仍显示待同步 N 项」的假状态。

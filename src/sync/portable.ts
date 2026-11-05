@@ -582,7 +582,12 @@ export function selfDevice(): string {
     /* 某些沙箱没有 hostname，退回默认值 */
   }
   const clean = host.replace(/[^\w.-]/g, '').slice(0, 24) || 'device';
-  return process.platform + ':' + clean;
+  // Android 上的 Node 常常报 platform='linux'（Termux/嵌入式 Node 都是），
+  // 那样前端会显示 🐧 而不是 📱。用 Android 独有环境变量纠正。
+  const plat = process.platform === 'linux' && (process.env.ANDROID_ROOT || process.env.ANDROID_DATA)
+    ? 'android'
+    : process.platform;
+  return plat + ':' + clean;
 }
 
 /** 设备标识 → 前端用的平台前缀（`win32:xxx` → `win32`）。 */
