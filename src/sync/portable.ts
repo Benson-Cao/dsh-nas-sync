@@ -455,6 +455,216 @@ export interface RegistryMergeResult {
   added: number;
   remapped: number;
   total: number;
+  /** 合并后被清掉的跨工作区重复 session 归属数 */
+  deduped: number;
+}
+
+/**
+ * 全局收敛 session 归属：一个 sessionId 只能属于一个工作区。
+ *
+ * dsh 的 `WorkspaceRegistry.validateStoredState()` 会把「同一 session 被两个
+ * workspace 同时记账」判成 `workspace domain is inconsistent`，抛错后
+ * `workspace` 插件不激活 → `workspaceRegistry` 服务缺失 →
+ * `workspace-controller` / `session-controller` / `schedule` 全部 pending，
+ * gateway 侧就报 `active Service "workspaceController" is unavailable`
+ * （表象是侧栏工作区全空、新建文件夹失败）。
+ *
+ * 合并逻辑按 **workspace id** 并集 sessionIds，两个 id 可能指向同一个
+ * 同名工作区（例如同步映射出来的 wstest 与本机原生 wstest），并集后必然
+ * 产生重复归属。所以在任何写回前统一做一次全局去重。
+ *
+ * 保留优先级 = `global.workspaceIds` 的顺序（即用户看到的侧栏顺序），
+ * 表里但不在 workspaceIds 里的 id 追加到最后。绝不删工作区、只删重复引用。
+ */
+export function dedupeWorkspaceSessions(local: Record<string, any>): number {
+  const tables = local?.['tables'];
+  const workspaces = tables?.['workspaces'];
+  if (!workspaces || typeof workspaces !== 'object') return 0;
+
+  const globals = (local['global'] ?? {}) as Record<string, any>;
+  const listed: unknown = globals['workspaceIds'];
+  const ids = Object.keys(workspaces as Record<string, any>);
+  const order: string[] = [];
+  if (Array.isArray(listed)) {
+    for (const id of listed) if (typeof id === 'string' && ids.includes(id)) order.push(id);
+  }
+  for (const id of ids) if (!order.includes(id)) order.push(id);
+
+  const seen = new Set<string>();
+  let removed = 0;
+  for (const id of order) {
+    const w = (workspaces as Record<string, any>)[id] as Record<string, any>;
+    const raw: unknown = w?.['sessionIds'];
+    if (!Array.isArray(raw)) continue;
+    const keep: string[] = [];
+    const within = new Set<string>();
+    for (const s of raw) {
+      const sid = typeof s === 'string' ? s : String(s);
+      if (seen.has(sid) || within.has(sid)) {
+        removed += 1;
+        continue;
+      }
+      seen.add(sid);
+      within.add(sid);
+      keep.push(sid);
+    }
+    w['sessionIds'] = keep;
+  }
+  return removed;
+}
+
+export interface RegistryNormalizeResult {
+  /** 被合并掉的重复工作区条目数 */
+  merged: number;
+  /** 清掉的重复 session 归属数 */
+  removed: number;
+  /** 修正的 registry order 条目数（重复/缺失引用/orphan） */
+  orderFixed: number;
+}
+
+/**
+ * 把注册表收敛到 dsh `validateStoredState()` 能通过的状态。
+ *
+ * 宿主的四条硬规则（实测来自 @deepseek-ai/dsh-workspace/lib/index.js）：
+ *   ① workspaceIds 不得重复，且每个 id 必须在 workspaces 表里
+ *   ② initialized 时表里每个 id 都必须出现在 workspaceIds 里（无 orphan）
+ *   ③ 任意两个工作区的 path 不得相同
+ *   ④ 任意 sessionId 不得被两个工作区同时记账
+ *
+ * 双向同步时两个不同 id、同名的工作区（一个是本机原生、一个是远端映射
+ * 到 nassyncworkspaces 的副本）会同时存在 → ③④ 必炸 → workspace 插件
+ * 不激活 → workspaceController 服务不可用（侧栏全空、无法新建文件夹）。
+ *
+ * 收敛策略（保守，不删任何目录/会话文件）：
+ *   - 同名（忽略大小写）或同 path 的条目合并，保留 workspaceIds 里靠前的
+ *   - path 优先挑「不是同步映射目录」的那个，也就是本机真实工作区
+ *   - 被合并条目的 sessionIds 并进保留条目，再全局去重
+ *   - 修正 workspaceIds 顺序与 defaultWorkspaceId
+ */
+export function normalizeWorkspaceRegistry(local: Record<string, any>): RegistryNormalizeResult {
+  const tables = local?.['tables'];
+  const workspaces = tables?.['workspaces'] as Record<string, any> | undefined;
+  if (!workspaces || typeof workspaces !== 'object') {
+    return { merged: 0, removed: 0, orderFixed: 0 };
+  }
+
+  const globals = (local['global'] ?? (local['global'] = {})) as Record<string, any>;
+  const listed: unknown = globals['workspaceIds'];
+  const ids: string[] = [];
+  if (Array.isArray(listed)) {
+    for (const id of listed) {
+      if (typeof id === 'string' && workspaces[id] && !ids.includes(id)) ids.push(id);
+    }
+  }
+  for (const id of Object.keys(workspaces)) if (!ids.includes(id)) ids.push(id);
+
+  const isMapped = (p: unknown): boolean =>
+    typeof p === 'string' && p.includes(WORKSPACES_DIR);
+
+  // union-find：同名或同 path 归一组
+  const parent = new Map<string, string>(ids.map((id) => [id, id]));
+  const find = (x: string): string => {
+    let r = x;
+    while (parent.get(r) !== r) r = parent.get(r) as string;
+    return r;
+  };
+  const union = (a: string, b: string): void => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(rb, ra);
+  };
+  const byTitle = new Map<string, string>();
+  const byPath = new Map<string, string>();
+  for (const id of ids) {
+    const w = workspaces[id] as Record<string, any>;
+    const title = String(w?.['title'] ?? '').trim().toLowerCase();
+    const path = w?.['path'];
+    if (title) {
+      const prev = byTitle.get(title);
+      if (prev) union(prev, id);
+      else byTitle.set(title, id);
+    }
+    if (typeof path === 'string') {
+      const prev = byPath.get(path);
+      if (prev) union(prev, id);
+      else byPath.set(path, id);
+    }
+  }
+
+  const groups = new Map<string, string[]>();
+  for (const id of ids) {
+    const root = find(id);
+    const arr = groups.get(root) ?? [];
+    arr.push(id);
+    groups.set(root, arr);
+  }
+
+  const keep: string[] = [];
+  let merged = 0;
+  for (const [, members] of groups) {
+    const keeper = members[0] as string;
+    keep.push(keeper);
+    if (members.length < 2) continue;
+    // 本机真实工作区优先于同步映射出来的空壳目录
+    const real = members.find((m) => !isMapped((workspaces[m] as Record<string, any>)['path']));
+    if (real && real !== keeper) {
+      (workspaces[keeper] as Record<string, any>)['path'] =
+        (workspaces[real] as Record<string, any>)['path'];
+    }
+    const seen = new Set<string>();
+    const sessionIds: string[] = [];
+    for (const m of members) {
+      const raw = (workspaces[m] as Record<string, any>)['sessionIds'];
+      if (!Array.isArray(raw)) continue;
+      for (const s of raw) {
+        const sid = typeof s === 'string' ? s : String(s);
+        if (!seen.has(sid)) { seen.add(sid); sessionIds.push(sid); }
+      }
+    }
+    (workspaces[keeper] as Record<string, any>)['sessionIds'] = sessionIds;
+    for (const m of members.slice(1)) { delete workspaces[m]; merged += 1; }
+  }
+
+  const oldIds = Array.isArray(listed) ? listed : [];
+  const orderChanged =
+    oldIds.length !== keep.length || oldIds.some((id, i) => id !== keep[i]);
+  globals['workspaceIds'] = keep;
+  const orderFixed = (orderChanged ? 1 : 0) + merged;
+  if (typeof globals['defaultWorkspaceId'] !== 'string' || !keep.includes(globals['defaultWorkspaceId'])) {
+    globals['defaultWorkspaceId'] = keep[0] ?? null;
+  }
+  globals['initialized'] = true;
+  globals['archivedSessionIds'] ??= [];
+  globals['pinnedSessionIds'] ??= [];
+
+  const removed = dedupeWorkspaceSessions(local);
+  return { merged, removed, orderFixed };
+}
+
+/** 自愈：把本机现存注册表直接收敛到合法状态（原子写，幂等）。 */
+export async function repairWorkspaceRegistry(
+  home: string = dshHome(),
+): Promise<RegistryNormalizeResult> {
+  const localPath = join(home, WORKSPACE_REGISTRY_REL);
+  let text: string;
+  try {
+    text = await readFile(localPath, 'utf8');
+  } catch {
+    return { merged: 0, removed: 0, orderFixed: 0 };
+  }
+  let local: Record<string, any>;
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object') return { merged: 0, removed: 0, orderFixed: 0 };
+    local = parsed as Record<string, any>;
+  } catch {
+    return { merged: 0, removed: 0, orderFixed: 0 };
+  }
+  const result = normalizeWorkspaceRegistry(local);
+  if (result.merged === 0 && result.removed === 0 && result.orderFixed === 0) return result;
+  const tmp = localPath + '.nas-sync.tmp';
+  await writeFile(tmp, JSON.stringify(local, null, 2) + '\n');
+  await rename(tmp, localPath);
+  return result;
 }
 
 /**
@@ -465,6 +675,7 @@ export interface RegistryMergeResult {
  *   - 本地已有的 id → **保留本地 path/title**，只并集 sessionIds；
  *     若本地条目的 path 本身在本机不存在（上一轮同步进来的手机路径），顺手修掉
  *   - 本地 defaultWorkspaceId 已有就不动
+ *   - 写回前全局去重 session 归属（见 dedupeWorkspaceSessions）
  */
 export async function mergeWorkspaceRegistry(
   remoteText: string,
@@ -474,7 +685,7 @@ export async function mergeWorkspaceRegistry(
   try {
     remote = JSON.parse(remoteText);
   } catch {
-    return { added: 0, remapped: 0, total: 0 };
+    return { added: 0, remapped: 0, total: 0, deduped: 0 };
   }
 
   const localPath = join(home, WORKSPACE_REGISTRY_REL);
@@ -543,6 +754,13 @@ export async function mergeWorkspaceRegistry(
     globals['defaultWorkspaceId'] = globals['workspaceIds'][0];
   }
 
+  // 关键：按 id 并集之后，两个不同 id 的工作区可能同名/同 path，或同时
+  // 记着同一个 session。dsh 的 validateStoredState 四条规定任一不满足就
+  // 拒绝激活 workspace 插件，侧栏全空 + workspaceController 服务不可用。
+  // 写回前必须做一次完整收敛。
+  const norm = normalizeWorkspaceRegistry(local);
+  const deduped = norm.removed + norm.merged;
+
   await mkdir(join(home, 'storages'), { recursive: true });
   /**
    * 原子写：先写同目录临时文件再 rename。
@@ -555,7 +773,7 @@ export async function mergeWorkspaceRegistry(
   const tmp = localPath + '.nas-sync.tmp';
   await writeFile(tmp, JSON.stringify(local, null, 2) + '\n');
   await rename(tmp, localPath);
-  return { added, remapped, total: Object.keys(workspaces).length };
+  return { added, remapped, total: Object.keys(workspaces).length, deduped };
 }
 
 export interface RepairResult {

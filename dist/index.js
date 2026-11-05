@@ -20643,12 +20643,161 @@ function rewriteSessionCwd(buf, home = dshHome()) {
   const headFrame = zstdCompress(Buffer.from(JSON.stringify(parsed.header) + parsed.rest, "utf8"));
   return { buf: Buffer.concat([headFrame, buf.subarray(end)]), dir: local };
 }
+function dedupeWorkspaceSessions(local) {
+  const tables = local?.["tables"];
+  const workspaces = tables?.["workspaces"];
+  if (!workspaces || typeof workspaces !== "object") return 0;
+  const globals = local["global"] ?? {};
+  const listed = globals["workspaceIds"];
+  const ids = Object.keys(workspaces);
+  const order = [];
+  if (Array.isArray(listed)) {
+    for (const id of listed) if (typeof id === "string" && ids.includes(id)) order.push(id);
+  }
+  for (const id of ids) if (!order.includes(id)) order.push(id);
+  const seen = /* @__PURE__ */ new Set();
+  let removed = 0;
+  for (const id of order) {
+    const w = workspaces[id];
+    const raw = w?.["sessionIds"];
+    if (!Array.isArray(raw)) continue;
+    const keep = [];
+    const within = /* @__PURE__ */ new Set();
+    for (const s2 of raw) {
+      const sid = typeof s2 === "string" ? s2 : String(s2);
+      if (seen.has(sid) || within.has(sid)) {
+        removed += 1;
+        continue;
+      }
+      seen.add(sid);
+      within.add(sid);
+      keep.push(sid);
+    }
+    w["sessionIds"] = keep;
+  }
+  return removed;
+}
+function normalizeWorkspaceRegistry(local) {
+  const tables = local?.["tables"];
+  const workspaces = tables?.["workspaces"];
+  if (!workspaces || typeof workspaces !== "object") {
+    return { merged: 0, removed: 0, orderFixed: 0 };
+  }
+  const globals = local["global"] ?? (local["global"] = {});
+  const listed = globals["workspaceIds"];
+  const ids = [];
+  if (Array.isArray(listed)) {
+    for (const id of listed) {
+      if (typeof id === "string" && workspaces[id] && !ids.includes(id)) ids.push(id);
+    }
+  }
+  for (const id of Object.keys(workspaces)) if (!ids.includes(id)) ids.push(id);
+  const isMapped = (p) => typeof p === "string" && p.includes(WORKSPACES_DIR);
+  const parent = new Map(ids.map((id) => [id, id]));
+  const find = (x2) => {
+    let r2 = x2;
+    while (parent.get(r2) !== r2) r2 = parent.get(r2);
+    return r2;
+  };
+  const union = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(rb, ra);
+  };
+  const byTitle = /* @__PURE__ */ new Map();
+  const byPath = /* @__PURE__ */ new Map();
+  for (const id of ids) {
+    const w = workspaces[id];
+    const title = String(w?.["title"] ?? "").trim().toLowerCase();
+    const path4 = w?.["path"];
+    if (title) {
+      const prev = byTitle.get(title);
+      if (prev) union(prev, id);
+      else byTitle.set(title, id);
+    }
+    if (typeof path4 === "string") {
+      const prev = byPath.get(path4);
+      if (prev) union(prev, id);
+      else byPath.set(path4, id);
+    }
+  }
+  const groups = /* @__PURE__ */ new Map();
+  for (const id of ids) {
+    const root = find(id);
+    const arr = groups.get(root) ?? [];
+    arr.push(id);
+    groups.set(root, arr);
+  }
+  const keep = [];
+  let merged = 0;
+  for (const [, members] of groups) {
+    const keeper = members[0];
+    keep.push(keeper);
+    if (members.length < 2) continue;
+    const real = members.find((m2) => !isMapped(workspaces[m2]["path"]));
+    if (real && real !== keeper) {
+      workspaces[keeper]["path"] = workspaces[real]["path"];
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const sessionIds = [];
+    for (const m2 of members) {
+      const raw = workspaces[m2]["sessionIds"];
+      if (!Array.isArray(raw)) continue;
+      for (const s2 of raw) {
+        const sid = typeof s2 === "string" ? s2 : String(s2);
+        if (!seen.has(sid)) {
+          seen.add(sid);
+          sessionIds.push(sid);
+        }
+      }
+    }
+    workspaces[keeper]["sessionIds"] = sessionIds;
+    for (const m2 of members.slice(1)) {
+      delete workspaces[m2];
+      merged += 1;
+    }
+  }
+  const oldIds = Array.isArray(listed) ? listed : [];
+  const orderChanged = oldIds.length !== keep.length || oldIds.some((id, i2) => id !== keep[i2]);
+  globals["workspaceIds"] = keep;
+  const orderFixed = (orderChanged ? 1 : 0) + merged;
+  if (typeof globals["defaultWorkspaceId"] !== "string" || !keep.includes(globals["defaultWorkspaceId"])) {
+    globals["defaultWorkspaceId"] = keep[0] ?? null;
+  }
+  globals["initialized"] = true;
+  globals["archivedSessionIds"] ??= [];
+  globals["pinnedSessionIds"] ??= [];
+  const removed = dedupeWorkspaceSessions(local);
+  return { merged, removed, orderFixed };
+}
+async function repairWorkspaceRegistry(home = dshHome()) {
+  const localPath = join4(home, WORKSPACE_REGISTRY_REL);
+  let text;
+  try {
+    text = await readFile2(localPath, "utf8");
+  } catch {
+    return { merged: 0, removed: 0, orderFixed: 0 };
+  }
+  let local;
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object") return { merged: 0, removed: 0, orderFixed: 0 };
+    local = parsed;
+  } catch {
+    return { merged: 0, removed: 0, orderFixed: 0 };
+  }
+  const result = normalizeWorkspaceRegistry(local);
+  if (result.merged === 0 && result.removed === 0 && result.orderFixed === 0) return result;
+  const tmp = localPath + ".nas-sync.tmp";
+  await writeFile2(tmp, JSON.stringify(local, null, 2) + "\n");
+  await rename(tmp, localPath);
+  return result;
+}
 async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
   let remote;
   try {
     remote = JSON.parse(remoteText);
   } catch {
-    return { added: 0, remapped: 0, total: 0 };
+    return { added: 0, remapped: 0, total: 0, deduped: 0 };
   }
   const localPath = join4(home, WORKSPACE_REGISTRY_REL);
   let local;
@@ -20703,11 +20852,13 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
   if (!globals["defaultWorkspaceId"] && globals["workspaceIds"].length > 0) {
     globals["defaultWorkspaceId"] = globals["workspaceIds"][0];
   }
+  const norm = normalizeWorkspaceRegistry(local);
+  const deduped = norm.removed + norm.merged;
   await mkdir2(join4(home, "storages"), { recursive: true });
   const tmp = localPath + ".nas-sync.tmp";
   await writeFile2(tmp, JSON.stringify(local, null, 2) + "\n");
   await rename(tmp, localPath);
-  return { added, remapped, total: Object.keys(workspaces).length };
+  return { added, remapped, total: Object.keys(workspaces).length, deduped };
 }
 function selfDevice() {
   let host = "";
@@ -21569,6 +21720,15 @@ var Engine = class {
         this.deps.store.save();
       }
       if (!this.abort.signal.aborted) {
+        try {
+          const fix = await repairWorkspaceRegistry();
+          if (fix.merged + fix.removed + fix.orderFixed > 0) {
+            console.warn(
+              "[dsh-nas-sync] \u6CE8\u518C\u8868\u5DF2\u6536\u655B\uFF1A\u5408\u5E76\u5DE5\u4F5C\u533A " + fix.merged + "\u3001\u6E05\u7406\u91CD\u590D session \u5F52\u5C5E " + fix.removed + "\u3001\u4FEE\u6B63\u987A\u5E8F " + fix.orderFixed
+            );
+          }
+        } catch {
+        }
         try {
           await repairSessionCwd();
         } catch {

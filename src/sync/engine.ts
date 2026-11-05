@@ -35,6 +35,7 @@ import {
   mergeWorkspaceRegistry,
   platformMismatch,
   repairSessionCwd,
+  repairWorkspaceRegistry,
   rewriteSessionCwd,
 } from './portable.js';
 
@@ -469,6 +470,21 @@ export class Engine {
       // 幂等（cwd 本机已存在就跳过），所以每次 pull 都跑也不会有额外开销；
       // 这样即便上次同步时还没有这套逻辑，下一次 pull 也能把历史的坑填上。
       if (!this.abort.signal.aborted) {
+        try {
+          // 先收敛工作区注册表：重复 session 归属会让 dsh 的 workspace 插件
+          // 拒绝激活，侧栏全空且 workspaceController 报 service-unavailable。
+          // 必须放在任何同步方向的收尾（不只是 pull），历史脏数据也能自愈。
+          const fix = await repairWorkspaceRegistry();
+          if (fix.merged + fix.removed + fix.orderFixed > 0) {
+            console.warn(
+              '[dsh-nas-sync] 注册表已收敛：合并工作区 ' + fix.merged +
+              '、清理重复 session 归属 ' + fix.removed +
+              '、修正顺序 ' + fix.orderFixed,
+            );
+          }
+        } catch {
+          /* 修复失败不该让整轮同步判失败 */
+        }
         try {
           await repairSessionCwd();
         } catch {
