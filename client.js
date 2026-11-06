@@ -356,7 +356,9 @@ window.__ModuleLoader__.load({
       // 上限会让右侧空出一大块（实测约占窗口 18%）。这里不再自己限宽，
       // 改为 100% + flex-grow 去吃满宿主给的可用宽度；真正的限宽祖先由
       // widenHostColumn() 在挂载时放开（可逆，见该函数注释）。
-      root: { padding: '24px', width: '100%', maxWidth: 'none', margin: 0, flex: '1 1 auto', minWidth: 0, alignSelf: 'stretch', color: 'var(--dsw-alias-label-primary)', fontSize: '13px', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '16px', height: '100%', overflow: 'auto', boxSizing: 'border-box' },
+      // 内边距一律交给宿主外框（原生页同样不自带 padding，宽度由外框决定）。
+      // 自己再叠一层 24px 会与外框叠加，两页左右缘必然对不齐 —— 0.3.7 就是栽在这。
+      root: { padding: '0', width: '100%', maxWidth: 'none', margin: 0, flex: '1 1 auto', minWidth: 0, alignSelf: 'stretch', color: 'var(--dsw-alias-label-primary)', fontSize: '13px', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '16px', height: '100%', overflow: 'auto', boxSizing: 'border-box' },
       card: { background: 'var(--dsw-alias-bg-layer-1)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' },
       title: { margin: 0, fontSize: '16px', fontWeight: 600 },
       subtitle: { margin: 0, color: 'var(--dsw-alias-label-secondary)', fontSize: '12px' },
@@ -446,18 +448,11 @@ window.__ModuleLoader__.load({
           touched = true;
         }
 
-        // ③ 祖先的左右内边距：宿主设置页用 padding 做缩进，只放开 max-width 时
-        //    内容列仍会比原生页窄一截（实测 NAS 页比「插件」页左边多出约 60px）。
-        //    归零后由 root 自己的 24px 提供内边距，两页左缘才对得齐。
-        const padL = parseFloat(cs.paddingLeft) || 0;
-        const padR = parseFloat(cs.paddingRight) || 0;
-        if (padL >= 16 && padR >= 16) {
-          saved.paddingLeft = inline.paddingLeft;
-          saved.paddingRight = inline.paddingRight;
-          inline.setProperty('padding-left', '0px', 'important');
-          inline.setProperty('padding-right', '0px', 'important');
-          touched = true;
-        }
+        // ③ 祖先的 padding **不动**。宿主设置页靠外框的 padding 给所有子页做同一套
+        //    缩进，原生页（插件/账户/通用…）都不自带左右内边距。我们若把外框 padding
+        //    清零、再叠自己的 24px，就会变成「外框 0 + 自己 24」对「外框 24 + 自己 0」，
+        //    看似相等、实则多清一层祖先就宽出去、少清一层又窄回来 —— 0.3.7 的教训。
+        //    正确做法：root 的 padding 设 0，让外框独一份决定左右缘。
 
         // ② 是 flex 子项但不会长开 → 让它吃满剩下的横向空间
         const parent = node.parentElement;
@@ -494,15 +489,34 @@ window.__ModuleLoader__.load({
             if (saved.minWidth) target.style.setProperty('min-width', saved.minWidth);
             else target.style.removeProperty('min-width');
           }
-          if ('paddingLeft' in saved) {
-            if (saved.paddingLeft) target.style.setProperty('padding-left', saved.paddingLeft);
-            else target.style.removeProperty('padding-left');
-          }
-          if ('paddingRight' in saved) {
-            if (saved.paddingRight) target.style.setProperty('padding-right', saved.paddingRight);
-            else target.style.removeProperty('padding-right');
-          }
         }
+      };
+    }
+
+    // 兜底：直接量父容器的内容宽度，把我们的宽度钉死成同一个数字。
+    // widenHostColumn 是「猜哪一层在限宽」，这个是「直接量出来」——
+    // 宿主换了外框样式也不会再跑偏。父容器尺寸变化时自动跟随。
+    function fitToParentWidth(el) {
+      const parent = el.parentElement;
+      if (!parent) return function noop() {};
+      const apply = () => {
+        const cs = window.getComputedStyle(parent);
+        const padL = parseFloat(cs.paddingLeft) || 0;
+        const padR = parseFloat(cs.paddingRight) || 0;
+        const w = Math.round(parent.clientWidth - padL - padR);
+        if (w > 0) el.style.setProperty('width', w + 'px', 'important');
+      };
+      apply();
+      let ro = null;
+      if (typeof ResizeObserver !== 'undefined') {
+        ro = new ResizeObserver(apply);
+        ro.observe(parent);
+      }
+      window.addEventListener('resize', apply);
+      return function restore() {
+        if (ro) ro.disconnect();
+        window.removeEventListener('resize', apply);
+        el.style.removeProperty('width');
       };
     }
 
@@ -516,7 +530,12 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         const el = rootRef.current;
         if (!el || window.innerWidth < 720) return undefined;
-        return widenHostColumn(el);
+        const undoWiden = widenHostColumn(el);
+        const undoFit = fitToParentWidth(el);
+        return () => {
+          undoFit();
+          undoWiden();
+        };
       }, []);
 
       const [snap, setSnap] = useState(null);
