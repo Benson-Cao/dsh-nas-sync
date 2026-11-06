@@ -222,8 +222,15 @@ registerNasSyncUi(ctx, HostBridge(scope))
 
 - 工作区清单**只合并不覆盖**：本地已有 id 保留 path/title、只并 `sessionIds`，
   绝不抹掉本机自己的 `default-workspace`。
-- 远端绝对路径在本机不存在时，映射到 `$DSH_HOME/workspaces/<名字>` 并 `mkdir`。
+- **0.3.4 起再收一道**：本机注册表已可用时，`storages/workspace.json` **只上传、
+  不下载合并** —— 双向 mirror 每轮拉注册表会把对端的工作区归属合进来，反复改写
+  `default` / `path` / `sessionIds`。**0.3.5 起这是条件式的**：新机器首次同步
+  （本机还没有可用注册表）仍然放行合并，否则侧栏工作区名会全丢。
+- 远端绝对路径在本机不存在时，映射到 `$DSH_HOME/nassyncworkspaces/<名字>` 并 `mkdir`。
 - 会话文件落地时改写表头 `cwd` 为映射后的路径；每轮同步结束再做一次幂等修复。
+- **跨平台会话不下地**：判定看**原始 cwd**（不是映射后的路径）。手机上的会话
+  不会落到 Windows，反之亦然 —— 否则每轮都会在 `nassyncworkspaces/` 造一份重复，
+  被收尾的 `dedupeSessionDirs()` 反复隔离。
 
 > **为什么映射到 `~/.dsh/workspaces/`**：它仍在 `$DSH_HOME` 之内，于是「工作区文件」
 > 可以当成 rel 前缀 `workspaces/` 的普通分类来同步；同时手机上的

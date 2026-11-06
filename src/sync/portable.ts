@@ -26,7 +26,7 @@
 
 import * as zlib from 'node:zlib';
 import { readdir, readFile, writeFile, mkdir, stat, rename, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import * as os from 'node:os';
 import { dshHome } from '../paths.js';
@@ -77,6 +77,28 @@ export function isSessionRel(rel: string): boolean {
 
 export function isWorkspaceRegistryRel(rel: string): boolean {
   return rel === WORKSPACE_REGISTRY_REL;
+}
+
+/**
+ * 本机的工作区注册表是否「已经可用」。
+ *
+ * 0.3.5：注册表下载守卫必须是**条件式**的。新机器第一次同步时本机还没有
+ * `storages/workspace.json`，无条件跳过下载会让侧栏工作区名、会话归属全丢
+ * —— `repairWorkspaceRegistry()` 在本机没有注册表时直接返回 0，兜不住。
+ * 只有本机已有可用注册表时，才禁止再用远端覆盖合并。
+ */
+export function workspaceRegistryReady(home: string = dshHome()): boolean {
+  try {
+    const p = join(home, 'storages', 'workspace.json');
+    if (!existsSync(p)) return false;
+    const d = JSON.parse(readFileSync(p, 'utf-8'));
+    const ids = d?.global?.workspaceIds;
+    if (!Array.isArray(ids) || ids.length === 0) return false;
+    if (d?.global?.initialized === false) return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** 取路径最后一段并清掉 Windows 非法字符，作为本地目录名。 */

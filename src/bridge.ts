@@ -249,6 +249,13 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
         await engine.resolve(body.file, body.resolution);
         return ok(res, { resolved: body.file });
       }
+      if (sub === '/skip' && method === 'POST') {
+        const body = await readBody();
+        if (!body.file) return fail(res, 'bad_request', '需要 file');
+        // 只移出待办：与 /resolve(skip) 区分开，后者要求文件确实在冲突列表里。
+        await engine.skipPending(body.file);
+        return ok(res, { skipped: body.file });
+      }
       if (sub === '/merge' && method === 'POST') {
         const body = await readBody();
         const fs = await import('node:fs/promises');

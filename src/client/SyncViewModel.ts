@@ -237,7 +237,9 @@ export class SyncViewModel {
       s.pending.total = Math.max(0, s.pending.total - 1);
     });
     try {
-      await this.bridge.callTool('nas_resolve_conflict', { file, resolution: 'skip' });
+      // 0.3.5：待办跳过要走 nas_skip_pending。原来调 nas_resolve_conflict
+      // 的 skip 分支，引擎要求冲突记录存在 → 对普通待办必报错。
+      await this.bridge.callTool('nas_skip_pending', { file });
     } catch (e) {
       this.update((s) => {
         s.error = (e as Error).message;

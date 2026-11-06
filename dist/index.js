@@ -38,9 +38,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/requires-port/index.js
+// ../../dsh-nas-sync/node_modules/requires-port/index.js
 var require_requires_port = __commonJS({
-  "node_modules/requires-port/index.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/requires-port/index.js"(exports2, module) {
     "use strict";
     module.exports = function required(port, protocol) {
       protocol = protocol.split(":")[0];
@@ -65,9 +65,9 @@ var require_requires_port = __commonJS({
   }
 });
 
-// node_modules/querystringify/index.js
+// ../../dsh-nas-sync/node_modules/querystringify/index.js
 var require_querystringify = __commonJS({
-  "node_modules/querystringify/index.js"(exports2) {
+  "../../dsh-nas-sync/node_modules/querystringify/index.js"(exports2) {
     "use strict";
     var has = Object.prototype.hasOwnProperty;
     var undef;
@@ -117,9 +117,9 @@ var require_querystringify = __commonJS({
   }
 });
 
-// node_modules/url-parse/index.js
+// ../../dsh-nas-sync/node_modules/url-parse/index.js
 var require_url_parse = __commonJS({
-  "node_modules/url-parse/index.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/url-parse/index.js"(exports2, module) {
     "use strict";
     var required = require_requires_port();
     var qs = require_querystringify();
@@ -425,7 +425,7 @@ var require_url_parse = __commonJS({
   }
 });
 
-// node_modules/layerr/dist/error.js
+// ../../dsh-nas-sync/node_modules/layerr/dist/error.js
 function assertError(err) {
   if (!isError(err)) {
     throw new Error("Parameter was not an error");
@@ -438,23 +438,23 @@ function objectToString(obj) {
   return Object.prototype.toString.call(obj);
 }
 var init_error = __esm({
-  "node_modules/layerr/dist/error.js"() {
+  "../../dsh-nas-sync/node_modules/layerr/dist/error.js"() {
   }
 });
 
-// node_modules/layerr/dist/global.js
+// ../../dsh-nas-sync/node_modules/layerr/dist/global.js
 function getGlobalName() {
   return __name;
 }
 var NAME, __name;
 var init_global = __esm({
-  "node_modules/layerr/dist/global.js"() {
+  "../../dsh-nas-sync/node_modules/layerr/dist/global.js"() {
     NAME = "Layerr";
     __name = NAME;
   }
 });
 
-// node_modules/layerr/dist/tools.js
+// ../../dsh-nas-sync/node_modules/layerr/dist/tools.js
 function parseArguments(args) {
   let options, shortMessage = "";
   if (args.length === 0) {
@@ -479,15 +479,15 @@ function parseArguments(args) {
   };
 }
 var init_tools = __esm({
-  "node_modules/layerr/dist/tools.js"() {
+  "../../dsh-nas-sync/node_modules/layerr/dist/tools.js"() {
     init_error();
   }
 });
 
-// node_modules/layerr/dist/layerr.js
+// ../../dsh-nas-sync/node_modules/layerr/dist/layerr.js
 var Layerr;
 var init_layerr = __esm({
-  "node_modules/layerr/dist/layerr.js"() {
+  "../../dsh-nas-sync/node_modules/layerr/dist/layerr.js"() {
     init_error();
     init_global();
     init_tools();
@@ -556,15 +556,15 @@ caused by: ${_Layerr.fullStack(cause)}`;
   }
 });
 
-// node_modules/layerr/dist/types.js
+// ../../dsh-nas-sync/node_modules/layerr/dist/types.js
 var init_types = __esm({
-  "node_modules/layerr/dist/types.js"() {
+  "../../dsh-nas-sync/node_modules/layerr/dist/types.js"() {
   }
 });
 
-// node_modules/layerr/dist/index.js
+// ../../dsh-nas-sync/node_modules/layerr/dist/index.js
 var init_dist = __esm({
-  "node_modules/layerr/dist/index.js"() {
+  "../../dsh-nas-sync/node_modules/layerr/dist/index.js"() {
     init_layerr();
     init_error();
     init_global();
@@ -572,7 +572,7 @@ var init_dist = __esm({
   }
 });
 
-// node_modules/url-join/lib/url-join.js
+// ../../dsh-nas-sync/node_modules/url-join/lib/url-join.js
 function normalize(strArray) {
   const resultArray = [];
   const slashBefore = [];
@@ -652,7 +652,7 @@ function urlJoin(...args) {
 }
 var SCHEME, PLAIN_PROTOCOL, PROTOCOL_PREFIX, HOST_PORT;
 var init_url_join = __esm({
-  "node_modules/url-join/lib/url-join.js"() {
+  "../../dsh-nas-sync/node_modules/url-join/lib/url-join.js"() {
     SCHEME = "[^/:\\d][^/:]*";
     PLAIN_PROTOCOL = new RegExp("^" + SCHEME + ":/*$");
     PROTOCOL_PREFIX = new RegExp("^(" + SCHEME + "):/*");
@@ -660,9 +660,9 @@ var init_url_join = __esm({
   }
 });
 
-// node_modules/path-posix/index.js
+// ../../dsh-nas-sync/node_modules/path-posix/index.js
 var require_path_posix = __commonJS({
-  "node_modules/path-posix/index.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/path-posix/index.js"(exports2, module) {
     "use strict";
     var util = __require("util");
     var isString = function(x2) {
@@ -838,7 +838,7 @@ var require_path_posix = __commonJS({
   }
 });
 
-// node_modules/webdav/dist/node/tools/path.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/path.js
 function encodePath(filePath) {
   try {
     const replaced = filePath.replace(/\//g, SEP_PATH_POSIX).replace(/\\\\/g, SEP_PATH_WINDOWS);
@@ -874,7 +874,7 @@ function normalisePath(pathStr) {
 }
 var import_path_posix, SEP_PATH_POSIX, SEP_PATH_WINDOWS;
 var init_path = __esm({
-  "node_modules/webdav/dist/node/tools/path.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/path.js"() {
     init_dist();
     import_path_posix = __toESM(require_path_posix(), 1);
     SEP_PATH_POSIX = "__PATH_SEPARATOR_POSIX__";
@@ -882,7 +882,7 @@ var init_path = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/tools/url.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/url.js
 function extractURLPath(fullURL) {
   const url = new import_url_parse.default(fullURL);
   let urlPath = url.pathname;
@@ -909,7 +909,7 @@ function normaliseHREF(href) {
 }
 var import_url_parse;
 var init_url = __esm({
-  "node_modules/webdav/dist/node/tools/url.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/url.js"() {
     import_url_parse = __toESM(require_url_parse(), 1);
     init_dist();
     init_url_join();
@@ -917,9 +917,9 @@ var init_url = __esm({
   }
 });
 
-// node_modules/crypt/crypt.js
+// ../../dsh-nas-sync/node_modules/crypt/crypt.js
 var require_crypt = __commonJS({
-  "node_modules/crypt/crypt.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/crypt/crypt.js"(exports2, module) {
     (function() {
       var base64map = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", crypt = {
         // Bit-wise rotation left
@@ -998,9 +998,9 @@ var require_crypt = __commonJS({
   }
 });
 
-// node_modules/charenc/charenc.js
+// ../../dsh-nas-sync/node_modules/charenc/charenc.js
 var require_charenc = __commonJS({
-  "node_modules/charenc/charenc.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/charenc/charenc.js"(exports2, module) {
     var charenc = {
       // UTF-8 encoding
       utf8: {
@@ -1033,9 +1033,9 @@ var require_charenc = __commonJS({
   }
 });
 
-// node_modules/is-buffer/index.js
+// ../../dsh-nas-sync/node_modules/is-buffer/index.js
 var require_is_buffer = __commonJS({
-  "node_modules/is-buffer/index.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/is-buffer/index.js"(exports2, module) {
     module.exports = function(obj) {
       return obj != null && (isBuffer2(obj) || isSlowBuffer(obj) || !!obj._isBuffer);
     };
@@ -1048,9 +1048,9 @@ var require_is_buffer = __commonJS({
   }
 });
 
-// node_modules/md5/md5.js
+// ../../dsh-nas-sync/node_modules/md5/md5.js
 var require_md5 = __commonJS({
-  "node_modules/md5/md5.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/md5/md5.js"(exports2, module) {
     (function() {
       var crypt = require_crypt(), utf8 = require_charenc().utf8, isBuffer2 = require_is_buffer(), bin = require_charenc().bin, md53 = function(message, options) {
         if (message.constructor == String)
@@ -1170,7 +1170,7 @@ var require_md5 = __commonJS({
   }
 });
 
-// node_modules/webdav/dist/node/tools/crypto.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/crypto.js
 function ha1Compute(algorithm, user, realm, pass, nonce, cnonce, ha1) {
   const ha1Hash = ha1 || (0, import_md5.default)(`${user}:${realm}:${pass}`);
   if (algorithm && algorithm.toLowerCase() === "md5-sess") {
@@ -1180,12 +1180,12 @@ function ha1Compute(algorithm, user, realm, pass, nonce, cnonce, ha1) {
 }
 var import_md5;
 var init_crypto = __esm({
-  "node_modules/webdav/dist/node/tools/crypto.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/crypto.js"() {
     import_md5 = __toESM(require_md5(), 1);
   }
 });
 
-// node_modules/webdav/dist/node/auth/digest.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/auth/digest.js
 function createDigestContext(username, password, ha1) {
   return { username, password, ha1, nc: 0, algorithm: "md5", hasDigestAuth: false };
 }
@@ -1253,7 +1253,7 @@ function responseIndicatesDigestAuth(response) {
 }
 var import_md52, NONCE_CHARS, NONCE_SIZE;
 var init_digest = __esm({
-  "node_modules/webdav/dist/node/auth/digest.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/auth/digest.js"() {
     import_md52 = __toESM(require_md5(), 1);
     init_crypto();
     NONCE_CHARS = "abcdef0123456789";
@@ -1261,9 +1261,9 @@ var init_digest = __esm({
   }
 });
 
-// node_modules/base-64/base64.js
+// ../../dsh-nas-sync/node_modules/base-64/base64.js
 var require_base64 = __commonJS({
-  "node_modules/base-64/base64.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/base-64/base64.js"(exports2, module) {
     (function(root) {
       var freeExports = typeof exports2 == "object" && exports2;
       var freeModule = typeof module == "object" && module && module.exports == freeExports && module;
@@ -1367,22 +1367,22 @@ var require_base64 = __commonJS({
   }
 });
 
-// node_modules/entities/dist/esm/generated/decode-data-html.js
+// ../../dsh-nas-sync/node_modules/entities/dist/esm/generated/decode-data-html.js
 var init_decode_data_html = __esm({
-  "node_modules/entities/dist/esm/generated/decode-data-html.js"() {
+  "../../dsh-nas-sync/node_modules/entities/dist/esm/generated/decode-data-html.js"() {
   }
 });
 
-// node_modules/entities/dist/esm/generated/decode-data-xml.js
+// ../../dsh-nas-sync/node_modules/entities/dist/esm/generated/decode-data-xml.js
 var init_decode_data_xml = __esm({
-  "node_modules/entities/dist/esm/generated/decode-data-xml.js"() {
+  "../../dsh-nas-sync/node_modules/entities/dist/esm/generated/decode-data-xml.js"() {
   }
 });
 
-// node_modules/entities/dist/esm/decode-codepoint.js
+// ../../dsh-nas-sync/node_modules/entities/dist/esm/decode-codepoint.js
 var _a, fromCodePoint;
 var init_decode_codepoint = __esm({
-  "node_modules/entities/dist/esm/decode-codepoint.js"() {
+  "../../dsh-nas-sync/node_modules/entities/dist/esm/decode-codepoint.js"() {
     fromCodePoint = // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, n/no-unsupported-features/es-builtins
     (_a = String.fromCodePoint) !== null && _a !== void 0 ? _a : function(codePoint) {
       let output = "";
@@ -1397,10 +1397,10 @@ var init_decode_codepoint = __esm({
   }
 });
 
-// node_modules/entities/dist/esm/decode.js
+// ../../dsh-nas-sync/node_modules/entities/dist/esm/decode.js
 var CharCodes, BinTrieFlags, EntityDecoderState, DecodingMode;
 var init_decode = __esm({
-  "node_modules/entities/dist/esm/decode.js"() {
+  "../../dsh-nas-sync/node_modules/entities/dist/esm/decode.js"() {
     init_decode_data_html();
     init_decode_data_xml();
     init_decode_codepoint();
@@ -1441,16 +1441,16 @@ var init_decode = __esm({
   }
 });
 
-// node_modules/entities/dist/esm/generated/encode-html.js
+// ../../dsh-nas-sync/node_modules/entities/dist/esm/generated/encode-html.js
 var init_encode_html = __esm({
-  "node_modules/entities/dist/esm/generated/encode-html.js"() {
+  "../../dsh-nas-sync/node_modules/entities/dist/esm/generated/encode-html.js"() {
   }
 });
 
-// node_modules/entities/dist/esm/escape.js
+// ../../dsh-nas-sync/node_modules/entities/dist/esm/escape.js
 var getCodePoint;
 var init_escape = __esm({
-  "node_modules/entities/dist/esm/escape.js"() {
+  "../../dsh-nas-sync/node_modules/entities/dist/esm/escape.js"() {
     getCodePoint = // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     String.prototype.codePointAt == null ? (c, index) => (c.charCodeAt(index) & 64512) === 55296 ? (c.charCodeAt(index) - 55296) * 1024 + c.charCodeAt(index + 1) - 56320 + 65536 : c.charCodeAt(index) : (
       // http://mathiasbynens.be/notes/javascript-encoding#surrogate-formulae
@@ -1459,18 +1459,18 @@ var init_escape = __esm({
   }
 });
 
-// node_modules/entities/dist/esm/encode.js
+// ../../dsh-nas-sync/node_modules/entities/dist/esm/encode.js
 var init_encode = __esm({
-  "node_modules/entities/dist/esm/encode.js"() {
+  "../../dsh-nas-sync/node_modules/entities/dist/esm/encode.js"() {
     init_encode_html();
     init_escape();
   }
 });
 
-// node_modules/entities/dist/esm/index.js
+// ../../dsh-nas-sync/node_modules/entities/dist/esm/index.js
 var EntityLevel, EncodingMode;
 var init_esm = __esm({
-  "node_modules/entities/dist/esm/index.js"() {
+  "../../dsh-nas-sync/node_modules/entities/dist/esm/index.js"() {
     init_decode();
     init_encode();
     init_escape();
@@ -1491,7 +1491,7 @@ var init_esm = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/compat/env.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/compat/env.js
 function isReactNative() {
   return typeof TARGET === "string" && TARGET === "react-native";
 }
@@ -1499,11 +1499,11 @@ function isWeb() {
   return typeof TARGET === "string" && TARGET === "web";
 }
 var init_env = __esm({
-  "node_modules/webdav/dist/node/compat/env.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/compat/env.js"() {
   }
 });
 
-// node_modules/webdav/dist/node/tools/encode.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/encode.js
 function fromBase64(text) {
   return import_base_64.default.decode(text);
 }
@@ -1512,37 +1512,37 @@ function toBase64(text) {
 }
 var import_base_64;
 var init_encode2 = __esm({
-  "node_modules/webdav/dist/node/tools/encode.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/encode.js"() {
     import_base_64 = __toESM(require_base64(), 1);
     init_esm();
     init_env();
   }
 });
 
-// node_modules/webdav/dist/node/auth/basic.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/auth/basic.js
 function generateBasicAuthHeader(username, password) {
   const encoded = toBase64(`${username}:${password}`);
   return `Basic ${encoded}`;
 }
 var init_basic = __esm({
-  "node_modules/webdav/dist/node/auth/basic.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/auth/basic.js"() {
     init_encode2();
   }
 });
 
-// node_modules/webdav/dist/node/auth/oauth.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/auth/oauth.js
 function generateTokenAuthHeader(token) {
   return `${token.token_type} ${token.access_token}`;
 }
 var init_oauth = __esm({
-  "node_modules/webdav/dist/node/auth/oauth.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/auth/oauth.js"() {
   }
 });
 
-// node_modules/webdav/dist/node/types.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/types.js
 var AuthType, ErrorCode;
 var init_types2 = __esm({
-  "node_modules/webdav/dist/node/types.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/types.js"() {
     (function(AuthType2) {
       AuthType2["Auto"] = "auto";
       AuthType2["Digest"] = "digest";
@@ -1561,7 +1561,7 @@ var init_types2 = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/auth/index.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/auth/index.js
 function setupAuth(context, username, password, oauthToken, ha1) {
   switch (context.authType) {
     case AuthType.Auto:
@@ -1589,7 +1589,7 @@ function setupAuth(context, username, password, oauthToken, ha1) {
   }
 }
 var init_auth = __esm({
-  "node_modules/webdav/dist/node/auth/index.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/auth/index.js"() {
     init_dist();
     init_digest();
     init_basic();
@@ -1598,7 +1598,7 @@ var init_auth = __esm({
   }
 });
 
-// node_modules/data-uri-to-buffer/dist/index.js
+// ../../dsh-nas-sync/node_modules/data-uri-to-buffer/dist/index.js
 function dataUriToBuffer(uri) {
   if (!/^data:/i.test(uri)) {
     throw new TypeError('`uri` does not appear to be a Data URI (must begin with "data:")');
@@ -1637,14 +1637,14 @@ function dataUriToBuffer(uri) {
 }
 var dist_default;
 var init_dist2 = __esm({
-  "node_modules/data-uri-to-buffer/dist/index.js"() {
+  "../../dsh-nas-sync/node_modules/data-uri-to-buffer/dist/index.js"() {
     dist_default = dataUriToBuffer;
   }
 });
 
-// node_modules/web-streams-polyfill/dist/ponyfill.es2018.js
+// ../../dsh-nas-sync/node_modules/web-streams-polyfill/dist/ponyfill.es2018.js
 var require_ponyfill_es2018 = __commonJS({
-  "node_modules/web-streams-polyfill/dist/ponyfill.es2018.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/web-streams-polyfill/dist/ponyfill.es2018.js"(exports2, module) {
     (function(global2, factory) {
       typeof exports2 === "object" && typeof module !== "undefined" ? factory(exports2) : typeof define === "function" && define.amd ? define(["exports"], factory) : (global2 = typeof globalThis !== "undefined" ? globalThis : global2 || self, factory(global2.WebStreamsPolyfill = {}));
     })(exports2, function(exports3) {
@@ -5917,9 +5917,9 @@ var require_ponyfill_es2018 = __commonJS({
   }
 });
 
-// node_modules/fetch-blob/streams.cjs
+// ../../dsh-nas-sync/node_modules/fetch-blob/streams.cjs
 var require_streams = __commonJS({
-  "node_modules/fetch-blob/streams.cjs"() {
+  "../../dsh-nas-sync/node_modules/fetch-blob/streams.cjs"() {
     var POOL_SIZE2 = 65536;
     if (!globalThis.ReadableStream) {
       try {
@@ -5963,7 +5963,7 @@ var require_streams = __commonJS({
   }
 });
 
-// node_modules/fetch-blob/index.js
+// ../../dsh-nas-sync/node_modules/fetch-blob/index.js
 async function* toIterator(parts, clone2 = true) {
   for (const part of parts) {
     if ("stream" in part) {
@@ -6000,7 +6000,7 @@ async function* toIterator(parts, clone2 = true) {
 }
 var import_streams, POOL_SIZE, _Blob, Blob2, fetch_blob_default;
 var init_fetch_blob = __esm({
-  "node_modules/fetch-blob/index.js"() {
+  "../../dsh-nas-sync/node_modules/fetch-blob/index.js"() {
     import_streams = __toESM(require_streams(), 1);
     POOL_SIZE = 65536;
     _Blob = class Blob {
@@ -6167,10 +6167,10 @@ var init_fetch_blob = __esm({
   }
 });
 
-// node_modules/fetch-blob/file.js
+// ../../dsh-nas-sync/node_modules/fetch-blob/file.js
 var _File, File2, file_default;
 var init_file = __esm({
-  "node_modules/fetch-blob/file.js"() {
+  "../../dsh-nas-sync/node_modules/fetch-blob/file.js"() {
     init_fetch_blob();
     _File = class File extends fetch_blob_default {
       #lastModified = 0;
@@ -6211,7 +6211,7 @@ var init_file = __esm({
   }
 });
 
-// node_modules/formdata-polyfill/esm.min.js
+// ../../dsh-nas-sync/node_modules/formdata-polyfill/esm.min.js
 function formDataToBlob(F2, B = fetch_blob_default) {
   var b = `${r()}${r()}`.replace(/\./g, "").slice(-28).padStart(32, "-"), c = [], p = `--${b}\r
 Content-Disposition: form-data; name="`;
@@ -6227,7 +6227,7 @@ Content-Type: ${v.type || "application/octet-stream"}\r
 }
 var t, i, h, r, m, f, e, x, FormData;
 var init_esm_min = __esm({
-  "node_modules/formdata-polyfill/esm.min.js"() {
+  "../../dsh-nas-sync/node_modules/formdata-polyfill/esm.min.js"() {
     init_fetch_blob();
     init_file();
     ({ toStringTag: t, iterator: i, hasInstance: h } = Symbol);
@@ -6308,10 +6308,10 @@ var init_esm_min = __esm({
   }
 });
 
-// node_modules/node-fetch/src/errors/base.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/errors/base.js
 var FetchBaseError;
 var init_base = __esm({
-  "node_modules/node-fetch/src/errors/base.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/errors/base.js"() {
     FetchBaseError = class extends Error {
       constructor(message, type) {
         super(message);
@@ -6328,10 +6328,10 @@ var init_base = __esm({
   }
 });
 
-// node_modules/node-fetch/src/errors/fetch-error.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/errors/fetch-error.js
 var FetchError;
 var init_fetch_error = __esm({
-  "node_modules/node-fetch/src/errors/fetch-error.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/errors/fetch-error.js"() {
     init_base();
     FetchError = class extends FetchBaseError {
       /**
@@ -6350,10 +6350,10 @@ var init_fetch_error = __esm({
   }
 });
 
-// node_modules/node-fetch/src/utils/is.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/utils/is.js
 var NAME2, isURLSearchParameters, isBlob, isAbortSignal, isDomainOrSubdomain, isSameProtocol;
 var init_is = __esm({
-  "node_modules/node-fetch/src/utils/is.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/utils/is.js"() {
     NAME2 = Symbol.toStringTag;
     isURLSearchParameters = (object) => {
       return typeof object === "object" && typeof object.append === "function" && typeof object.delete === "function" && typeof object.get === "function" && typeof object.getAll === "function" && typeof object.has === "function" && typeof object.set === "function" && typeof object.sort === "function" && object[NAME2] === "URLSearchParams";
@@ -6377,9 +6377,9 @@ var init_is = __esm({
   }
 });
 
-// node_modules/node-domexception/index.js
+// ../../dsh-nas-sync/node_modules/node-domexception/index.js
 var require_node_domexception = __commonJS({
-  "node_modules/node-domexception/index.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/node-domexception/index.js"(exports2, module) {
     if (!globalThis.DOMException) {
       try {
         const { MessageChannel } = __require("worker_threads"), port = new MessageChannel().port1, ab = new ArrayBuffer();
@@ -6392,11 +6392,11 @@ var require_node_domexception = __commonJS({
   }
 });
 
-// node_modules/fetch-blob/from.js
+// ../../dsh-nas-sync/node_modules/fetch-blob/from.js
 import { statSync, createReadStream, promises as fs } from "node:fs";
 var import_node_domexception, stat;
 var init_from = __esm({
-  "node_modules/fetch-blob/from.js"() {
+  "../../dsh-nas-sync/node_modules/fetch-blob/from.js"() {
     import_node_domexception = __toESM(require_node_domexception(), 1);
     init_file();
     init_fetch_blob();
@@ -6404,7 +6404,7 @@ var init_from = __esm({
   }
 });
 
-// node_modules/node-fetch/src/utils/multipart-parser.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/utils/multipart-parser.js
 var multipart_parser_exports = {};
 __export(multipart_parser_exports, {
   toFormData: () => toFormData
@@ -6498,7 +6498,7 @@ async function toFormData(Body2, ct) {
 }
 var s, S, f2, F, LF, CR, SPACE, HYPHEN, COLON, A, Z, lower, noop, MultipartParser;
 var init_multipart_parser = __esm({
-  "node_modules/node-fetch/src/utils/multipart-parser.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/utils/multipart-parser.js"() {
     init_from();
     init_esm_min();
     s = 0;
@@ -6763,7 +6763,7 @@ var init_multipart_parser = __esm({
   }
 });
 
-// node_modules/node-fetch/src/body.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/body.js
 import Stream, { PassThrough } from "node:stream";
 import { types, deprecate, promisify } from "node:util";
 import { Buffer as Buffer2 } from "node:buffer";
@@ -6813,7 +6813,7 @@ async function consumeBody(data) {
 }
 var pipeline, INTERNALS, Body, clone, getNonSpecFormDataBoundary, extractContentType, getTotalBytes, writeToStream;
 var init_body = __esm({
-  "node_modules/node-fetch/src/body.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/body.js"() {
     init_fetch_blob();
     init_esm_min();
     init_fetch_error();
@@ -7021,7 +7021,7 @@ var init_body = __esm({
   }
 });
 
-// node_modules/node-fetch/src/headers.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/headers.js
 import { types as types2 } from "node:util";
 import http from "node:http";
 function fromRawHeaders(headers = []) {
@@ -7044,7 +7044,7 @@ function fromRawHeaders(headers = []) {
 }
 var validateHeaderName, validateHeaderValue, Headers;
 var init_headers = __esm({
-  "node_modules/node-fetch/src/headers.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/headers.js"() {
     validateHeaderName = typeof http.validateHeaderName === "function" ? http.validateHeaderName : (name2) => {
       if (!/^[\^`\-\w!#$%&'*+.|~]+$/.test(name2)) {
         const error = new TypeError(`Header name must be a valid HTTP token [${name2}]`);
@@ -7212,10 +7212,10 @@ var init_headers = __esm({
   }
 });
 
-// node_modules/node-fetch/src/utils/is-redirect.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/utils/is-redirect.js
 var redirectStatus, isRedirect;
 var init_is_redirect = __esm({
-  "node_modules/node-fetch/src/utils/is-redirect.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/utils/is-redirect.js"() {
     redirectStatus = /* @__PURE__ */ new Set([301, 302, 303, 307, 308]);
     isRedirect = (code) => {
       return redirectStatus.has(code);
@@ -7223,10 +7223,10 @@ var init_is_redirect = __esm({
   }
 });
 
-// node_modules/node-fetch/src/response.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/response.js
 var INTERNALS2, Response;
 var init_response = __esm({
-  "node_modules/node-fetch/src/response.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/response.js"() {
     init_headers();
     init_body();
     init_is_redirect();
@@ -7349,10 +7349,10 @@ var init_response = __esm({
   }
 });
 
-// node_modules/node-fetch/src/utils/get-search.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/utils/get-search.js
 var getSearch;
 var init_get_search = __esm({
-  "node_modules/node-fetch/src/utils/get-search.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/utils/get-search.js"() {
     getSearch = (parsedURL) => {
       if (parsedURL.search) {
         return parsedURL.search;
@@ -7364,7 +7364,7 @@ var init_get_search = __esm({
   }
 });
 
-// node_modules/node-fetch/src/utils/referrer.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/utils/referrer.js
 import { isIP } from "node:net";
 function stripURLForUseAsAReferrer(url, originOnly = false) {
   if (url == null) {
@@ -7493,7 +7493,7 @@ function parseReferrerPolicyFromHeader(headers) {
 }
 var ReferrerPolicy, DEFAULT_REFERRER_POLICY;
 var init_referrer = __esm({
-  "node_modules/node-fetch/src/utils/referrer.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/utils/referrer.js"() {
     ReferrerPolicy = /* @__PURE__ */ new Set([
       "",
       "no-referrer",
@@ -7509,12 +7509,12 @@ var init_referrer = __esm({
   }
 });
 
-// node_modules/node-fetch/src/request.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/request.js
 import { format as formatUrl } from "node:url";
 import { deprecate as deprecate2 } from "node:util";
 var INTERNALS3, isRequest, doBadDataWarn, Request, getNodeRequestOptions;
 var init_request = __esm({
-  "node_modules/node-fetch/src/request.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/request.js"() {
     init_headers();
     init_body();
     init_is();
@@ -7714,10 +7714,10 @@ var init_request = __esm({
   }
 });
 
-// node_modules/node-fetch/src/errors/abort-error.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/errors/abort-error.js
 var AbortError;
 var init_abort_error = __esm({
-  "node_modules/node-fetch/src/errors/abort-error.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/errors/abort-error.js"() {
     init_base();
     AbortError = class extends FetchBaseError {
       constructor(message, type = "aborted") {
@@ -7727,7 +7727,7 @@ var init_abort_error = __esm({
   }
 });
 
-// node_modules/node-fetch/src/index.js
+// ../../dsh-nas-sync/node_modules/node-fetch/src/index.js
 import http2 from "node:http";
 import https from "node:https";
 import zlib from "node:zlib";
@@ -7996,7 +7996,7 @@ function fixResponseChunkedTransferBadEnding(request2, errorCallback) {
 }
 var supportedSchemas;
 var init_src = __esm({
-  "node_modules/node-fetch/src/index.js"() {
+  "../../dsh-nas-sync/node_modules/node-fetch/src/index.js"() {
     init_dist2();
     init_body();
     init_response();
@@ -8013,14 +8013,14 @@ var init_src = __esm({
   }
 });
 
-// node_modules/@buttercup/fetch/dist/index.node.js
+// ../../dsh-nas-sync/node_modules/@buttercup/fetch/dist/index.node.js
 var init_index_node = __esm({
-  "node_modules/@buttercup/fetch/dist/index.node.js"() {
+  "../../dsh-nas-sync/node_modules/@buttercup/fetch/dist/index.node.js"() {
     init_src();
   }
 });
 
-// node_modules/hot-patcher/dist/functions.js
+// ../../dsh-nas-sync/node_modules/hot-patcher/dist/functions.js
 function sequence(...methods) {
   if (methods.length === 0) {
     throw new Error("Failed creating sequence: No functions provided");
@@ -8036,11 +8036,11 @@ function sequence(...methods) {
   };
 }
 var init_functions = __esm({
-  "node_modules/hot-patcher/dist/functions.js"() {
+  "../../dsh-nas-sync/node_modules/hot-patcher/dist/functions.js"() {
   }
 });
 
-// node_modules/hot-patcher/dist/patcher.js
+// ../../dsh-nas-sync/node_modules/hot-patcher/dist/patcher.js
 function createNewItem(method) {
   return {
     original: method,
@@ -8050,7 +8050,7 @@ function createNewItem(method) {
 }
 var HOT_PATCHER_TYPE, NOOP, HotPatcher;
 var init_patcher = __esm({
-  "node_modules/hot-patcher/dist/patcher.js"() {
+  "../../dsh-nas-sync/node_modules/hot-patcher/dist/patcher.js"() {
     init_functions();
     HOT_PATCHER_TYPE = "@@HOTPATCHER";
     NOOP = () => {
@@ -8249,21 +8249,21 @@ var init_patcher = __esm({
   }
 });
 
-// node_modules/hot-patcher/dist/types.js
+// ../../dsh-nas-sync/node_modules/hot-patcher/dist/types.js
 var init_types3 = __esm({
-  "node_modules/hot-patcher/dist/types.js"() {
+  "../../dsh-nas-sync/node_modules/hot-patcher/dist/types.js"() {
   }
 });
 
-// node_modules/hot-patcher/dist/index.js
+// ../../dsh-nas-sync/node_modules/hot-patcher/dist/index.js
 var init_dist3 = __esm({
-  "node_modules/hot-patcher/dist/index.js"() {
+  "../../dsh-nas-sync/node_modules/hot-patcher/dist/index.js"() {
     init_patcher();
     init_types3();
   }
 });
 
-// node_modules/webdav/dist/node/compat/patcher.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/compat/patcher.js
 function getPatcher() {
   if (!__patcher) {
     __patcher = new HotPatcher();
@@ -8272,13 +8272,13 @@ function getPatcher() {
 }
 var __patcher;
 var init_patcher2 = __esm({
-  "node_modules/webdav/dist/node/compat/patcher.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/compat/patcher.js"() {
     init_dist3();
     __patcher = null;
   }
 });
 
-// node_modules/webdav/dist/node/tools/merge.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/merge.js
 function cloneShallow(obj) {
   return isPlainObject(obj) ? Object.assign({}, obj) : Object.setPrototypeOf(Object.assign({}, obj), Object.getPrototypeOf(obj));
 }
@@ -8325,11 +8325,11 @@ function mergeObjects(obj1, obj2) {
   return output;
 }
 var init_merge = __esm({
-  "node_modules/webdav/dist/node/tools/merge.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/merge.js"() {
   }
 });
 
-// node_modules/webdav/dist/node/tools/headers.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/headers.js
 function convertResponseHeaders(headers) {
   const output = {};
   headers.forEach((value, key) => {
@@ -8355,32 +8355,32 @@ function mergeHeaders(...headerPayloads) {
   }, {});
 }
 var init_headers2 = __esm({
-  "node_modules/webdav/dist/node/tools/headers.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/headers.js"() {
   }
 });
 
-// node_modules/webdav/dist/node/compat/arrayBuffer.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/compat/arrayBuffer.js
 function isArrayBuffer(value) {
   return hasArrayBuffer && (value instanceof ArrayBuffer || objToString.call(value) === "[object ArrayBuffer]");
 }
 var hasArrayBuffer, objToString;
 var init_arrayBuffer = __esm({
-  "node_modules/webdav/dist/node/compat/arrayBuffer.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/compat/arrayBuffer.js"() {
     hasArrayBuffer = typeof ArrayBuffer === "function";
     ({ toString: objToString } = Object.prototype);
   }
 });
 
-// node_modules/webdav/dist/node/compat/buffer.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/compat/buffer.js
 function isBuffer(value) {
   return value != null && value.constructor != null && typeof value.constructor.isBuffer === "function" && value.constructor.isBuffer(value);
 }
 var init_buffer = __esm({
-  "node_modules/webdav/dist/node/compat/buffer.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/compat/buffer.js"() {
   }
 });
 
-// node_modules/webdav/dist/node/tools/body.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/body.js
 import Stream3 from "stream";
 function requestDataToFetchBody(data) {
   if (!isWeb() && !isReactNative() && data instanceof Stream3.Readable) {
@@ -8403,14 +8403,14 @@ function requestDataToFetchBody(data) {
   throw new Error(`Unable to convert request body: Unexpected body type: ${typeof data}`);
 }
 var init_body2 = __esm({
-  "node_modules/webdav/dist/node/tools/body.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/body.js"() {
     init_arrayBuffer();
     init_buffer();
     init_env();
   }
 });
 
-// node_modules/webdav/dist/node/request.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/request.js
 import { Agent as HTTPAgent } from "http";
 import { Agent as HTTPSAgent } from "https";
 function getFetchOptions(requestOptions) {
@@ -8528,7 +8528,7 @@ function requestStandard(requestOptions) {
   return patcher.patchInline("request", (options) => patcher.patchInline("fetch", fetch, options.url, getFetchOptions(options)), requestOptions);
 }
 var init_request2 = __esm({
-  "node_modules/webdav/dist/node/request.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/request.js"() {
     init_index_node();
     init_patcher2();
     init_env();
@@ -8541,9 +8541,9 @@ var init_request2 = __esm({
   }
 });
 
-// node_modules/balanced-match/index.js
+// ../../dsh-nas-sync/node_modules/balanced-match/index.js
 var require_balanced_match = __commonJS({
-  "node_modules/balanced-match/index.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/balanced-match/index.js"(exports2, module) {
     "use strict";
     module.exports = balanced;
     function balanced(a, b, str) {
@@ -8599,9 +8599,9 @@ var require_balanced_match = __commonJS({
   }
 });
 
-// node_modules/brace-expansion/index.js
+// ../../dsh-nas-sync/node_modules/brace-expansion/index.js
 var require_brace_expansion = __commonJS({
-  "node_modules/brace-expansion/index.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/brace-expansion/index.js"(exports2, module) {
     var balanced = require_balanced_match();
     module.exports = expandTop;
     var escSlash = "\0SLASH" + Math.random() + "\0";
@@ -8841,10 +8841,10 @@ var require_brace_expansion = __commonJS({
   }
 });
 
-// node_modules/minimatch/dist/esm/assert-valid-pattern.js
+// ../../dsh-nas-sync/node_modules/minimatch/dist/esm/assert-valid-pattern.js
 var MAX_PATTERN_LENGTH, assertValidPattern;
 var init_assert_valid_pattern = __esm({
-  "node_modules/minimatch/dist/esm/assert-valid-pattern.js"() {
+  "../../dsh-nas-sync/node_modules/minimatch/dist/esm/assert-valid-pattern.js"() {
     MAX_PATTERN_LENGTH = 1024 * 64;
     assertValidPattern = (pattern) => {
       if (typeof pattern !== "string") {
@@ -8857,10 +8857,10 @@ var init_assert_valid_pattern = __esm({
   }
 });
 
-// node_modules/minimatch/dist/esm/brace-expressions.js
+// ../../dsh-nas-sync/node_modules/minimatch/dist/esm/brace-expressions.js
 var posixClasses, braceEscape, regexpEscape, rangesToString, parseClass;
 var init_brace_expressions = __esm({
-  "node_modules/minimatch/dist/esm/brace-expressions.js"() {
+  "../../dsh-nas-sync/node_modules/minimatch/dist/esm/brace-expressions.js"() {
     posixClasses = {
       "[:alnum:]": ["\\p{L}\\p{Nl}\\p{Nd}", true],
       "[:alpha:]": ["\\p{L}\\p{Nl}", true],
@@ -8971,20 +8971,20 @@ var init_brace_expressions = __esm({
   }
 });
 
-// node_modules/minimatch/dist/esm/unescape.js
+// ../../dsh-nas-sync/node_modules/minimatch/dist/esm/unescape.js
 var unescape2;
 var init_unescape = __esm({
-  "node_modules/minimatch/dist/esm/unescape.js"() {
+  "../../dsh-nas-sync/node_modules/minimatch/dist/esm/unescape.js"() {
     unescape2 = (s2, { windowsPathsNoEscape = false } = {}) => {
       return windowsPathsNoEscape ? s2.replace(/\[([^\/\\])\]/g, "$1") : s2.replace(/((?!\\).|^)\[([^\/\\])\]/g, "$1$2").replace(/\\([^\/])/g, "$1");
     };
   }
 });
 
-// node_modules/minimatch/dist/esm/ast.js
+// ../../dsh-nas-sync/node_modules/minimatch/dist/esm/ast.js
 var _a2, types3, isExtglobType, isExtglobAST, adoptionMap, adoptionWithSpaceMap, adoptionAnyMap, usurpMap, startNoTraversal, startNoDot, addPatternStart, justDots, reSpecials, regExpEscape, qmark, star, starNoEmpty, AST;
 var init_ast = __esm({
-  "node_modules/minimatch/dist/esm/ast.js"() {
+  "../../dsh-nas-sync/node_modules/minimatch/dist/esm/ast.js"() {
     init_brace_expressions();
     init_unescape();
     types3 = /* @__PURE__ */ new Set(["!", "?", "+", "*", "@"]);
@@ -9599,20 +9599,20 @@ var init_ast = __esm({
   }
 });
 
-// node_modules/minimatch/dist/esm/escape.js
+// ../../dsh-nas-sync/node_modules/minimatch/dist/esm/escape.js
 var escape3;
 var init_escape2 = __esm({
-  "node_modules/minimatch/dist/esm/escape.js"() {
+  "../../dsh-nas-sync/node_modules/minimatch/dist/esm/escape.js"() {
     escape3 = (s2, { windowsPathsNoEscape = false } = {}) => {
       return windowsPathsNoEscape ? s2.replace(/[?*()[\]]/g, "[$&]") : s2.replace(/[?*()[\]\\]/g, "\\$&");
     };
   }
 });
 
-// node_modules/minimatch/dist/esm/index.js
+// ../../dsh-nas-sync/node_modules/minimatch/dist/esm/index.js
 var import_brace_expansion, minimatch, starDotExtRE, starDotExtTest, starDotExtTestDot, starDotExtTestNocase, starDotExtTestNocaseDot, starDotStarRE, starDotStarTest, starDotStarTestDot, dotStarRE, dotStarTest, starRE, starTest, starTestDot, qmarksRE, qmarksTestNocase, qmarksTestNocaseDot, qmarksTestDot, qmarksTest, qmarksTestNoExt, qmarksTestNoExtDot, defaultPlatform, path2, sep, GLOBSTAR, qmark2, star2, twoStarDot, twoStarNoDot, filter, ext, defaults, braceExpand, makeRe, match, globMagic, regExpEscape2, Minimatch;
 var init_esm2 = __esm({
-  "node_modules/minimatch/dist/esm/index.js"() {
+  "../../dsh-nas-sync/node_modules/minimatch/dist/esm/index.js"() {
     import_brace_expansion = __toESM(require_brace_expansion(), 1);
     init_assert_valid_pattern();
     init_ast();
@@ -10410,7 +10410,7 @@ var init_esm2 = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/response.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/response.js
 function createErrorFromResponse(response, prefix = "") {
   const err = new Error(`${prefix}Invalid response: ${response.status} ${response.statusText}`);
   err.status = response.status;
@@ -10439,13 +10439,13 @@ function processResponsePayload(response, data, isDetailed = false) {
   } : data;
 }
 var init_response2 = __esm({
-  "node_modules/webdav/dist/node/response.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/response.js"() {
     init_esm2();
     init_headers2();
   }
 });
 
-// node_modules/webdav/dist/node/operations/copyFile.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/copyFile.js
 async function copyFile(context, filename, destination, options = {}) {
   const requestOptions = prepareRequestOptions({
     url: joinURL(context.remoteURL, encodePath(filename)),
@@ -10471,7 +10471,7 @@ async function copyFile(context, filename, destination, options = {}) {
   handleResponseCode(context, response);
 }
 var init_copyFile = __esm({
-  "node_modules/webdav/dist/node/operations/copyFile.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/copyFile.js"() {
     init_url();
     init_path();
     init_request2();
@@ -10479,7 +10479,7 @@ var init_copyFile = __esm({
   }
 });
 
-// node_modules/fast-xml-parser/src/util.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/util.js
 function getAllMatches(string, regex) {
   const matches = [];
   let match2 = regex.exec(string);
@@ -10500,7 +10500,7 @@ function isExist(v) {
 }
 var nameStartChar, nameChar, nameRegexp, regexName, isName, DANGEROUS_PROPERTY_NAMES, criticalProperties;
 var init_util = __esm({
-  "node_modules/fast-xml-parser/src/util.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/util.js"() {
     "use strict";
     nameStartChar = ":A-Za-z_\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD";
     nameChar = nameStartChar + "\\-.\\d\\u00B7\\u0300-\\u036F\\u203F-\\u2040";
@@ -10526,7 +10526,7 @@ var init_util = __esm({
   }
 });
 
-// node_modules/fast-xml-parser/src/validator.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/validator.js
 function validate(xmlData, options) {
   options = Object.assign({}, defaultOptions, options);
   const tags = [];
@@ -10872,7 +10872,7 @@ function getPositionFromMatch(match2) {
 }
 var defaultOptions, doubleQuote, singleQuote;
 var init_validator = __esm({
-  "node_modules/fast-xml-parser/src/validator.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/validator.js"() {
     "use strict";
     init_util();
     defaultOptions = {
@@ -10885,10 +10885,10 @@ var init_validator = __esm({
   }
 });
 
-// node_modules/@nodable/entities/src/entities.js
+// ../../dsh-nas-sync/node_modules/@nodable/entities/src/entities.js
 var CURRENCY, XML, COMMON_HTML;
 var init_entities = __esm({
-  "node_modules/@nodable/entities/src/entities.js"() {
+  "../../dsh-nas-sync/node_modules/@nodable/entities/src/entities.js"() {
     CURRENCY = {
       cent: "\xA2",
       pound: "\xA3",
@@ -10938,7 +10938,7 @@ var init_entities = __esm({
   }
 });
 
-// node_modules/@nodable/entities/src/EntityDecoder.js
+// ../../dsh-nas-sync/node_modules/@nodable/entities/src/EntityDecoder.js
 function validateEntityName(name2) {
   if (name2[0] === "#") {
     throw new Error(`[EntityReplacer] Invalid character '#' in entity name: "${name2}"`);
@@ -10987,7 +10987,7 @@ function parseNCRConfig(ncr) {
 }
 var ENTITY_ACTION, SPECIAL_CHARS, LIMIT_TIER_EXTERNAL, LIMIT_TIER_BASE, LIMIT_TIER_ALL, NCR_LEVEL, XML10_ALLOWED_C0, EntityDecoder2;
 var init_EntityDecoder = __esm({
-  "node_modules/@nodable/entities/src/EntityDecoder.js"() {
+  "../../dsh-nas-sync/node_modules/@nodable/entities/src/EntityDecoder.js"() {
     init_entities();
     ENTITY_ACTION = Object.freeze({
       /** Resolve and expand the entity normally. */
@@ -11387,15 +11387,15 @@ var init_EntityDecoder = __esm({
   }
 });
 
-// node_modules/@nodable/entities/src/index.js
+// ../../dsh-nas-sync/node_modules/@nodable/entities/src/index.js
 var init_src2 = __esm({
-  "node_modules/@nodable/entities/src/index.js"() {
+  "../../dsh-nas-sync/node_modules/@nodable/entities/src/index.js"() {
     init_EntityDecoder();
     init_entities();
   }
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/OptionsBuilder.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/OptionsBuilder.js
 function validatePropertyName(propertyName, optionName) {
   if (typeof propertyName !== "string") {
     return;
@@ -11444,7 +11444,7 @@ function normalizeProcessEntities(value, htmlEntities) {
 }
 var defaultOnDangerousProperty, defaultOptions2, buildOptions;
 var init_OptionsBuilder = __esm({
-  "node_modules/fast-xml-parser/src/xmlparser/OptionsBuilder.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/OptionsBuilder.js"() {
     init_util();
     defaultOnDangerousProperty = (name2) => {
       if (DANGEROUS_PROPERTY_NAMES.includes(name2)) {
@@ -11536,10 +11536,10 @@ var init_OptionsBuilder = __esm({
   }
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/xmlNode.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/xmlNode.js
 var METADATA_SYMBOL, XmlNode;
 var init_xmlNode = __esm({
-  "node_modules/fast-xml-parser/src/xmlparser/xmlNode.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/xmlNode.js"() {
     "use strict";
     if (typeof Symbol !== "function") {
       METADATA_SYMBOL = "@@xmlMetadata";
@@ -11584,10 +11584,10 @@ var init_xmlNode = __esm({
   }
 });
 
-// node_modules/xml-naming/src/index.js
+// ../../dsh-nas-sync/node_modules/xml-naming/src/index.js
 var nameStartChar10, nameChar10, nameStartChar11, nameChar11, buildRegexes, regexes10, regexes11, nameStartCharAscii, nameCharAscii, regexesAscii, getRegexes, qName, PRODUCTIONS, createValidator;
 var init_src3 = __esm({
-  "node_modules/xml-naming/src/index.js"() {
+  "../../dsh-nas-sync/node_modules/xml-naming/src/index.js"() {
     nameStartChar10 = ":A-Za-z_\xC0-\xD6\xD8-\xF6\xF8-\u02FF\u0370-\u037D\u037F-\u0486\u0488-\u1FFF\u200C-\u200D\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD";
     nameChar10 = nameStartChar10 + "\\-\\.\\d\xB7\u0300-\u036F\u203F-\u2040";
     nameStartChar11 = ":A-Za-z_\xC0-\u02FF\u0370-\u037D\u037F-\u0486\u0488-\u1FFF\u200C-\u200D\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD\u{10000}-\u{EFFFF}";
@@ -11638,7 +11638,7 @@ var init_src3 = __esm({
   }
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/DocTypeReader.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/DocTypeReader.js
 function hasSeq(data, seq, i2) {
   for (let j = 0; j < seq.length; j++) {
     if (seq[j] !== data[i2 + j + 1]) return false;
@@ -11653,7 +11653,7 @@ function validateEntityName2(name2, xmlVersion) {
 }
 var DocTypeReader, skipWhitespace;
 var init_DocTypeReader = __esm({
-  "node_modules/fast-xml-parser/src/xmlparser/DocTypeReader.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/DocTypeReader.js"() {
     init_src3();
     DocTypeReader = class {
       constructor(options, xmlVersion) {
@@ -11935,10 +11935,10 @@ var init_DocTypeReader = __esm({
   }
 });
 
-// node_modules/anynum/digitTable.js
+// ../../dsh-nas-sync/node_modules/anynum/digitTable.js
 var SCRIPT_ZEROS, NOT_DIGIT, HIGH_MAP, LOW_MAX, LOW_MIN, TABLE_OFFSET, TABLE_SIZE, TABLE;
 var init_digitTable = __esm({
-  "node_modules/anynum/digitTable.js"() {
+  "../../dsh-nas-sync/node_modules/anynum/digitTable.js"() {
     SCRIPT_ZEROS = [
       // Basic Latin (ASCII) — included for completeness / pass-through
       48,
@@ -12090,7 +12090,7 @@ var init_digitTable = __esm({
   }
 });
 
-// node_modules/anynum/anynum.js
+// ../../dsh-nas-sync/node_modules/anynum/anynum.js
 function anynum(str) {
   if (typeof str !== "string") return str;
   const len = str.length;
@@ -12164,7 +12164,7 @@ function anynum(str) {
 }
 var CHAR_0, CHAR_9, CHAR_MINUS, MINUS_SET, anynum_default;
 var init_anynum = __esm({
-  "node_modules/anynum/anynum.js"() {
+  "../../dsh-nas-sync/node_modules/anynum/anynum.js"() {
     "use strict";
     init_digitTable();
     CHAR_0 = 48;
@@ -12175,7 +12175,7 @@ var init_anynum = __esm({
   }
 });
 
-// node_modules/strnum/strnum.js
+// ../../dsh-nas-sync/node_modules/strnum/strnum.js
 function toNumber(str, options = {}) {
   options = Object.assign({}, consider, options);
   if (!str || typeof str !== "string") return str;
@@ -12297,7 +12297,7 @@ function handleInfinity(str, num, options) {
 }
 var hexRegex, binRegex, octRegex, numRegex, consider, eNotationRegx;
 var init_strnum = __esm({
-  "node_modules/strnum/strnum.js"() {
+  "../../dsh-nas-sync/node_modules/strnum/strnum.js"() {
     init_anynum();
     hexRegex = /^[-+]?0x[a-fA-F0-9]+$/;
     binRegex = /^0b[01]+$/;
@@ -12319,7 +12319,7 @@ var init_strnum = __esm({
   }
 });
 
-// node_modules/fast-xml-parser/src/ignoreAttributes.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/ignoreAttributes.js
 function getIgnoreAttributesFn(ignoreAttributes) {
   if (typeof ignoreAttributes === "function") {
     return ignoreAttributes;
@@ -12339,14 +12339,14 @@ function getIgnoreAttributesFn(ignoreAttributes) {
   return () => false;
 }
 var init_ignoreAttributes = __esm({
-  "node_modules/fast-xml-parser/src/ignoreAttributes.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/ignoreAttributes.js"() {
   }
 });
 
-// node_modules/path-expression-matcher/src/Expression.js
+// ../../dsh-nas-sync/node_modules/path-expression-matcher/src/Expression.js
 var Expression;
 var init_Expression = __esm({
-  "node_modules/path-expression-matcher/src/Expression.js"() {
+  "../../dsh-nas-sync/node_modules/path-expression-matcher/src/Expression.js"() {
     Expression = class {
       /**
        * Create a new Expression
@@ -12511,10 +12511,10 @@ var init_Expression = __esm({
   }
 });
 
-// node_modules/path-expression-matcher/src/ExpressionSet.js
+// ../../dsh-nas-sync/node_modules/path-expression-matcher/src/ExpressionSet.js
 var ExpressionSet;
 var init_ExpressionSet = __esm({
-  "node_modules/path-expression-matcher/src/ExpressionSet.js"() {
+  "../../dsh-nas-sync/node_modules/path-expression-matcher/src/ExpressionSet.js"() {
     ExpressionSet = class {
       constructor() {
         this._byDepthAndTag = /* @__PURE__ */ new Map();
@@ -12685,10 +12685,10 @@ var init_ExpressionSet = __esm({
   }
 });
 
-// node_modules/path-expression-matcher/src/Matcher.js
+// ../../dsh-nas-sync/node_modules/path-expression-matcher/src/Matcher.js
 var MatcherView, Matcher;
 var init_Matcher = __esm({
-  "node_modules/path-expression-matcher/src/Matcher.js"() {
+  "../../dsh-nas-sync/node_modules/path-expression-matcher/src/Matcher.js"() {
     MatcherView = class {
       /**
        * @param {Matcher} matcher - The parent Matcher instance to read from.
@@ -13207,19 +13207,19 @@ var init_Matcher = __esm({
   }
 });
 
-// node_modules/path-expression-matcher/src/index.js
+// ../../dsh-nas-sync/node_modules/path-expression-matcher/src/index.js
 var init_src4 = __esm({
-  "node_modules/path-expression-matcher/src/index.js"() {
+  "../../dsh-nas-sync/node_modules/path-expression-matcher/src/index.js"() {
     init_Expression();
     init_Matcher();
     init_ExpressionSet();
   }
 });
 
-// node_modules/is-unsafe/src/contexts/html.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/html.js
 var HTML_PATTERNS, html_default;
 var init_html = __esm({
-  "node_modules/is-unsafe/src/contexts/html.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/html.js"() {
     HTML_PATTERNS = [
       {
         id: "html-script-open",
@@ -13314,10 +13314,10 @@ var init_html = __esm({
   }
 });
 
-// node_modules/is-unsafe/src/contexts/xml.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/xml.js
 var XML_PATTERNS, xml_default;
 var init_xml = __esm({
-  "node_modules/is-unsafe/src/contexts/xml.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/xml.js"() {
     XML_PATTERNS = [
       {
         id: "xml-cdata-injection",
@@ -13387,10 +13387,10 @@ var init_xml = __esm({
   }
 });
 
-// node_modules/is-unsafe/src/contexts/svg.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/svg.js
 var SVG_PATTERNS, svg_default;
 var init_svg = __esm({
-  "node_modules/is-unsafe/src/contexts/svg.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/svg.js"() {
     SVG_PATTERNS = [
       {
         id: "svg-script-element",
@@ -13464,10 +13464,10 @@ var init_svg = __esm({
   }
 });
 
-// node_modules/is-unsafe/src/contexts/sql.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/sql.js
 var SQL_PATTERNS, sql_default;
 var init_sql = __esm({
-  "node_modules/is-unsafe/src/contexts/sql.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/sql.js"() {
     SQL_PATTERNS = [
       {
         id: "sql-block-comment-open",
@@ -13551,10 +13551,10 @@ var init_sql = __esm({
   }
 });
 
-// node_modules/is-unsafe/src/contexts/shell.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/shell.js
 var SHELL_PATTERNS, shell_default;
 var init_shell = __esm({
-  "node_modules/is-unsafe/src/contexts/shell.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/shell.js"() {
     SHELL_PATTERNS = [
       {
         id: "shell-path-traversal-unix",
@@ -13654,10 +13654,10 @@ var init_shell = __esm({
   }
 });
 
-// node_modules/is-unsafe/src/contexts/redos.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/redos.js
 var REDOS_PATTERNS, redos_default;
 var init_redos = __esm({
-  "node_modules/is-unsafe/src/contexts/redos.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/redos.js"() {
     REDOS_PATTERNS = [
       {
         id: "redos-nested-quantifier-plus",
@@ -13708,10 +13708,10 @@ var init_redos = __esm({
   }
 });
 
-// node_modules/is-unsafe/src/contexts/nosql.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/nosql.js
 var sep2, NOSQL_PATTERNS, nosql_default;
 var init_nosql = __esm({
-  "node_modules/is-unsafe/src/contexts/nosql.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/nosql.js"() {
     sep2 = `["'\\s]*:`;
     NOSQL_PATTERNS = [
       // ─── MongoDB $ operator injection ────────────────────────────────────────
@@ -13803,10 +13803,10 @@ var init_nosql = __esm({
   }
 });
 
-// node_modules/is-unsafe/src/contexts/log.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/log.js
 var LOG_PATTERNS, log_default;
 var init_log = __esm({
-  "node_modules/is-unsafe/src/contexts/log.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/log.js"() {
     LOG_PATTERNS = [
       // ─── CRLF / newline injection ─────────────────────────────────────────────
       {
@@ -13882,10 +13882,10 @@ var init_log = __esm({
   }
 });
 
-// node_modules/is-unsafe/src/contexts/sql-strict.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/sql-strict.js
 var SQL_STRICT_EXTRA, SQL_STRICT_PATTERNS, sql_strict_default;
 var init_sql_strict = __esm({
-  "node_modules/is-unsafe/src/contexts/sql-strict.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/contexts/sql-strict.js"() {
     init_sql();
     SQL_STRICT_EXTRA = [
       {
@@ -13909,7 +13909,7 @@ var init_sql_strict = __esm({
   }
 });
 
-// node_modules/is-unsafe/src/util/decode-entities.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/util/decode-entities.js
 function decodeEntities(input) {
   if (input.indexOf("&") === -1) return input;
   return input.replace(ENTITY_RE, (match2, hex, dec, name2) => {
@@ -13923,7 +13923,7 @@ function decodeEntities(input) {
 }
 var NAMED, ENTITY_RE;
 var init_decode_entities = __esm({
-  "node_modules/is-unsafe/src/util/decode-entities.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/util/decode-entities.js"() {
     NAMED = Object.freeze({
       colon: ":",
       Tab: "	",
@@ -13933,7 +13933,7 @@ var init_decode_entities = __esm({
   }
 });
 
-// node_modules/is-unsafe/src/index.js
+// ../../dsh-nas-sync/node_modules/is-unsafe/src/index.js
 function assertString(value) {
   if (typeof value !== "string") {
     throw new TypeError(
@@ -13994,7 +13994,7 @@ function isUnsafe(value, context) {
 }
 var VALID_CONTEXTS;
 var init_src5 = __esm({
-  "node_modules/is-unsafe/src/index.js"() {
+  "../../dsh-nas-sync/node_modules/is-unsafe/src/index.js"() {
     init_html();
     init_xml();
     init_sql_strict();
@@ -14033,7 +14033,7 @@ var init_src5 = __esm({
   }
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/OrderedObjParser.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/OrderedObjParser.js
 function extractRawAttributes(prefixedAttrs, options) {
   if (!prefixedAttrs) return {};
   const attrs = options.attributesGroupName ? prefixedAttrs[options.attributesGroupName] : prefixedAttrs;
@@ -14361,7 +14361,7 @@ function sanitizeName(name2, options) {
 }
 var OrderedObjParser, attrsRegx, parseXml;
 var init_OrderedObjParser = __esm({
-  "node_modules/fast-xml-parser/src/xmlparser/OrderedObjParser.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/OrderedObjParser.js"() {
     "use strict";
     init_util();
     init_xmlNode();
@@ -14653,7 +14653,7 @@ var init_OrderedObjParser = __esm({
   }
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/node2json.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/node2json.js
 function stripAttributePrefix(attrs, prefix) {
   if (!attrs || typeof attrs !== "object") return {};
   if (!prefix) return attrs;
@@ -14765,17 +14765,17 @@ function isLeafTag(obj, options) {
 }
 var METADATA_SYMBOL2;
 var init_node2json = __esm({
-  "node_modules/fast-xml-parser/src/xmlparser/node2json.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/node2json.js"() {
     "use strict";
     init_xmlNode();
     METADATA_SYMBOL2 = XmlNode.getMetaDataSymbol();
   }
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/XMLParser.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/XMLParser.js
 var XMLParser;
 var init_XMLParser = __esm({
-  "node_modules/fast-xml-parser/src/xmlparser/XMLParser.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlparser/XMLParser.js"() {
     init_OptionsBuilder();
     init_OrderedObjParser();
     init_node2json();
@@ -14846,7 +14846,7 @@ var init_XMLParser = __esm({
   }
 });
 
-// node_modules/fast-xml-builder/src/util.js
+// ../../dsh-nas-sync/node_modules/fast-xml-builder/src/util.js
 function valToStr(val) {
   return typeof val === "number" && Object.is(val, -0) ? "-0" : String(val);
 }
@@ -14860,11 +14860,11 @@ function escapeAttribute2(val) {
   return valToStr(val).replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 var init_util2 = __esm({
-  "node_modules/fast-xml-builder/src/util.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-builder/src/util.js"() {
   }
 });
 
-// node_modules/fast-xml-builder/src/orderedJs2Xml.js
+// ../../dsh-nas-sync/node_modules/fast-xml-builder/src/orderedJs2Xml.js
 function detectXmlVersionFromArray(jArray, options) {
   if (!Array.isArray(jArray) || jArray.length === 0) return "1.0";
   const first = jArray[0];
@@ -15108,7 +15108,7 @@ function replaceEntitiesValue2(textValue, options) {
 }
 var EOL;
 var init_orderedJs2Xml = __esm({
-  "node_modules/fast-xml-builder/src/orderedJs2Xml.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-builder/src/orderedJs2Xml.js"() {
     init_src4();
     init_util2();
     init_src3();
@@ -15116,7 +15116,7 @@ var init_orderedJs2Xml = __esm({
   }
 });
 
-// node_modules/fast-xml-builder/src/ignoreAttributes.js
+// ../../dsh-nas-sync/node_modules/fast-xml-builder/src/ignoreAttributes.js
 function getIgnoreAttributesFn2(ignoreAttributes) {
   if (typeof ignoreAttributes === "function") {
     return ignoreAttributes;
@@ -15136,11 +15136,11 @@ function getIgnoreAttributesFn2(ignoreAttributes) {
   return () => false;
 }
 var init_ignoreAttributes2 = __esm({
-  "node_modules/fast-xml-builder/src/ignoreAttributes.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-builder/src/ignoreAttributes.js"() {
   }
 });
 
-// node_modules/fast-xml-builder/src/fxb.js
+// ../../dsh-nas-sync/node_modules/fast-xml-builder/src/fxb.js
 function Builder(options) {
   this.options = Object.assign({}, defaultOptions3, options);
   if (this.options.stopNodes && Array.isArray(this.options.stopNodes)) {
@@ -15233,7 +15233,7 @@ function isAttribute(name2) {
 }
 var defaultOptions3;
 var init_fxb = __esm({
-  "node_modules/fast-xml-builder/src/fxb.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-builder/src/fxb.js"() {
     "use strict";
     init_orderedJs2Xml();
     init_ignoreAttributes2();
@@ -15600,28 +15600,28 @@ var init_fxb = __esm({
   }
 });
 
-// node_modules/fast-xml-parser/src/xmlbuilder/json2xml.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlbuilder/json2xml.js
 var json2xml_default;
 var init_json2xml = __esm({
-  "node_modules/fast-xml-parser/src/xmlbuilder/json2xml.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/xmlbuilder/json2xml.js"() {
     init_fxb();
     init_fxb();
     json2xml_default = Builder;
   }
 });
 
-// node_modules/fast-xml-parser/src/fxp.js
+// ../../dsh-nas-sync/node_modules/fast-xml-parser/src/fxp.js
 var init_fxp = __esm({
-  "node_modules/fast-xml-parser/src/fxp.js"() {
+  "../../dsh-nas-sync/node_modules/fast-xml-parser/src/fxp.js"() {
     "use strict";
     init_XMLParser();
     init_json2xml();
   }
 });
 
-// node_modules/nested-property/dist/nested-property.js
+// ../../dsh-nas-sync/node_modules/nested-property/dist/nested-property.js
 var require_nested_property = __commonJS({
-  "node_modules/nested-property/dist/nested-property.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/nested-property/dist/nested-property.js"(exports2, module) {
     "use strict";
     function _typeof(obj) {
       "@babel/helpers - typeof";
@@ -15900,7 +15900,7 @@ var require_nested_property = __commonJS({
   }
 });
 
-// node_modules/webdav/dist/node/tools/dav.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/dav.js
 function stripPrefix(name2) {
   const colonIdx = name2.indexOf(":");
   return colonIdx === -1 ? name2 : name2.slice(colonIdx + 1);
@@ -16225,7 +16225,7 @@ function translateDiskSpace(value) {
 }
 var import_path_posix2, import_nested_property, PropertyType, STRUCTURAL_KEYS;
 var init_dav = __esm({
-  "node_modules/webdav/dist/node/tools/dav.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/dav.js"() {
     import_path_posix2 = __toESM(require_path_posix(), 1);
     init_fxp();
     init_src2();
@@ -16248,7 +16248,7 @@ var init_dav = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/stat.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/stat.js
 async function getStat(context, filename, options = {}) {
   const { details: isDetailed = false } = options;
   const requestOptions = prepareRequestOptions({
@@ -16267,7 +16267,7 @@ async function getStat(context, filename, options = {}) {
   return processResponsePayload(response, stat6, isDetailed);
 }
 var init_stat = __esm({
-  "node_modules/webdav/dist/node/operations/stat.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/stat.js"() {
     init_dav();
     init_url();
     init_path();
@@ -16276,7 +16276,7 @@ var init_stat = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/createDirectory.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/createDirectory.js
 async function createDirectory(context, dirPath, options = {}) {
   if (options.recursive === true)
     return createDirectoryRecursively(context, dirPath, options);
@@ -16332,7 +16332,7 @@ async function createDirectoryRecursively(context, dirPath, options = {}) {
   }
 }
 var init_createDirectory = __esm({
-  "node_modules/webdav/dist/node/operations/createDirectory.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/createDirectory.js"() {
     init_url();
     init_path();
     init_request2();
@@ -16341,7 +16341,7 @@ var init_createDirectory = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/createStream.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/createStream.js
 import Stream4 from "stream";
 function createReadStream2(context, filePath, options = {}) {
   const PassThroughStream = Stream4.PassThrough;
@@ -16406,7 +16406,7 @@ async function getFileStream(context, filePath, options = {}) {
 }
 var NOOP2;
 var init_createStream = __esm({
-  "node_modules/webdav/dist/node/operations/createStream.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/createStream.js"() {
     init_url();
     init_path();
     init_request2();
@@ -16416,7 +16416,7 @@ var init_createStream = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/customRequest.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/customRequest.js
 async function customRequest(context, remotePath, requestOptions) {
   if (!requestOptions.url) {
     requestOptions.url = joinURL(context.remoteURL, encodePath(remotePath));
@@ -16427,7 +16427,7 @@ async function customRequest(context, remotePath, requestOptions) {
   return response;
 }
 var init_customRequest = __esm({
-  "node_modules/webdav/dist/node/operations/customRequest.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/customRequest.js"() {
     init_url();
     init_path();
     init_request2();
@@ -16435,7 +16435,7 @@ var init_customRequest = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/deleteFile.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/deleteFile.js
 async function deleteFile(context, filename, options = {}) {
   const requestOptions = prepareRequestOptions({
     url: joinURL(context.remoteURL, encodePath(filename)),
@@ -16445,7 +16445,7 @@ async function deleteFile(context, filename, options = {}) {
   handleResponseCode(context, response);
 }
 var init_deleteFile = __esm({
-  "node_modules/webdav/dist/node/operations/deleteFile.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/deleteFile.js"() {
     init_url();
     init_path();
     init_request2();
@@ -16453,7 +16453,7 @@ var init_deleteFile = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/exists.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/exists.js
 async function exists(context, remotePath, options = {}) {
   try {
     await getStat(context, remotePath, options);
@@ -16466,12 +16466,12 @@ async function exists(context, remotePath, options = {}) {
   }
 }
 var init_exists = __esm({
-  "node_modules/webdav/dist/node/operations/exists.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/exists.js"() {
     init_stat();
   }
 });
 
-// node_modules/webdav/dist/node/operations/directoryContents.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/directoryContents.js
 async function getDirectoryContents(context, remotePath, options = {}) {
   const requestOptions = prepareRequestOptions({
     url: joinURL(context.remoteURL, encodePath(remotePath), "/"),
@@ -16512,7 +16512,7 @@ function getDirectoryFiles(result, serverremoteBasePath, requestPath, isDetailed
 }
 var import_path_posix3;
 var init_directoryContents = __esm({
-  "node_modules/webdav/dist/node/operations/directoryContents.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/directoryContents.js"() {
     import_path_posix3 = __toESM(require_path_posix(), 1);
     init_url();
     init_path();
@@ -16522,7 +16522,7 @@ var init_directoryContents = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/getFileContents.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/getFileContents.js
 async function getFileContents(context, filePath, options = {}) {
   const { format = "binary" } = options;
   if (format !== "binary" && format !== "text") {
@@ -16586,7 +16586,7 @@ function getFileDownloadLink(context, filePath) {
 }
 var TRANSFORM_RETAIN_FORMAT;
 var init_getFileContents = __esm({
-  "node_modules/webdav/dist/node/operations/getFileContents.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/getFileContents.js"() {
     init_dist();
     init_url();
     init_path();
@@ -16599,7 +16599,7 @@ var init_getFileContents = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/tools/xml.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/xml.js
 function generateLockXML(ownerHREF) {
   return getBuilder().build(namespace({
     lockinfo: {
@@ -16651,12 +16651,12 @@ function parseGenericResponse(xml) {
   return getParser2().parse(xml);
 }
 var init_xml2 = __esm({
-  "node_modules/webdav/dist/node/tools/xml.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/xml.js"() {
     init_fxp();
   }
 });
 
-// node_modules/webdav/dist/node/operations/lock.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/lock.js
 async function lock(context, path4, options = {}) {
   const { refreshToken, timeout = DEFAULT_TIMEOUT } = options;
   const headers = {
@@ -16704,7 +16704,7 @@ async function unlock(context, path4, token, options = {}) {
 }
 var import_nested_property2, DEFAULT_TIMEOUT;
 var init_lock = __esm({
-  "node_modules/webdav/dist/node/operations/lock.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/lock.js"() {
     import_nested_property2 = __toESM(require_nested_property(), 1);
     init_url();
     init_path();
@@ -16715,7 +16715,7 @@ var init_lock = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/tools/quota.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/quota.js
 function parseQuota(result) {
   try {
     const [responseItem] = result.multistatus.response;
@@ -16730,12 +16730,12 @@ function parseQuota(result) {
   return null;
 }
 var init_quota = __esm({
-  "node_modules/webdav/dist/node/tools/quota.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/quota.js"() {
     init_dav();
   }
 });
 
-// node_modules/webdav/dist/node/operations/getQuota.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/getQuota.js
 async function getQuota(context, options = {}) {
   const path4 = options.path || "/";
   const requestOptions = prepareRequestOptions({
@@ -16754,7 +16754,7 @@ async function getQuota(context, options = {}) {
   return processResponsePayload(response, quota, options.details);
 }
 var init_getQuota = __esm({
-  "node_modules/webdav/dist/node/operations/getQuota.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/getQuota.js"() {
     init_request2();
     init_response2();
     init_dav();
@@ -16763,7 +16763,7 @@ var init_getQuota = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/search.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/search.js
 async function getSearch2(context, searchArbiter, options = {}) {
   const { details: isDetailed = false } = options;
   const requestOptions = prepareRequestOptions({
@@ -16783,7 +16783,7 @@ async function getSearch2(context, searchArbiter, options = {}) {
   return processResponsePayload(response, results, isDetailed);
 }
 var init_search = __esm({
-  "node_modules/webdav/dist/node/operations/search.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/search.js"() {
     init_dav();
     init_url();
     init_path();
@@ -16792,7 +16792,7 @@ var init_search = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/moveFile.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/moveFile.js
 async function moveFile(context, filename, destination, options = {}) {
   const requestOptions = prepareRequestOptions({
     url: joinURL(context.remoteURL, encodePath(filename)),
@@ -16812,7 +16812,7 @@ async function moveFile(context, filename, destination, options = {}) {
   handleResponseCode(context, response);
 }
 var init_moveFile = __esm({
-  "node_modules/webdav/dist/node/operations/moveFile.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/moveFile.js"() {
     init_url();
     init_path();
     init_request2();
@@ -16820,9 +16820,9 @@ var init_moveFile = __esm({
   }
 });
 
-// node_modules/byte-length/dist/index.js
+// ../../dsh-nas-sync/node_modules/byte-length/dist/index.js
 var require_dist = __commonJS({
-  "node_modules/byte-length/dist/index.js"(exports2) {
+  "../../dsh-nas-sync/node_modules/byte-length/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     function byteLength2(str) {
@@ -16848,7 +16848,7 @@ var require_dist = __commonJS({
   }
 });
 
-// node_modules/webdav/dist/node/tools/size.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/tools/size.js
 function calculateDataLength(data) {
   if (isArrayBuffer(data)) {
     return data.byteLength;
@@ -16865,7 +16865,7 @@ function calculateDataLength(data) {
 }
 var import_byte_length;
 var init_size = __esm({
-  "node_modules/webdav/dist/node/tools/size.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/tools/size.js"() {
     init_dist();
     import_byte_length = __toESM(require_dist(), 1);
     init_arrayBuffer();
@@ -16874,7 +16874,7 @@ var init_size = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/putFileContents.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/putFileContents.js
 import Stream5 from "stream";
 async function putFileContents(context, filePath, data, options = {}) {
   const { contentLength = true, overwrite = true } = options;
@@ -16932,7 +16932,7 @@ function getFileUploadLink(context, filePath) {
   return url;
 }
 var init_putFileContents = __esm({
-  "node_modules/webdav/dist/node/operations/putFileContents.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/putFileContents.js"() {
     init_dist();
     init_encode2();
     init_url();
@@ -16945,7 +16945,7 @@ var init_putFileContents = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/getDAVCompliance.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/getDAVCompliance.js
 async function getDAVCompliance(context, filePath, options = {}) {
   const requestOptions = prepareRequestOptions({
     url: joinURL(context.remoteURL, encodePath(filePath)),
@@ -16967,7 +16967,7 @@ async function getDAVCompliance(context, filePath, options = {}) {
   };
 }
 var init_getDAVCompliance = __esm({
-  "node_modules/webdav/dist/node/operations/getDAVCompliance.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/getDAVCompliance.js"() {
     init_url();
     init_path();
     init_request2();
@@ -16975,7 +16975,7 @@ var init_getDAVCompliance = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/operations/partialUpdateFileContents.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/operations/partialUpdateFileContents.js
 async function partialUpdateFileContents(context, filePath, start, end, data, options = {}) {
   const compliance = await getDAVCompliance(context, filePath, options);
   if (compliance.compliance.includes("sabredav-partialupdate")) {
@@ -17035,7 +17035,7 @@ async function partialUpdateFileContentsApache(context, filePath, start, end, da
   handleResponseCode(context, response);
 }
 var init_partialUpdateFileContents = __esm({
-  "node_modules/webdav/dist/node/operations/partialUpdateFileContents.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/operations/partialUpdateFileContents.js"() {
     init_dist();
     init_url();
     init_path();
@@ -17046,7 +17046,7 @@ var init_partialUpdateFileContents = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/factory.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/factory.js
 function createClient(remoteURL, options = {}) {
   const { authType: authTypeRaw = null, remoteBasePath, contactHref = DEFAULT_CONTACT_HREF, entityDecoder, ha1, headers = {}, httpAgent, httpsAgent, password, token, username, withCredentials } = options;
   let authType = authTypeRaw;
@@ -17110,7 +17110,7 @@ function createClient(remoteURL, options = {}) {
 }
 var DEFAULT_CONTACT_HREF;
 var init_factory = __esm({
-  "node_modules/webdav/dist/node/factory.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/factory.js"() {
     init_url();
     init_auth();
     init_copyFile();
@@ -17135,9 +17135,9 @@ var init_factory = __esm({
   }
 });
 
-// node_modules/webdav/dist/node/index.js
+// ../../dsh-nas-sync/node_modules/webdav/dist/node/index.js
 var init_node = __esm({
-  "node_modules/webdav/dist/node/index.js"() {
+  "../../dsh-nas-sync/node_modules/webdav/dist/node/index.js"() {
     init_factory();
     init_patcher2();
     init_types2();
@@ -17212,8 +17212,8 @@ function createWebdavTransport(opts) {
     async put(local, remote, opts2) {
       const target = p(remote);
       if (opts2?.mkdirs) await ensureParent(target);
-      const { readFileSync: readFileSync2 } = await import("node:fs");
-      await upload(client, target, readFileSync2(local));
+      const { readFileSync: readFileSync3 } = await import("node:fs");
+      await upload(client, target, readFileSync3(local));
     },
     async putBuffer(data, remote, opts2) {
       const target = p(remote);
@@ -17389,9 +17389,9 @@ var init_paths = __esm({
   }
 });
 
-// node_modules/tweetnacl/nacl-fast.js
+// ../../dsh-nas-sync/node_modules/tweetnacl/nacl-fast.js
 var require_nacl_fast = __commonJS({
-  "node_modules/tweetnacl/nacl-fast.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/tweetnacl/nacl-fast.js"(exports2, module) {
     (function(nacl2) {
       "use strict";
       var gf = function(init) {
@@ -19613,9 +19613,9 @@ var require_nacl_fast = __commonJS({
   }
 });
 
-// node_modules/scrypt-js/scrypt.js
+// ../../dsh-nas-sync/node_modules/scrypt-js/scrypt.js
 var require_scrypt = __commonJS({
-  "node_modules/scrypt-js/scrypt.js"(exports2, module) {
+  "../../dsh-nas-sync/node_modules/scrypt-js/scrypt.js"(exports2, module) {
     "use strict";
     (function(root) {
       const MAX_VALUE = 2147483647;
@@ -20365,6 +20365,11 @@ var Store = class {
   snapshot = { ...DEFAULT_SNAPSHOT };
   pendingFiles = [];
   conflicts = [];
+  /**
+   * 上一轮本地清单，删除传播的基线。
+   * 0.3.5 起用它区分「对端新增的条目（要补回）」与「本机删掉的条目（不能补回）」。
+   */
+  localManifest = [];
   /** 用户显式修改过的配置覆盖层（合并到 entry config 之上）；null = 未改过 */
   userConfig = null;
   constructor() {
@@ -20375,6 +20380,7 @@ var Store = class {
         if (data.snapshot) this.snapshot = { ...DEFAULT_SNAPSHOT, ...data.snapshot };
         if (Array.isArray(data.pendingFiles)) this.pendingFiles = data.pendingFiles;
         if (Array.isArray(data.conflicts)) this.conflicts = data.conflicts;
+        if (Array.isArray(data.localManifest)) this.localManifest = data.localManifest;
         if (data.userConfig && typeof data.userConfig === "object") this.userConfig = data.userConfig;
         if (typeof data.saltHex === "string" && data.saltHex.length === 32) salt = data.saltHex;
       }
@@ -20395,6 +20401,7 @@ var Store = class {
         snapshot: this.snapshot,
         pendingFiles: this.pendingFiles,
         conflicts: this.conflicts,
+        localManifest: this.localManifest,
         userConfig: this.userConfig
       }, null, 2), "utf-8");
     } catch {
@@ -20409,7 +20416,7 @@ var Store = class {
 init_paths();
 import * as zlib2 from "node:zlib";
 import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mkdir as mkdir2, stat as stat3, rename, rm as rm2 } from "node:fs/promises";
-import { existsSync as existsSync2 } from "node:fs";
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import { join as join4, resolve, sep as sep3 } from "node:path";
 import * as os from "node:os";
 var zstdImpl = zlib2;
@@ -20425,6 +20432,19 @@ function isSessionRel(rel) {
 }
 function isWorkspaceRegistryRel(rel) {
   return rel === WORKSPACE_REGISTRY_REL;
+}
+function workspaceRegistryReady(home = dshHome()) {
+  try {
+    const p = join4(home, "storages", "workspace.json");
+    if (!existsSync2(p)) return false;
+    const d = JSON.parse(readFileSync2(p, "utf-8"));
+    const ids = d?.global?.workspaceIds;
+    if (!Array.isArray(ids) || ids.length === 0) return false;
+    if (d?.global?.initialized === false) return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 function safeName(p) {
   if (typeof p !== "string" || p.length === 0) return "workspace";
@@ -21459,6 +21479,27 @@ var Chunker = class {
 // src/sync/engine.ts
 init_merger();
 init_paths();
+
+// src/sync/manifest.ts
+function mergeManifestDevices(fresh, prev) {
+  const old = new Map(prev.map((e2) => [e2.rel, e2]));
+  return fresh.map((e2) => {
+    const before = old.get(e2.rel);
+    return before && before.device && before.hash === e2.hash ? { ...e2, device: before.device } : e2;
+  });
+}
+function mergeManifestPreserving(fresh, prevRemote, baseline) {
+  const merged = mergeManifestDevices(fresh, prevRemote);
+  const seen = new Set(merged.map((e2) => e2.rel));
+  const had = new Set(baseline.map((e2) => e2.rel));
+  for (const e2 of prevRemote) {
+    if (seen.has(e2.rel) || had.has(e2.rel)) continue;
+    merged.push(e2);
+  }
+  return merged;
+}
+
+// src/sync/engine.ts
 import { join as join6 } from "node:path";
 var MANIFEST_REMOTE = "/dsh/manifest.json";
 var DEVICES_REMOTE = "/dsh/devices";
@@ -21476,13 +21517,6 @@ function normalizeWorkspaceName(raw) {
   const s2 = String(raw || "").replace(/[（(][^）)]*[）)]/g, "").replace(/[_\s-]+/g, "").toLowerCase();
   if (s2 === "\u9ED8\u8BA4\u5DE5\u4F5C\u533A" || s2 === "defaultworkspace" || s2 === "default") return "defaultworkspace";
   return s2;
-}
-function mergeManifestDevices(fresh, prev) {
-  const old = new Map(prev.map((e2) => [e2.rel, e2]));
-  return fresh.map((e2) => {
-    const before = old.get(e2.rel);
-    return before && before.device && before.hash === e2.hash ? { ...e2, device: before.device } : e2;
-  });
 }
 var Engine = class {
   deps;
@@ -21766,6 +21800,8 @@ var Engine = class {
       this.deps.store.save();
       let pushed = 0;
       let pulled = 0;
+      let mergedRegistry = 0;
+      let skippedDownload = 0;
       const remaining = new Set(pending);
       for (const item of pending) {
         if (this.abort.signal.aborted) break;
@@ -21776,14 +21812,10 @@ var Engine = class {
             await this.pushFile(item.rel, item.size, remoteMap.get(item.rel)?.hash);
             pushed++;
           } else if (item.action === "download") {
-            if (isWorkspaceRegistryRel(item.rel)) {
-              this.deps.store.snapshot.progress.done++;
-              remaining.delete(item);
-              this.deps.store.save();
-              continue;
-            }
-            await this.downloadEntry(item.rel);
-            pulled++;
+            const outcome = await this.downloadEntry(item.rel);
+            if (outcome === "written") pulled++;
+            else if (outcome === "merged") mergedRegistry++;
+            else skippedDownload++;
           }
           this.deps.store.snapshot.progress.done++;
           remaining.delete(item);
@@ -21818,12 +21850,13 @@ var Engine = class {
       }
       if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
-        const merged = mergeManifestDevices(fresh, this.remoteManifest);
-        const seen = new Set(merged.map((e2) => e2.rel));
-        for (const e2 of this.remoteManifest) {
-          if (!seen.has(e2.rel)) merged.push(e2);
-        }
+        const merged = mergeManifestPreserving(
+          fresh,
+          this.remoteManifest,
+          this.deps.store.localManifest
+        );
         await this.writeRemoteManifest(merged);
+        this.deps.store.localManifest = fresh;
         this.remoteManifest = merged;
         try {
           await this.writeDeviceClaim(fresh);
@@ -21833,7 +21866,7 @@ var Engine = class {
         this.deps.store.pendingFiles = [...remaining];
         this.deps.store.snapshot.pendingCount = remaining.size;
       }
-      return { pushed, pulled, conflicts: this.deps.store.conflicts.length };
+      return { pushed, pulled, mergedRegistry, skippedDownload, conflicts: this.deps.store.conflicts.length };
     } finally {
       this.running = false;
       this.deps.store.snapshot.running = false;
@@ -21861,11 +21894,14 @@ var Engine = class {
   /** 下载单个文件并解密写盘。工作区注册表与会话头要额外处理，见各分支注释。 */
   async downloadEntry(rel) {
     this.setPhase("downloading");
+    if (isWorkspaceRegistryRel(rel) && workspaceRegistryReady()) {
+      return "skipped";
+    }
     const plain = await this.fetchRemotePlain("/dsh/" + rel);
     if (!plain) throw new Error("\u8FDC\u7AEF\u4E0D\u5B58\u5728: " + rel);
     if (isWorkspaceRegistryRel(rel)) {
       await mergeWorkspaceRegistry(Buffer.from(plain).toString("utf8"));
-      return;
+      return "merged";
     }
     const localAbs = this.resolveLocal(rel);
     const cut = Math.max(localAbs.lastIndexOf("/"), localAbs.lastIndexOf("\\"));
@@ -21875,7 +21911,7 @@ var Engine = class {
       const originalCwd = sessionCwdOf(raw);
       if (originalCwd && platformMismatch(originalCwd)) {
         console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u5F02\u5E73\u53F0\u4F1A\u8BDD\uFF08\u539F\u59CB cwd=" + originalCwd + "\uFF09: " + rel);
-        return;
+        return "skipped";
       }
       const out = rewriteSessionCwd(raw);
       const localCwd = out ? out.dir : originalCwd ? mapRemotePath(originalCwd).local : null;
@@ -21896,10 +21932,12 @@ var Engine = class {
           } catch {
           }
         }
-        return;
+        return "written";
       }
+      return "skipped";
     }
     await writeFile3(localAbs, plain);
+    return "written";
   }
   /** 解决冲突：local = 推本地覆盖远端；remote = 拉远程覆盖本地；skip = 仅移出冲突列表。 */
   async resolve(rel, resolution) {
@@ -21923,7 +21961,13 @@ var Engine = class {
       });
       await this.writeRemoteManifest(this.remoteManifest);
     } else if (resolution === "remote") {
-      await this.downloadEntry(rel);
+      const outcome = await this.downloadEntry(rel);
+      if (outcome === "skipped") {
+        this.deps.store.conflicts = this.deps.store.conflicts.filter((x2) => x2.rel !== rel);
+        this.deps.store.snapshot.conflictCount = this.deps.store.conflicts.length;
+        this.deps.store.save();
+        return;
+      }
       const localAbs = this.resolveLocal(rel);
       const st = await stat5(localAbs);
       const data = await readFile4(localAbs);
@@ -22141,6 +22185,12 @@ function createBridge(ctx, deps) {
         }
         await engine.resolve(body.file, body.resolution);
         return ok(res, { resolved: body.file });
+      }
+      if (sub === "/skip" && method === "POST") {
+        const body = await readBody();
+        if (!body.file) return fail(res, "bad_request", "\u9700\u8981 file");
+        await engine.skipPending(body.file);
+        return ok(res, { skipped: body.file });
       }
       if (sub === "/merge" && method === "POST") {
         const body = await readBody();
@@ -22586,6 +22636,28 @@ function apply(ctx, config) {
     },
     async execute(args) {
       await engine.resolve(args.file, args.resolution);
+      return { success: true, message: null };
+    }
+  }));
+  ctx.tools.register(defineTool({
+    name: "nas_skip_pending",
+    description: "\u628A\u4E00\u4E2A\u5F85\u540C\u6B65\u6587\u4EF6\u79FB\u51FA\u5F85\u529E\u5217\u8868\uFF08\u4E0D\u4F20\u8F93\u3001\u4E0D\u5F71\u54CD\u8FDC\u7AEF\uFF09\u3002\u7528\u4E8E\u300C\u8FD9\u6761\u6211\u4E0D\u60F3\u540C\u6B65/\u7A0D\u540E\u518D\u770B\u300D\u3002",
+    parameters: {
+      file: { type: "string", required: true, description: "\u5F85\u540C\u6B65\u6587\u4EF6\u7684 rel \u8DEF\u5F84\uFF08\u76F8\u5BF9 ~/.dsh\uFF09" }
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: { success: { type: "boolean" }, message: { type: "json" } }
+      },
+      render: (_args, value) => [{
+        type: "text",
+        text: value.success ? `\u5DF2\u79FB\u51FA\u5F85\u529E\uFF1A${_args.file}` : "\u64CD\u4F5C\u5931\u8D25\uFF1A" + value.message
+      }]
+    },
+    async execute(args) {
+      await engine.skipPending(args.file);
       return { success: true, message: null };
     }
   }));

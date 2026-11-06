@@ -25,6 +25,7 @@ import type { NasTransport } from '../nas/transport.js';
 import type { NasSyncConfig, Store } from '../config.js';
 import { isMergeable } from './merger.js';
 import { localOf, dshHome } from '../paths.js';
+import { mergeManifestDevices, mergeManifestPreserving } from './manifest.js';
 import { join } from 'node:path';
 import {
   customFolderLocalOf,
@@ -40,9 +41,16 @@ import {
   repairSessionCwd,
   repairWorkspaceRegistry,
   rewriteSessionCwd,
+  workspaceRegistryReady,
 } from './portable.js';
 
 export type SyncMode = 'push' | 'pull' | 'mirror';
+
+/**
+ * 下载落地的三种结果。0.3.5 起 downloadEntry 返回它，外层按枚举计数 ——
+ * 原来「按策略跳过」也会 pulled++，同步结果会虚报。
+ */
+export type DownloadOutcome = 'written' | 'merged' | 'skipped';
 
 const MANIFEST_REMOTE = '/dsh/manifest.json';
 
@@ -91,22 +99,7 @@ export function normalizeWorkspaceName(raw: string): string {
   return s;
 }
 
-/**
- * 合并清单的来源设备：`fresh` 里的条目都被 scanner 标成了本机，但只有**内容真的
- * 变过**（哈希不同）的文件才算本机上传；其余保留 `prev` 里的原来源。
- *
- * 抽成纯函数是为了能直接测 —— 这个规则写反了，来源标记就会每次同步被刷成本机，
- * 功能等于失效，而且从 UI 上很难察觉。
- */
-export function mergeManifestDevices(fresh: ManifestEntry[], prev: ManifestEntry[]): ManifestEntry[] {
-  const old = new Map(prev.map((e) => [e.rel, e] as const));
-  return fresh.map((e) => {
-    const before = old.get(e.rel);
-    return before && before.device && before.hash === e.hash
-      ? { ...e, device: before.device }
-      : e;
-  });
-}
+export { mergeManifestDevices, mergeManifestPreserving };
 
 export interface EngineDeps {
   transport: NasTransport;
@@ -425,7 +418,13 @@ export class Engine {
     return { local, pending, conflicts };
   }
 
-  async sync(mode: SyncMode): Promise<{ pushed: number; pulled: number; conflicts: number }> {
+  async sync(mode: SyncMode): Promise<{
+    pushed: number;
+    pulled: number;
+    mergedRegistry: number;
+    skippedDownload: number;
+    conflicts: number;
+  }> {
     if (this.running) throw new Error('同步任务正在进行中');
     this.checkReady();
     this.running = true;
@@ -443,6 +442,10 @@ export class Engine {
 
       let pushed = 0;
       let pulled = 0;
+      /** 拉到注册表并做了合并（不计入 pulled，避免虚报） */
+      let mergedRegistry = 0;
+      /** 按策略跳过（异平台会话 / 本机注册表已可用） */
+      let skippedDownload = 0;
       // 同步成功后要从待办里移除的项。失败的、以及因 mode 不匹配而跳过的，
       // 都留在 remaining 里 —— 否则收尾时把 pendingCount 清零会**谎报**「已全部同步」。
       const remaining = new Set(pending);
@@ -457,18 +460,12 @@ export class Engine {
             await this.pushFile(item.rel, item.size, remoteMap.get(item.rel)?.hash);
             pushed++;
           } else if (item.action === 'download') {
-            // 方案 C（rel 级守卫）：工作区注册表只上传、不下载合并。
-            // 双向 mirror 每轮把远端注册表合进本机，会反复改写 default /
-            // path / sessionIds 归属，两端定时器交替写还会放大成竞态。
-            // 守卫与 mode 无关，手动「立即同步」同样生效。
-            if (isWorkspaceRegistryRel(item.rel)) {
-              this.deps.store.snapshot.progress.done++;
-              remaining.delete(item);
-              this.deps.store.save();
-              continue;
-            }
-            await this.downloadEntry(item.rel);
-            pulled++;
+            // 守卫已下沉到 downloadEntry()（0.3.5），这里只按落地结果计数，
+            // 避免「跳过也 pulled++」把同步结果报虚。
+            const outcome = await this.downloadEntry(item.rel);
+            if (outcome === 'written') pulled++;
+            else if (outcome === 'merged') mergedRegistry++;
+            else skippedDownload++;
           }
           this.deps.store.snapshot.progress.done++;
           remaining.delete(item);
@@ -527,15 +524,15 @@ export class Engine {
          * 与上一轮一致的条目**保留原来源**，只有真正变了的才归给本机。
          * 不做这一步，来源每同步一次就被刷成"本机"，等于没记。
          */
-        const merged = mergeManifestDevices(fresh, this.remoteManifest);
-        // mergeManifestDevices 以本地 fresh 为准。远端有、本轮按策略没下载
-        // （或 mode=push 跳过）的条目本来会被整片抹掉，对端就再也拉不到。
-        // 原样补回：本机不持有 != 远端该文件不存在。
-        const seen = new Set(merged.map((e) => e.rel));
-        for (const e of this.remoteManifest) {
-          if (!seen.has(e.rel)) merged.push(e);
-        }
+        // 补回按基线判定：对端新增的才补，本机删掉的不补（0.3.4 会复活已删除文件）。
+        const merged = mergeManifestPreserving(
+          fresh,
+          this.remoteManifest,
+          this.deps.store.localManifest,
+        );
         await this.writeRemoteManifest(merged);
+        // 记下本轮本地清单，作为下一轮的删除基线
+        this.deps.store.localManifest = fresh;
         this.remoteManifest = merged;
         // 写本机来源声明。失败不能让整轮同步判失败（只是少了 emoji 而已）。
         try {
@@ -550,7 +547,7 @@ export class Engine {
         this.deps.store.snapshot.pendingCount = remaining.size;
       }
 
-      return { pushed, pulled, conflicts: this.deps.store.conflicts.length };
+      return { pushed, pulled, mergedRegistry, skippedDownload, conflicts: this.deps.store.conflicts.length };
     } finally {
       this.running = false;
       this.deps.store.snapshot.running = false;
@@ -582,19 +579,28 @@ export class Engine {
   }
 
   /** 下载单个文件并解密写盘。工作区注册表与会话头要额外处理，见各分支注释。 */
-  private async downloadEntry(rel: string): Promise<void> {
+  private async downloadEntry(rel: string): Promise<DownloadOutcome> {
     this.setPhase('downloading');
+
+    // 0.3.5：守卫下沉到这里统一判定（原来只在 sync() 循环里，resolve('remote') 能绕过）。
+    // **条件式**：本机注册表已可用才禁止下载合并；新机器首次同步必须放行，
+    // 否则侧栏工作区名与会话归属全丢 —— repairWorkspaceRegistry() 在本机没有
+    // 注册表时直接返回 0，兜不住这个场景。
+    if (isWorkspaceRegistryRel(rel) && workspaceRegistryReady()) {
+      return 'skipped';
+    }
+
     const plain = await this.fetchRemotePlain('/dsh/' + rel);
     if (!plain) throw new Error('远端不存在: ' + rel);
 
     // ① 工作区注册表：直接覆盖会把本机的工作区整片抹掉（本地 default-workspace 也没了），
     //    所以这里**只合并不覆盖**，并把远端绝对路径映射成本机真实目录。
+    //    注意：plain 是 Uint8Array，`plain.toString('utf8')` 会走 Array.prototype.toString
+    //    得到 "123,34,..." 这样的逗号串（encoding 参数被忽略），JSON.parse 必失败，
+    //    整个合并就成了静默 no-op。必须显式经过 Buffer。
     if (isWorkspaceRegistryRel(rel)) {
-      // 注意：plain 是 Uint8Array，`plain.toString('utf8')` 会走 Array.prototype.toString
-      // 得到 "123,34,..." 这样的逗号串（encoding 参数被忽略），JSON.parse 必失败，
-      // 整个合并就成了静默 no-op。必须显式经过 Buffer。
       await mergeWorkspaceRegistry(Buffer.from(plain).toString('utf8'));
-      return;
+      return 'merged';
     }
 
     const localAbs = this.resolveLocal(rel);
@@ -619,7 +625,7 @@ export class Engine {
       const originalCwd = sessionCwdOf(raw);
       if (originalCwd && platformMismatch(originalCwd)) {
         console.warn('[dsh-nas-sync] 跳过异平台会话（原始 cwd=' + originalCwd + '）: ' + rel);
-        return;
+        return 'skipped';
       }
 
       const out = rewriteSessionCwd(raw);
@@ -651,11 +657,14 @@ export class Engine {
             /* 删不掉也不影响下一轮再修 */
           }
         }
-        return;
+        return 'written';
       }
+      // 连 cwd 都读不出来：不落盘，避免造出一个打不开的幽灵会话。
+      return 'skipped';
     }
 
     await writeFile(localAbs, plain);
+    return 'written';
   }
 
   /** 解决冲突：local = 推本地覆盖远端；remote = 拉远程覆盖本地；skip = 仅移出冲突列表。 */
@@ -683,7 +692,15 @@ export class Engine {
       });
       await this.writeRemoteManifest(this.remoteManifest);
     } else if (resolution === 'remote') {
-      await this.downloadEntry(rel);
+      const outcome = await this.downloadEntry(rel);
+      if (outcome === 'skipped') {
+        // 注册表 rel 在本机已可用时禁止远端覆盖（会改写工作区归属）；
+        // 异平台会话也不该落地。这里只把冲突移出列表，不动本地文件。
+        this.deps.store.conflicts = this.deps.store.conflicts.filter((x) => x.rel !== rel);
+        this.deps.store.snapshot.conflictCount = this.deps.store.conflicts.length;
+        this.deps.store.save();
+        return;
+      }
       // 回写远端 manifest：本地 mtime 已变化，记录最新指纹
       const localAbs = this.resolveLocal(rel);
       const st = await stat(localAbs);

@@ -8,9 +8,9 @@
  *   设置：ctx.settings.register(ns, schema, { base }) -> SettingsScope{get/watch/update/replace}。
  *   定时：全局 setInterval + ctx.on('dispose') 清理（不依赖 timer 服务注入）。
  *
- * 工具清单（11 个）：
+ * 工具清单（12 个）：
  *   nas_sync_status / nas_sync_subscribe / nas_sync_scope / nas_pending_files_page / nas_get_conflicts
- *   nas_resolve_conflict / nas_sync / nas_stop_sync / nas_test / nas_try_merge / nas_get_file_diff
+ *   nas_resolve_conflict / nas_skip_pending / nas_sync / nas_stop_sync / nas_test / nas_try_merge / nas_get_file_diff
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools';
@@ -499,7 +499,33 @@ function apply(ctx: any, config: any): void {
     },
   }));
 
-  // 6. nas_sync：执行一次同步
+  // 6. nas_skip_pending：把待同步文件移出待办（不传输、不动远端）
+  //    与 nas_resolve_conflict 的 skip 不同：后者要求该文件确实在冲突列表里，
+  //    对普通待办会报「冲突记录不存在」。0.3.5 起面板走这个工具。
+  ctx.tools.register(defineTool({
+    name: 'nas_skip_pending',
+    description: '把一个待同步文件移出待办列表（不传输、不影响远端）。用于「这条我不想同步/稍后再看」。',
+    parameters: {
+      file: { type: 'string', required: true, description: '待同步文件的 rel 路径（相对 ~/.dsh）' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { success: { type: 'boolean' }, message: { type: 'json' } },
+      },
+      render: (_args: any, value: any) => [{
+        type: 'text',
+        text: value.success ? `已移出待办：${_args.file}` : '操作失败：' + value.message,
+      }],
+    },
+    async execute(args: any) {
+      await engine.skipPending(args.file);
+      return { success: true, message: null };
+    },
+  }));
+
+  // 7. nas_sync：执行一次同步
   ctx.tools.register(defineTool({
     name: 'nas_sync',
     description: '立即执行一次 NAS 同步。mode=push 只上传本地变更；pull 只下载远端变更；mirror 双向。大文件走分块断点续传，全程加密。',

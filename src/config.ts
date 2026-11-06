@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { dshHome } from './paths.js';
+import type { ManifestEntry } from './data/models.js';
 
 export const NS_NAS_SYNC = 'nas-sync';
 
@@ -264,6 +265,11 @@ export class Store {
   snapshot: SyncSnapshot = { ...DEFAULT_SNAPSHOT };
   pendingFiles: PendingFile[] = [];
   conflicts: ConflictItem[] = [];
+  /**
+   * 上一轮本地清单，删除传播的基线。
+   * 0.3.5 起用它区分「对端新增的条目（要补回）」与「本机删掉的条目（不能补回）」。
+   */
+  localManifest: ManifestEntry[] = [];
   /** 用户显式修改过的配置覆盖层（合并到 entry config 之上）；null = 未改过 */
   userConfig: Record<string, unknown> | null = null;
 
@@ -275,6 +281,7 @@ export class Store {
         if (data.snapshot) this.snapshot = { ...DEFAULT_SNAPSHOT, ...data.snapshot };
         if (Array.isArray(data.pendingFiles)) this.pendingFiles = data.pendingFiles;
         if (Array.isArray(data.conflicts)) this.conflicts = data.conflicts;
+        if (Array.isArray(data.localManifest)) this.localManifest = data.localManifest;
         if (data.userConfig && typeof data.userConfig === 'object') this.userConfig = data.userConfig;
         if (typeof data.saltHex === 'string' && data.saltHex.length === 32) salt = data.saltHex;
       }
@@ -296,6 +303,7 @@ export class Store {
         snapshot: this.snapshot,
         pendingFiles: this.pendingFiles,
         conflicts: this.conflicts,
+        localManifest: this.localManifest,
         userConfig: this.userConfig,
       }, null, 2), 'utf-8');
     } catch {
