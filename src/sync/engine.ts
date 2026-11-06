@@ -520,6 +520,8 @@ export class Engine {
   async auditPlugins(targetProfile?: string): Promise<{
     gaps: PluginGap[];
     target: string;
+    /** 目标 profile 里已装的第三方插件（不含 @deepseek-ai 内置） */
+    installedPlugins: Array<{ name: string; version: string }>;
     localProfiles: Array<{ profile: string; count: number }>;
     remoteProfiles: string[];
   }> {
@@ -578,6 +580,12 @@ export class Engine {
     return {
       gaps,
       target,
+      // 本机（目标 profile）已装的**第三方**插件清单。对账只报差集，光看差集
+      // 用户会以为「一个插件都没装」；这里把已装的也吐出来，面板才能显示全貌。
+      installedPlugins: Object.entries(installed)
+        .filter(([name]) => !name.startsWith('@deepseek-ai/'))
+        .map(([name, version]) => ({ name, version: String(version) }))
+        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
       localProfiles: locals.map((l) => ({ profile: l.profile, count: Object.keys(l.installed).length })),
       remoteProfiles: remote.map((r) => r.profile),
     };

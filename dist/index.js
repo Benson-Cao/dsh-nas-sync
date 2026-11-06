@@ -22114,6 +22114,9 @@ var Engine = class {
     return {
       gaps,
       target,
+      // 本机（目标 profile）已装的**第三方**插件清单。对账只报差集，光看差集
+      // 用户会以为「一个插件都没装」；这里把已装的也吐出来，面板才能显示全貌。
+      installedPlugins: Object.entries(installed).filter(([name2]) => !name2.startsWith("@deepseek-ai/")).map(([name2, version]) => ({ name: name2, version: String(version) })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
       localProfiles: locals.map((l) => ({ profile: l.profile, count: Object.keys(l.installed).length })),
       remoteProfiles: remote.map((r2) => r2.profile)
     };

@@ -86,6 +86,8 @@ window.__ModuleLoader__.load({
       pluginInstall: '安装',
       pluginInstallAll: '全部安装',
       pluginAllDone: '所有插件已对齐，没有缺失。',
+      pluginInstalled: '本机已装',
+      pluginNotRun: '还没对账，点上面的「⟳ 对账」开始（会读取远端装配清单并比对）。',
       pluginMissing: '未安装',
       pluginOutdated: '版本不符',
       pluginNoCli: '这台设备没有可用的 dsh CLI，只能复制命令手动执行。',
@@ -190,6 +192,8 @@ window.__ModuleLoader__.load({
       pluginInstall: 'Install',
       pluginInstallAll: 'Install all',
       pluginAllDone: 'All plugins are present.',
+      pluginInstalled: 'Installed here',
+      pluginNotRun: 'Not audited yet — press “⟳ Check” above.',
       pluginMissing: 'not installed',
       pluginOutdated: 'version differs',
       pluginNoCli: 'No usable dsh CLI on this device — copy the command and run it manually.',
@@ -390,7 +394,10 @@ window.__ModuleLoader__.load({
       //   .page > * { width: 100%; max-width: 960px }
       // 即「内容列最宽 960px + 居中」。我们先前既没有上限（铺满到侧栏边）、
       // 又去量父宽强撑，方向正好反了 —— 0.3.7/0.3.8 两版都栽在这。
-      root: { padding: '0', width: '100%', maxWidth: '960px', margin: '0 auto', alignSelf: 'center', flex: '0 1 auto', minWidth: 0, color: 'var(--dsw-alias-label-primary)', fontSize: '13px', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '16px', height: '100%', overflow: 'auto', boxSizing: 'border-box' },
+      // 左右留白：手机上整页贴边会显得"糊在墙上"，卡片也没有呼吸感。
+      // 用 padding 而不是 max-width —— 窄屏时 max-width 不生效（视口本来就窄），
+      // 只有 padding 能保证两端都有空隙；box-sizing 已包含在 root 上。
+      root: { padding: '0 14px', width: '100%', maxWidth: '960px', margin: '0 auto', alignSelf: 'center', flex: '0 1 auto', minWidth: 0, color: 'var(--dsw-alias-label-primary)', fontSize: '13px', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '16px', height: '100%', overflow: 'auto', boxSizing: 'border-box' },
       card: { background: 'var(--dsw-alias-bg-layer-1)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' },
       title: { margin: 0, fontSize: '16px', fontWeight: 600 },
       subtitle: { margin: 0, color: 'var(--dsw-alias-label-secondary)', fontSize: '12px' },
@@ -547,7 +554,16 @@ window.__ModuleLoader__.load({
         }
       }, [c, t]);
 
-      /** 安装一组插件；轮询到任务结束再刷新对账结果。 */
+      // 进面板自动对一次账。为什么：卡片初始态只有一个「—」，用户不知道要先点按钮，
+      // 于是「插件对账里什么都看不到」。自动跑一次，至少把已装清单先摆出来。
+      const auditAuto = useRef(false);
+      useEffect(() => {
+        if (!c.ready || auditAuto.current) return;
+        auditAuto.current = true;
+        runAudit(null);
+      }, [c, runAudit]);
+
+      /** 安装一组插件；轮询到任务结束后再刷新对账结果。 */
       const installItems = useCallback(async (profile, items) => {
         if (!items.length) return;
         setAuditBusy('install');
@@ -849,6 +865,13 @@ window.__ModuleLoader__.load({
                 }, p.profile + ' (' + p.count + ')')),
               )
             : null,
+          // 已装清单：只报差集时用户会以为「一个插件都没装」，所以把本机已装的
+          // 第三方插件也列出来（不含 @deepseek-ai 内置）。
+          audit && audit.installedPlugins && audit.installedPlugins.length
+            ? h('p', { style: S.hint },
+                t('pluginInstalled') + '（' + audit.target + '）：' +
+                audit.installedPlugins.map((p) => p.name + ' ' + p.version).join(' · '))
+            : null,
           audit
             ? (audit.gaps && audit.gaps.length
               ? h('div', { style: S.scopeList },
@@ -877,7 +900,7 @@ window.__ModuleLoader__.load({
                   ),
                 )
               : h('p', { style: S.subtitle }, t('pluginAllDone')))
-            : h('p', { style: S.hint }, '—'),
+            : h('p', { style: S.hint }, t('pluginNotRun')),
           installJob && installJob.state === 'running'
             ? h('pre', {
                 style: Object.assign({}, S.hint, { whiteSpace: 'pre-wrap', maxHeight: '160px', overflow: 'auto' }),
