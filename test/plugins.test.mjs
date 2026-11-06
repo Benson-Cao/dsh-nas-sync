@@ -16,6 +16,8 @@ import {
   deviceClassOfProfile,
   pluginDeviceClass,
   minVersionOf,
+  declaredPluginNames,
+  toTarballSpec,
 } from '../dist-test/plugins.mjs';
 
 test('depKind：常见 spec 分类', () => {
@@ -222,4 +224,80 @@ test('预发布版本按三元组比对，不会误报', () => {
 test('latest 这类 tag 装了就算满足', () => {
   const gaps = diffPlugins({ x: '1.0.0' }, [{ profile: 'desktop', deps: { x: 'latest' }, bundles: [] }]);
   assert.equal(gaps.length, 0);
+});
+
+// ---- 已装清单口径：只认 profile 声明的插件，不认 node_modules 里的一堆依赖 ----
+
+test('declaredPluginNames：内置 bundle 不列出来', () => {
+  const names = declaredPluginNames({
+    '@deepseek-ai/dsh-base': '*',
+    '@deepseek-ai/dsh-web-app': '*',
+    'dsh-context': '^0.82.1',
+    'dsh-nas-sync': 'git+https://github.com/Benson-Cao/dsh-nas-sync.git',
+  });
+  assert.deepEqual(names, ['dsh-context', 'dsh-nas-sync']);
+});
+
+test('declaredPluginNames：不按名字猜插件，scoped 包照样算', () => {
+  const names = declaredPluginNames({
+    '@acme/dsh-theme': '1.0.0',
+    'dsh-guizang-design': '0.1.4',
+    'weird-name': '2.0.0',
+  });
+  assert.deepEqual(names, ['@acme/dsh-theme', 'dsh-guizang-design', 'weird-name']);
+});
+
+test('declaredPluginNames：空依赖不炸', () => {
+  assert.deepEqual(declaredPluginNames({}), []);
+});
+
+// ---- 仓库地址 → tarball 地址：手机没有 git 也能装 ----
+
+test('toTarballSpec：git+https 转成 archive 地址', () => {
+  assert.equal(
+    toTarballSpec('git+https://github.com/Benson-Cao/dsh-nas-sync.git'),
+    'https://github.com/Benson-Cao/dsh-nas-sync/archive/HEAD.tar.gz',
+  );
+});
+
+test('toTarballSpec：带 .git / 不带 .git / 结尾斜杠都一样处理', () => {
+  const want = 'https://github.com/u/r/archive/HEAD.tar.gz';
+  assert.equal(toTarballSpec('https://github.com/u/r'), want);
+  assert.equal(toTarballSpec('https://github.com/u/r.git'), want);
+  assert.equal(toTarballSpec('https://github.com/u/r/'), want);
+  assert.equal(toTarballSpec('https://www.github.com/u/r'), want);
+});
+
+test('toTarballSpec：#ref 变成对应版本/分支', () => {
+  assert.equal(
+    toTarballSpec('git+https://github.com/u/r.git#v0.4.4'),
+    'https://github.com/u/r/archive/v0.4.4.tar.gz',
+  );
+});
+
+test('toTarballSpec：ssh 形式也认', () => {
+  const want = 'https://github.com/u/r/archive/HEAD.tar.gz';
+  assert.equal(toTarballSpec('git@github.com:u/r.git'), want);
+  assert.equal(toTarballSpec('git+ssh://git@github.com/u/r.git'), want);
+});
+
+test('toTarballSpec：非 GitHub / 非 git 一律不动', () => {
+  assert.equal(toTarballSpec('dsh-context@0.82.0'), null);
+  assert.equal(toTarballSpec('https://gitlab.com/u/r.git'), null);
+  assert.equal(toTarballSpec('link:/data/user/0/x'), null);
+  assert.equal(toTarballSpec(''), null);
+});
+
+test('配到手机档：git 依赖自动改用 tarball', () => {
+  const remote = [{ profile: 'web', deps: { 'dsh-nas-sync': 'git+https://github.com/u/r.git' }, bundles: [] }];
+  const gaps = diffPlugins({}, remote, { targetProfile: 'web' });
+  assert.equal(gaps[0].target, 'https://github.com/u/r/archive/HEAD.tar.gz');
+  assert.equal(gaps[0].installable, true);
+  assert.ok(installCommand('web', gaps[0].target).includes('/archive/HEAD.tar.gz'));
+});
+
+test('配到电脑档：git 依赖保持原样（能跟踪分支）', () => {
+  const remote = [{ profile: 'web', deps: { 'dsh-nas-sync': 'git+https://github.com/u/r.git' }, bundles: [] }];
+  const gaps = diffPlugins({}, remote, { targetProfile: 'desktop' });
+  assert.equal(gaps[0].target, 'git+https://github.com/u/r.git');
 });

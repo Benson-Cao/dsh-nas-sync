@@ -21546,6 +21546,9 @@ function parseProfilePackage(raw) {
   const bundles = Array.isArray(obj?.dsh?.profile?.bundles) ? obj.dsh.profile.bundles.filter((x2) => typeof x2 === "string") : [];
   return { deps, bundles };
 }
+function declaredPluginNames(deps) {
+  return Object.keys(deps || {}).filter((n) => !n.startsWith("@deepseek-ai/"));
+}
 function sameSpec(local, remote) {
   const a = String(local || "").trim();
   const b = String(remote || "").trim();
@@ -21603,6 +21606,20 @@ function versionSatisfies(have, spec) {
   if (!min || !hv) return false;
   return cmpVer(hv, min) >= 0;
 }
+function toTarballSpec(spec) {
+  const raw = String(spec || "").trim();
+  if (!raw) return null;
+  let s2 = raw.replace(/^git\+/, "");
+  let m2 = /^(?:https?:\/\/)(?:www\.)?github\.com\/([^/\s]+)\/([^/\s#?]+?)(?:\.git)?\/?(?:#(.+))?$/.exec(s2);
+  if (!m2) {
+    m2 = /^(?:ssh:\/\/)?git@github\.com[:/]([^/\s]+)\/([^/\s#?]+?)(?:\.git)?\/?(?:#(.+))?$/.exec(s2);
+  }
+  if (!m2) return null;
+  const [, owner, repo, ref] = m2;
+  if (!owner || !repo) return null;
+  const rev = (ref || "HEAD").trim();
+  return `https://github.com/${owner}/${repo}/archive/${rev}.tar.gz`;
+}
 function installTarget(name2, spec) {
   const kind = depKind(spec);
   if (kind === "registry") return `${name2}@${spec}`;
@@ -21642,7 +21659,10 @@ function diffPlugins(installed, remote, opts = {}) {
       const specIsSource = kind === "link" || kind === "file" || kind === "workspace" || kind === "git" || kind === "tarball";
       const specIsTag = /^(latest|next|beta|alpha|canary|\*|x)$/i.test(String(spec).trim());
       if (have !== null && (specIsSource || specIsTag || versionSatisfies(have, spec))) continue;
-      const target = installTarget(name2, spec);
+      let target = installTarget(name2, spec);
+      if (target && kind === "git" && targetClass === "mobile") {
+        target = toTarballSpec(spec) ?? target;
+      }
       const platform = pluginDeviceClass(name2);
       const foreign = Boolean(
         platform && platform !== "unknown" && targetClass !== "unknown" && platform !== targetClass && !allow.has(name2)
@@ -21753,6 +21773,23 @@ function readInstalled(nodeModulesDir) {
     out[name2] = versionOf(join6(nodeModulesDir, name2));
   }
   return out;
+}
+function declaredPlugins(profileDir) {
+  try {
+    const parsed = parseProfilePackage(readFileSync3(join6(profileDir, "package.json"), "utf8"));
+    if (!parsed) return [];
+    return declaredPluginNames(parsed.deps);
+  } catch {
+    return [];
+  }
+}
+function runningProfile(candidates) {
+  const args = process.argv.slice(1);
+  for (const a of args) {
+    const s2 = String(a || "");
+    if (s2 && candidates.includes(s2)) return s2;
+  }
+  return "";
 }
 function normalizeWorkspaceName(raw) {
   const s2 = String(raw || "").replace(/[（(][^）)]*[）)]/g, "").replace(/[_\s-]+/g, "").toLowerCase();
@@ -22081,15 +22118,23 @@ var Engine = class {
     for (const p of dirNames) {
       const dir = join6(root, p);
       if (!existsSync3(join6(dir, "package.json"))) continue;
-      locals.push({ profile: p, installed: readInstalled(join6(dir, "node_modules")) });
+      locals.push({
+        profile: p,
+        installed: readInstalled(join6(dir, "node_modules")),
+        declared: declaredPlugins(dir)
+      });
     }
+    const running = runningProfile(locals.map((l) => l.profile));
     let target = "";
     if (targetProfile && locals.some((l) => l.profile === targetProfile)) {
       target = targetProfile;
+    } else if (running) {
+      target = running;
     } else if (locals.length > 0) {
-      target = locals.slice().sort((a, b) => Object.keys(b.installed).length - Object.keys(a.installed).length)[0].profile;
+      target = locals.slice().sort((a, b) => b.declared.length - a.declared.length || Object.keys(b.installed).length - Object.keys(a.installed).length)[0].profile;
     }
-    const installed = (locals.find((l) => l.profile === target) || { installed: {} }).installed;
+    const targetLocal = locals.find((l) => l.profile === target);
+    const installed = (targetLocal || { installed: {} }).installed;
     const remote = [];
     let remoteDirs = [];
     try {
@@ -22116,8 +22161,11 @@ var Engine = class {
       target,
       // 本机（目标 profile）已装的**第三方**插件清单。对账只报差集，光看差集
       // 用户会以为「一个插件都没装」；这里把已装的也吐出来，面板才能显示全貌。
-      installedPlugins: Object.entries(installed).filter(([name2]) => !name2.startsWith("@deepseek-ai/")).map(([name2, version]) => ({ name: name2, version: String(version) })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
-      localProfiles: locals.map((l) => ({ profile: l.profile, count: Object.keys(l.installed).length })),
+      // 口径是 profile 声明的依赖，不是 node_modules 目录（后者混着几百个传递依赖）。
+      installedPlugins: (targetLocal?.declared ?? []).map((name2) => ({ name: name2, version: String(installed[name2] ?? "") })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+      // 计数口径同「本机已装」：用声明的插件数，不用 node_modules 条目数
+      // （后者在 hoisted 布局下包含几百个传递依赖，会显示成 web(134) 这种噪声）。
+      localProfiles: locals.map((l) => ({ profile: l.profile, count: l.declared.length })),
       remoteProfiles: remote.map((r2) => r2.profile)
     };
   }

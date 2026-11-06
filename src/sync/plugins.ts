@@ -92,8 +92,17 @@ export function parseProfilePackage(raw: string): { deps: ProfileDeps; bundles: 
   return { deps, bundles };
 }
 
-/** 版本号比较只做「字符串是否相同」的粗判，够用且不会误报重装。 */
-function sameSpec(local: string, remote: string): boolean {
+/**
+ * 从 profile 的 dependencies 里挑出「真正的插件」。
+ *
+ * 只排除内置（`@deepseek-ai/*`，随宿主发布、不在 profile 里装），其余保留原文顺序
+ * 之外不做启发式过滤 —— 叫 `dsh-foo` 还是 `@scope/bar` 都可能是插件，靠名字猜只会误伤。
+ */
+export function declaredPluginNames(deps: ProfileDeps): string[] {
+  return Object.keys(deps || {}).filter((n) => !n.startsWith('@deepseek-ai/'));
+}
+
+/** 版本号比较只做「字符串是否相同」的粗判，够用且不会误报重装。 */function sameSpec(local: string, remote: string): boolean {
   const a = String(local || '').trim();
   const b = String(remote || '').trim();
   if (a === b) return true;
@@ -169,6 +178,33 @@ function versionSatisfies(have: string, spec: string): boolean {
   const hv = parseVer(have);
   if (!min || !hv) return false;
   return cmpVer(hv, min) >= 0;
+}
+
+/**
+ * 把 GitHub 仓库地址改写成 **tarball 下载地址**。
+ *
+ * 为什么需要：pnpm 拿到 `git+https://…` 会去 spawn `git ls-remote`；手机端的运行时
+ * 里没有 git（bundle 只带 node/bash），于是安装必然失败，而报错还被翻译成
+ * 「Permission denied」。同一个仓库换成 `/archive/<ref>.tar.gz`，pnpm 走的是普通
+ * HTTPS 下载 + 解包，全程不碰 git —— 实测在手机上 50 秒装完。
+ *
+ * 认不出的形式返回 null，调用方保持原 spec 不动（宁可失败，也不要改出一个错的地址）。
+ */
+export function toTarballSpec(spec: string): string | null {
+  const raw = String(spec || '').trim();
+  if (!raw) return null;
+  // git+https:// / git+ssh:// / git@ / ssh:// 都只是传输方式，仓库路径是一样的
+  let s = raw.replace(/^git\+/, '');
+  let m = /^(?:https?:\/\/)(?:www\.)?github\.com\/([^/\s]+)\/([^/\s#?]+?)(?:\.git)?\/?(?:#(.+))?$/.exec(s);
+  if (!m) {
+    m = /^(?:ssh:\/\/)?git@github\.com[:/]([^/\s]+)\/([^/\s#?]+?)(?:\.git)?\/?(?:#(.+))?$/.exec(s);
+  }
+  if (!m) return null;
+  const [, owner, repo, ref] = m;
+  if (!owner || !repo) return null;
+  // HEAD 由 GitHub 解析成默认分支，不用猜 main 还是 master
+  const rev = (ref || 'HEAD').trim();
+  return `https://github.com/${owner}/${repo}/archive/${rev}.tar.gz`;
 }
 
 /** 生成 pnpm 实参；不可安装的返回 null。 */
@@ -261,7 +297,12 @@ export function diffPlugins(
       // tag 类 spec（latest/*/next…）没有可比对的版本下限，装了就算满足。
       const specIsTag = /^(latest|next|beta|alpha|canary|\*|x)$/i.test(String(spec).trim());
       if (have !== null && (specIsSource || specIsTag || versionSatisfies(have, spec))) continue;
-      const target = installTarget(name, spec);
+      let target = installTarget(name, spec);
+      // 手机上装 git 依赖必然失败（运行时没有 git）。这里改写成 tarball 地址，
+      // 让「全部安装」在手机端真的能跑通；电脑端保留 git 形式（可跟踪分支更新）。
+      if (target && kind === 'git' && targetClass === 'mobile') {
+        target = toTarballSpec(spec) ?? target;
+      }
       // 平台专属判定：本机设备类别未知时（unknown）一律不过滤。
       const platform = pluginDeviceClass(name);
       const foreign = Boolean(

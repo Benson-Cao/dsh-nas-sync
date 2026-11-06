@@ -277,9 +277,17 @@ dsh plugin --profile <profile> add <包>@<版本>
 - 比的是**实际安装**（`node_modules` 里有没有），不是本机 `package.json` ——
   后者也会被同步过来，拿清单比清单永远相等，看不出「清单到了包没装」。
 - 不按 profile 同名对比：手机 `web` 对电脑 `desktop`，同名比永远比不出东西；
-  默认把包装得最多的 profile 当目标，界面上可切换。
+  默认优先取**当前正在跑的档**（读 `process.argv` 里 `bin.js` 后的档名），
+  认不出来才退回「声明插件最多」的那个。
+- 「本机已装」列表的口径是 profile 的 **dependencies**，不是 `node_modules` 目录：
+  pnpm 是 hoisted 布局，目录里混着几百个传递依赖（`ansi-styles`、`@types/node`…），
+  照目录列会把 5 个插件淹成 134 行包名。内置 `@deepseek-ai/*` 一律不列。
 - `link:` / `file:` / `workspace:` 依赖指向对端本机路径，装不了，只展示不给按钮；
   `git+` 依赖已装即算满足（spec 是来源不是版本，拿它比版本号会永远不相等）。
+- **手机上 git 依赖自动改走 tarball**：手机运行时里没有 git，`git+https://` 必然失败；
+  目标档判为 mobile 时把 `https://github.com/<u>/<r>[#ref]` 改写成
+  `https://github.com/<u>/<r>/archive/<ref|HEAD>.tar.gz` —— pnpm 走普通 HTTPS 下载，
+  全程不碰 git。电脑档保留 git 形式，便于跟踪分支更新。
 - **各自最优**：两端不追求同一套插件。平台专属的差集（如手机的 `dsh-web-mobile`）
   照样列出来，但标成「平台专属，本机不装」、不给安装按钮，也不进「全部安装」。
   设备类别从 profile 名（`desktop` / `web` / `acp`）与包名（`-mobile` / `-desktop` /

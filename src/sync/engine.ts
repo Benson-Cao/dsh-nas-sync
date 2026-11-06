@@ -27,6 +27,7 @@ import type { NasSyncConfig, Store } from '../config.js';
 import { isMergeable } from './merger.js';
 import { localOf, dshHome } from '../paths.js';
 import {
+  declaredPluginNames,
   diffPlugins,
   installCommand,
   parseProfilePackage,
@@ -138,6 +139,41 @@ function readInstalled(nodeModulesDir: string): Record<string, string> {
     out[name] = versionOf(join(nodeModulesDir, name));
   }
   return out;
+}
+
+/**
+ * 读一个 profile **声明**的插件名（package.json 的 dependencies，去掉内置）。
+ *
+ * 不能用 node_modules 目录当「已装插件」清单：pnpm 在 phone/桌面档里是 hoisted
+ * 布局，node_modules 下同时躺着几百个传递依赖（`ansi-styles`、`buffer-crc32`、
+ * `@types/node` …），照目录列出来会把 5 个插件淹没成 134 行包名。
+ * 声明清单才是「这个档装了哪些插件」的准确口径。
+ */
+function declaredPlugins(profileDir: string): string[] {
+  try {
+    const parsed = parseProfilePackage(readFileSync(join(profileDir, 'package.json'), 'utf8'));
+    if (!parsed) return [];
+    return declaredPluginNames(parsed.deps);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 猜「当前 dsh 跑的是哪个档」。
+ *
+ * dsh 的启动命令是 `node …/@deepseek-ai/dsh/lib/bin.js <profile> --port …`，
+ * 档名就是 bin.js 后面的第一个位置参数（手机上是 web、电脑上是 desktop）。
+ * 这个插件本身跑在这个进程里，`process.argv` 直接可读，不用去看进程表。
+ * 匹配不上（例如宿主以后改了启动方式）就返回空串，交给调用方兜底。
+ */
+function runningProfile(candidates: string[]): string {
+  const args = process.argv.slice(1);
+  for (const a of args) {
+    const s = String(a || '');
+    if (s && candidates.includes(s)) return s;
+  }
+  return '';
 }
 
 /**
@@ -528,7 +564,7 @@ export class Engine {
     this.checkReady();
     const root = join(dshHome(), 'profiles');
 
-    const locals: Array<{ profile: string; installed: Record<string, string> }> = [];
+    const locals: Array<{ profile: string; installed: Record<string, string>; declared: string[] }> = [];
     let dirNames: string[] = [];
     try {
       dirNames = readdirSync(root, { withFileTypes: true })
@@ -540,17 +576,32 @@ export class Engine {
     for (const p of dirNames) {
       const dir = join(root, p);
       if (!existsSync(join(dir, 'package.json'))) continue;
-      locals.push({ profile: p, installed: readInstalled(join(dir, 'node_modules')) });
+      locals.push({
+        profile: p,
+        installed: readInstalled(join(dir, 'node_modules')),
+        declared: declaredPlugins(dir),
+      });
     }
 
-    // 目标 profile：显式指定 > 包最多的那个 > 空
+    // 目标 profile：显式指定 > **当前正在跑的档** > 声明插件最多的那个 > 空
+    //
+    // 中间那一档是必须的：手机上 web 与 desktop 两个档都会被同步过来，只按「装得多」
+    // 去挑，会在手机上面挑中 desktop —— 那个档在本机根本没有 node_modules，
+    // 于是一排插件全没有版本号，对账口径也错到别的设备上去了。
+    const running = runningProfile(locals.map((l) => l.profile));
     let target = '';
     if (targetProfile && locals.some((l) => l.profile === targetProfile)) {
       target = targetProfile;
+    } else if (running) {
+      target = running;
     } else if (locals.length > 0) {
-      target = locals.slice().sort((a, b) => Object.keys(b.installed).length - Object.keys(a.installed).length)[0].profile;
+      target = locals
+        .slice()
+        .sort((a, b) => b.declared.length - a.declared.length || Object.keys(b.installed).length - Object.keys(a.installed).length)[0]
+        .profile;
     }
-    const installed = (locals.find((l) => l.profile === target) || { installed: {} }).installed;
+    const targetLocal = locals.find((l) => l.profile === target);
+    const installed = (targetLocal || { installed: {} }).installed;
 
     const remote: RemoteProfile[] = [];
     let remoteDirs: NasEntry[] = [];
@@ -582,11 +633,13 @@ export class Engine {
       target,
       // 本机（目标 profile）已装的**第三方**插件清单。对账只报差集，光看差集
       // 用户会以为「一个插件都没装」；这里把已装的也吐出来，面板才能显示全貌。
-      installedPlugins: Object.entries(installed)
-        .filter(([name]) => !name.startsWith('@deepseek-ai/'))
-        .map(([name, version]) => ({ name, version: String(version) }))
+      // 口径是 profile 声明的依赖，不是 node_modules 目录（后者混着几百个传递依赖）。
+      installedPlugins: (targetLocal?.declared ?? [])
+        .map((name) => ({ name, version: String(installed[name] ?? '') }))
         .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
-      localProfiles: locals.map((l) => ({ profile: l.profile, count: Object.keys(l.installed).length })),
+      // 计数口径同「本机已装」：用声明的插件数，不用 node_modules 条目数
+      // （后者在 hoisted 布局下包含几百个传递依赖，会显示成 web(134) 这种噪声）。
+      localProfiles: locals.map((l) => ({ profile: l.profile, count: l.declared.length })),
       remoteProfiles: remote.map((r) => r.profile),
     };
   }

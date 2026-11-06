@@ -866,11 +866,16 @@ window.__ModuleLoader__.load({
               )
             : null,
           // 已装清单：只报差集时用户会以为「一个插件都没装」，所以把本机已装的
-          // 第三方插件也列出来（不含 @deepseek-ai 内置）。
+          // 第三方插件也列出来（不含 @deepseek-ai 内置，也不含传递依赖）。
+          // 用标签流而不是一整段文字：手机上四五个包名挤成一行很难扫。
           audit && audit.installedPlugins && audit.installedPlugins.length
-            ? h('p', { style: S.hint },
-                t('pluginInstalled') + '（' + audit.target + '）：' +
-                audit.installedPlugins.map((p) => p.name + ' ' + p.version).join(' · '))
+            ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+                h('span', { style: S.hint },
+                  t('pluginInstalled') + '（' + audit.target + '，' + audit.installedPlugins.length + '）'),
+                h('div', { style: S.row },
+                  audit.installedPlugins.map((p) => h('span',
+                    { key: 'ip|' + p.name, style: S.badge },
+                    p.version ? p.name + ' ' + p.version : p.name))))
             : null,
           audit
             ? (audit.gaps && audit.gaps.length
