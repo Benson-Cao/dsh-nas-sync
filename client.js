@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({
       refresh: '刷新',
       statusSection: '同步状态',
       pluginSection: '插件对账',
-      pluginHint: '插件的包体不走同步（只同步装配清单），这里列出「别的设备装了、这台机器没装」的插件。安装会调用 dsh CLI，装完需重启 DSH。',
+      pluginHint: '插件的包体不走同步（只同步装配清单），这里列出「别的设备装了、这台机器没装」的插件。平台专属插件（如手机竖屏适配）按「各自最优」跳过，不算缺失。安装会调用 dsh CLI，装完需重启 DSH。',
       pluginCheck: '对账',
       pluginChecking: '对账中…',
       pluginTarget: '装到',
@@ -90,6 +90,8 @@ window.__ModuleLoader__.load({
       pluginOutdated: '版本不符',
       pluginNoCli: '这台设备没有可用的 dsh CLI，只能复制命令手动执行。',
       pluginNotInstallable: '指向对端本地路径，本机装不了（需在对端重新 link）',
+      // 「各自最优」：平台专属插件故意不装，这不是缺失，要说明白，否则用户以为坏了。
+      pluginPlatform: '平台专属，本机不装（各自最优）',
       pluginInstalling: '安装中…',
       pluginDone: '安装完成，重启 DSH 后生效。',
       pluginFailed: '安装失败：',
@@ -181,7 +183,7 @@ window.__ModuleLoader__.load({
       refresh: 'Refresh',
       statusSection: 'Status',
       pluginSection: 'Plugin audit',
-      pluginHint: 'Plugin packages never sync (only install manifests do). This lists plugins other devices have but this machine does not. Installing calls the dsh CLI; restart DSH afterwards.',
+      pluginHint: 'Plugin packages never sync (only install manifests do). This lists plugins other devices have but this machine does not. Platform-specific plugins (e.g. mobile layout adapters) are skipped as each device keeps its own best set. Installing calls the dsh CLI; restart DSH afterwards.',
       pluginCheck: 'Check',
       pluginChecking: 'Checking…',
       pluginTarget: 'Install into',
@@ -192,6 +194,7 @@ window.__ModuleLoader__.load({
       pluginOutdated: 'version differs',
       pluginNoCli: 'No usable dsh CLI on this device — copy the command and run it manually.',
       pluginNotInstallable: 'points at the other device\'s local path; cannot install here',
+      pluginPlatform: 'platform-specific — skipped on this device (each keeps its own best set)',
       pluginInstalling: 'Installing…',
       pluginDone: 'Installed. Restart DSH to load it.',
       pluginFailed: 'Install failed: ',
@@ -854,7 +857,7 @@ window.__ModuleLoader__.load({
                       h('span', { style: S.fileName }, g.name + '@' + g.spec),
                       h('span', { style: S.hint },
                         '[' + g.profile + '] ' + (g.status === 'missing' ? t('pluginMissing') : t('pluginOutdated')) +
-                        (g.installable ? '' : ' · ' + t('pluginNotInstallable'))),
+                        (g.installable ? '' : ' · ' + (g.reason === 'platform' ? t('pluginPlatform') : t('pluginNotInstallable')))),
                     ),
                     g.installable
                       ? h('button', {

@@ -566,7 +566,9 @@ export class Engine {
       remote.push({ profile: d.name, deps: parsed.deps, bundles: parsed.bundles });
     }
 
-    const gaps = diffPlugins(installed, remote).map((g) => ({
+    // 「各自最优」：把目标 profile 传进去，让 diffPlugins 能判掉别的平台的专属插件
+    // （手机的 dsh-web-mobile 不该在电脑上被建议安装）。
+    const gaps = diffPlugins(installed, remote, { targetProfile: target }).map((g) => ({
       ...g,
       // 命令要装到**目标** profile，而不是清单来源的那个：手机跑 web、电脑跑 desktop，
       // 照抄 `--profile web` 会装进去但永远不会被加载。

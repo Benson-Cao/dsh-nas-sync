@@ -13,6 +13,9 @@ import {
   installTarget,
   installCommand,
   diffPlugins,
+  deviceClassOfProfile,
+  pluginDeviceClass,
+  minVersionOf,
 } from '../dist-test/plugins.mjs';
 
 test('depKind：常见 spec 分类', () => {
@@ -118,4 +121,105 @@ test('diffPlugins：missing 排在 outdated 前面，顺序稳定', () => {
   const gaps = diffPlugins({ b: '1.0.0' }, [{ profile: 'desktop', deps: { b: '2.0.0', a: '1.0.0', c: '1.0.0' }, bundles: [] }]);
   assert.deepEqual(gaps.map((g) => g.name), ['a', 'c', 'b']);
   assert.equal(gaps[2].status, 'outdated');
+});
+
+// ---- 各自最优：平台专属插件不跨平台建议安装 ----
+
+test('deviceClassOfProfile：档名推断设备类别', () => {
+  assert.equal(deviceClassOfProfile('desktop'), 'desktop');
+  assert.equal(deviceClassOfProfile('web'), 'mobile');
+  assert.equal(deviceClassOfProfile('acp'), 'cli');
+  assert.equal(deviceClassOfProfile('whatever'), 'unknown');
+  assert.equal(deviceClassOfProfile(''), 'unknown');
+});
+
+test('pluginDeviceClass：从包名读平台归属', () => {
+  assert.equal(pluginDeviceClass('dsh-web-mobile'), 'mobile');
+  assert.equal(pluginDeviceClass('dsh-desktop-tray'), 'desktop');
+  assert.equal(pluginDeviceClass('dsh-cli-theme'), 'cli');
+  assert.equal(pluginDeviceClass('dsh-context'), null);
+  assert.equal(pluginDeviceClass('dsh-nas-sync'), null);
+});
+
+test('各自最优：电脑上不装手机的竖屏适配', () => {
+  const remote = [{ profile: 'web', deps: { 'dsh-web-mobile': '3.2.1' }, bundles: [] }];
+  const gaps = diffPlugins({}, remote, { targetProfile: 'desktop' });
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0].status, 'missing'); // 仍然报出来，不是悄悄隐藏
+  assert.equal(gaps[0].installable, false);
+  assert.equal(gaps[0].target, null);
+  assert.equal(gaps[0].reason, 'platform');
+  assert.equal(gaps[0].foreignPlatform, 'mobile');
+});
+
+test('各自最优：手机上照样装竖屏适配', () => {
+  const remote = [{ profile: 'web', deps: { 'dsh-web-mobile': '3.2.1' }, bundles: [] }];
+  const gaps = diffPlugins({}, remote, { targetProfile: 'web' });
+  assert.equal(gaps[0].installable, true);
+  assert.equal(gaps[0].target, 'dsh-web-mobile@3.2.1');
+  assert.equal(gaps[0].reason, null);
+});
+
+test('各自最优：通用插件不受平台过滤影响', () => {
+  const remote = [{ profile: 'web', deps: { 'dsh-context': '0.82.0' }, bundles: [] }];
+  const gaps = diffPlugins({}, remote, { targetProfile: 'desktop' });
+  assert.equal(gaps[0].installable, true);
+  assert.equal(gaps[0].platform, null);
+});
+
+test('各自最优：设备类别未知时不过滤（宁多报不漏报）', () => {
+  const remote = [{ profile: 'weird', deps: { 'dsh-web-mobile': '3.2.1' }, bundles: [] }];
+  const gaps = diffPlugins({}, remote, { targetProfile: 'weird-2' });
+  assert.equal(gaps[0].installable, true);
+});
+
+test('各自最优：allowPlatform 可显式放行', () => {
+  const remote = [{ profile: 'web', deps: { 'dsh-web-mobile': '3.2.1' }, bundles: [] }];
+  const gaps = diffPlugins({}, remote, { targetProfile: 'desktop', allowPlatform: ['dsh-web-mobile'] });
+  assert.equal(gaps[0].installable, true);
+});
+
+// ---- 版本够用判定：两端各自最优，本机装得更新不算「不符」 ----
+
+test('minVersionOf：常见范围取下界', () => {
+  assert.deepEqual(minVersionOf('^0.82.1'), [0, 82, 1]);
+  assert.deepEqual(minVersionOf('~2.6.1'), [2, 6, 1]);
+  assert.deepEqual(minVersionOf('0.82.0'), [0, 82, 0]);
+  assert.deepEqual(minVersionOf('>=0.2.1-rc.5 <0.3.0'), [0, 2, 1]);
+  assert.equal(minVersionOf('latest'), null);
+  assert.equal(minVersionOf('1.0.0 - 2.0.0'), null);
+});
+
+test('各自最优：已装版本满足 ^ 范围 → 不报 outdated（否则会触发降级）', () => {
+  const gaps = diffPlugins({ 'dsh-context': '0.82.1' }, [
+    { profile: 'desktop', deps: { 'dsh-context': '^0.82.1' }, bundles: [] },
+  ]);
+  assert.equal(gaps.length, 0);
+});
+
+test('各自最优：本机比清单更新 → 保留本机版本，不降级', () => {
+  const gaps = diffPlugins({ 'dsh-context': '0.82.1' }, [
+    { profile: 'web', deps: { 'dsh-context': '0.82.0' }, bundles: [] },
+  ]);
+  assert.equal(gaps.length, 0);
+});
+
+test('版本确实落后 → 仍然报 outdated', () => {
+  const gaps = diffPlugins({ 'dsh-context': '0.80.0' }, [
+    { profile: 'desktop', deps: { 'dsh-context': '^0.82.1' }, bundles: [] },
+  ]);
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0].status, 'outdated');
+});
+
+test('预发布版本按三元组比对，不会误报', () => {
+  const gaps = diffPlugins({ 'dsh-media-desk': '2.6.1' }, [
+    { profile: 'web', deps: { 'dsh-media-desk': '2.6.1' }, bundles: [] },
+  ]);
+  assert.equal(gaps.length, 0);
+});
+
+test('latest 这类 tag 装了就算满足', () => {
+  const gaps = diffPlugins({ x: '1.0.0' }, [{ profile: 'desktop', deps: { x: 'latest' }, bundles: [] }]);
+  assert.equal(gaps.length, 0);
 });
