@@ -1,22 +1,18 @@
 {
   "name": "dsh-nas-sync",
-  "version": "0.3.3",
-  "description": "DeepSeek Harness 插件：通过 WebDAV / 本地挂载把会话、附件、Skills、Profile 加密同步到 NAS，支持分块断点续传、冲突管理与设置页面板",
+  "version": "0.3.4",
+  "description": "DeepSeek Harness 插件：通过 WebDAV / 本地挂载把会话、附件、Skills 等加密同步到 NAS，支持分块断点续传、冲突管理、三路合并",
   "type": "module",
   "main": "dist/index.js",
-  "exports": {
-    ".": "./dist/index.js",
-    "./client": "./client.js"
-  },
   "files": [
     "dist",
-    "client.js",
     "cordis.patch.yml",
-    "README.md",
-    "LICENSE"
+    "README.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:test": "node scripts/build-test.mjs",
+    "test": "npm run build:test && node scripts/test-scope.mjs && node scripts/test-panel-render.mjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "engines": {
@@ -27,41 +23,14 @@
     "tweetnacl": "^1.0.3",
     "webdav": "^5.0.0"
   },
+  "devDependencies": {
+    "esbuild": "^0.21.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/schemastery": "*",
-    "@deepseek-ai/dsh-home-paths": "*",
-    "@deepseek-ai/dsh-client-core": "*"
-  },
-  "peerDependenciesMeta": {
-    "@deepseek-ai/dsh-tools": {
-      "optional": true
-    },
-    "@deepseek-ai/schemastery": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-home-paths": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-client-core": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@types/node": "^20.11.0",
-    "esbuild": "^0.21.0",
-    "typescript": "^5.4.0"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "immediately": true,
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-layout"
-      ]
-    }
+    "@deepseek-ai/dsh-home-paths": "*"
   }
 }

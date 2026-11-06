@@ -20643,6 +20643,10 @@ function rewriteSessionCwd(buf, home = dshHome()) {
   const headFrame = zstdCompress(Buffer.from(JSON.stringify(parsed.header) + parsed.rest, "utf8"));
   return { buf: Buffer.concat([headFrame, buf.subarray(end)]), dir: local };
 }
+function sessionCwdOf(buf) {
+  const parsed = readHeaderCwd(buf);
+  return parsed && typeof parsed.header["cwd"] === "string" ? parsed.header["cwd"] : null;
+}
 function dedupeWorkspaceSessions(local) {
   const tables = local?.["tables"];
   const workspaces = tables?.["workspaces"];
@@ -21772,6 +21776,12 @@ var Engine = class {
             await this.pushFile(item.rel, item.size, remoteMap.get(item.rel)?.hash);
             pushed++;
           } else if (item.action === "download") {
+            if (isWorkspaceRegistryRel(item.rel)) {
+              this.deps.store.snapshot.progress.done++;
+              remaining.delete(item);
+              this.deps.store.save();
+              continue;
+            }
             await this.downloadEntry(item.rel);
             pulled++;
           }
@@ -21809,6 +21819,10 @@ var Engine = class {
       if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
         const merged = mergeManifestDevices(fresh, this.remoteManifest);
+        const seen = new Set(merged.map((e2) => e2.rel));
+        for (const e2 of this.remoteManifest) {
+          if (!seen.has(e2.rel)) merged.push(e2);
+        }
         await this.writeRemoteManifest(merged);
         this.remoteManifest = merged;
         try {
@@ -21857,22 +21871,25 @@ var Engine = class {
     const cut = Math.max(localAbs.lastIndexOf("/"), localAbs.lastIndexOf("\\"));
     await mkdir3(localAbs.slice(0, cut), { recursive: true });
     if (isSessionRel(rel)) {
-      const out = rewriteSessionCwd(Buffer.from(plain));
-      if (out !== null) {
-        if (platformMismatch(out.dir)) {
-          console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u5F02\u5E73\u53F0\u4F1A\u8BDD\uFF08cwd=" + out.dir + "\uFF09: " + rel);
-          return;
-        }
-        await mkdir3(out.dir, { recursive: true });
+      const raw = Buffer.from(plain);
+      const originalCwd = sessionCwdOf(raw);
+      if (originalCwd && platformMismatch(originalCwd)) {
+        console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u5F02\u5E73\u53F0\u4F1A\u8BDD\uFF08\u539F\u59CB cwd=" + originalCwd + "\uFF09: " + rel);
+        return;
+      }
+      const out = rewriteSessionCwd(raw);
+      const localCwd = out ? out.dir : originalCwd ? mapRemotePath(originalCwd).local : null;
+      if (localCwd) {
+        await mkdir3(localCwd, { recursive: true });
         const parts = rel.split("/");
         const sid = parts[parts.length - 2] ?? "";
         const fileName = parts[parts.length - 1] ?? "";
-        const wantDir = encodeCwd(out.dir);
+        const wantDir = encodeCwd(localCwd);
         const targetRel = wantDir === parts[1] ? rel : ["sessions", wantDir, sid, fileName].join("/");
         const target = this.resolveLocal(targetRel);
         const cut2 = Math.max(target.lastIndexOf("/"), target.lastIndexOf("\\"));
         await mkdir3(target.slice(0, cut2), { recursive: true });
-        await writeFile3(target, out.buf);
+        await writeFile3(target, out ? out.buf : raw);
         if (target !== localAbs) {
           try {
             await rm3(localAbs.slice(0, cut), { recursive: true, force: true });

@@ -32,8 +32,10 @@ import {
   selfDevice,
   isSessionRel,
   isWorkspaceRegistryRel,
+  mapRemotePath,
   mergeWorkspaceRegistry,
   platformMismatch,
+  sessionCwdOf,
   dedupeSessionDirs,
   repairSessionCwd,
   repairWorkspaceRegistry,
@@ -455,6 +457,16 @@ export class Engine {
             await this.pushFile(item.rel, item.size, remoteMap.get(item.rel)?.hash);
             pushed++;
           } else if (item.action === 'download') {
+            // 方案 C（rel 级守卫）：工作区注册表只上传、不下载合并。
+            // 双向 mirror 每轮把远端注册表合进本机，会反复改写 default /
+            // path / sessionIds 归属，两端定时器交替写还会放大成竞态。
+            // 守卫与 mode 无关，手动「立即同步」同样生效。
+            if (isWorkspaceRegistryRel(item.rel)) {
+              this.deps.store.snapshot.progress.done++;
+              remaining.delete(item);
+              this.deps.store.save();
+              continue;
+            }
             await this.downloadEntry(item.rel);
             pulled++;
           }
@@ -516,6 +528,13 @@ export class Engine {
          * 不做这一步，来源每同步一次就被刷成"本机"，等于没记。
          */
         const merged = mergeManifestDevices(fresh, this.remoteManifest);
+        // mergeManifestDevices 以本地 fresh 为准。远端有、本轮按策略没下载
+        // （或 mode=push 跳过）的条目本来会被整片抹掉，对端就再也拉不到。
+        // 原样补回：本机不持有 != 远端该文件不存在。
+        const seen = new Set(merged.map((e) => e.rel));
+        for (const e of this.remoteManifest) {
+          if (!seen.has(e.rel)) merged.push(e);
+        }
         await this.writeRemoteManifest(merged);
         this.remoteManifest = merged;
         // 写本机来源声明。失败不能让整轮同步判失败（只是少了 emoji 而已）。
@@ -589,29 +608,39 @@ export class Engine {
     //    —— 唯一可行的是落地时就把记录里的路径改写成本机路径。
     if (isSessionRel(rel)) {
       // 同样必须 Buffer.from：rewriteSessionCwd 用的是 readUInt32LE/subarray 这套
-      // Buffer 专有 API，直接传 Uint8Array 会在帧解析处抛错并被吞掉，
-      // 表现成「会话拉下来了但 cwd 永远是手机路径」。
-      const out = rewriteSessionCwd(Buffer.from(plain));
-      if (out !== null) {
-        // 跨平台会话直接跳过：手机上的会话（cwd=/data/...）落到 Windows 上，
-        // 或电脑上的（cwd=C:\...）落到手机上，只会在本机制造一个打不开的幽灵会话，
-        // 严重时让 dsh 的会话列表整个不渲染。
-        if (platformMismatch(out.dir)) {
-          console.warn('[dsh-nas-sync] 跳过异平台会话（cwd=' + out.dir + '）: ' + rel);
-          return;
-        }
-        await mkdir(out.dir, { recursive: true });
+      // Buffer 专有 API，直接传 Uint8Array 会在帧解析处抛错并被吞掉。
+      const raw = Buffer.from(plain);
+
+      // 0.3.4：跨平台判定必须看**原始 cwd**，不能看映射后的 out.dir。
+      // out.dir 永远是本机路径（Windows 上是盘符路径、手机上是 /data/...），
+      // platformMismatch(out.dir) 恒为 false，等于没拦。结果 mirror 每轮把
+      // 对端会话映射进本机 nassyncworkspaces/ 新目录，和本机权威目录撞出
+      // 同 id 双份，收尾 dedupeSessionDirs 就每轮隔离一批（实测 11 份）。
+      const originalCwd = sessionCwdOf(raw);
+      if (originalCwd && platformMismatch(originalCwd)) {
+        console.warn('[dsh-nas-sync] 跳过异平台会话（原始 cwd=' + originalCwd + '）: ' + rel);
+        return;
+      }
+
+      const out = rewriteSessionCwd(raw);
+      // out === null 表示 cwd 本机已存在、无需改写；但**落点仍要按本机 cwd
+      // 归一**，否则会写回原 rel 的远端目录，再次制造同 id 双份。
+      const localCwd = out ? out.dir : originalCwd
+        ? mapRemotePath(originalCwd).local
+        : null;
+      if (localCwd) {
+        await mkdir(localCwd, { recursive: true });
 
         // rel 形如 sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd
         const parts = rel.split('/');
         const sid = parts[parts.length - 2] ?? '';
         const fileName = parts[parts.length - 1] ?? '';
-        const wantDir = encodeCwd(out.dir);
+        const wantDir = encodeCwd(localCwd);
         const targetRel = wantDir === parts[1] ? rel : ['sessions', wantDir, sid, fileName].join('/');
         const target = this.resolveLocal(targetRel);
         const cut2 = Math.max(target.lastIndexOf('/'), target.lastIndexOf('\\'));
         await mkdir(target.slice(0, cut2), { recursive: true });
-        await writeFile(target, out.buf);
+        await writeFile(target, out ? out.buf : raw);
 
         // 目录名变了就别把旧副本留着 —— 同一个 sessionId 出现在两个 cwd 目录下，
         // dsh 会当成两个会话（其中一个永远打不开）。
