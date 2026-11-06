@@ -102,7 +102,7 @@ export function workspaceRegistryReady(home: string = dshHome()): boolean {
 }
 
 /** 取路径最后一段并清掉 Windows 非法字符，作为本地目录名。 */
-function safeName(p: unknown): string {
+export function safeName(p: unknown): string {
   if (typeof p !== 'string' || p.length === 0) return 'workspace';
   const parts = p.split(/[\\/]+/).filter(Boolean);
   const base = parts.length > 0 ? parts[parts.length - 1] : '';
@@ -239,6 +239,10 @@ export async function collectWorkspaceDirs(home: string = dshHome()): Promise<Wo
 const WORKSPACE_SKIP_DIRS = new Set([
   'node_modules', '.git', '.svn', '.hg', '__pycache__', '.venv', 'venv',
   '.next', '.nuxt', '.turbo', '.cache', 'nas-sync',
+  // 0.3.7：插件自己的安装目录。手机上的工作区里就有 `dsh-nas-sync/`
+  // （含 vendor/pnpm-*.tgz 约 1 MB），同步它等于把插件搬来搬去，
+  // 而两端插件版本/平台本就不同，搬过去只会把对面弄坏。
+  'dsh-nas-sync',
 ]);
 
 /**

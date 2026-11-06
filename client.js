@@ -446,6 +446,19 @@ window.__ModuleLoader__.load({
           touched = true;
         }
 
+        // ③ 祖先的左右内边距：宿主设置页用 padding 做缩进，只放开 max-width 时
+        //    内容列仍会比原生页窄一截（实测 NAS 页比「插件」页左边多出约 60px）。
+        //    归零后由 root 自己的 24px 提供内边距，两页左缘才对得齐。
+        const padL = parseFloat(cs.paddingLeft) || 0;
+        const padR = parseFloat(cs.paddingRight) || 0;
+        if (padL >= 16 && padR >= 16) {
+          saved.paddingLeft = inline.paddingLeft;
+          saved.paddingRight = inline.paddingRight;
+          inline.setProperty('padding-left', '0px', 'important');
+          inline.setProperty('padding-right', '0px', 'important');
+          touched = true;
+        }
+
         // ② 是 flex 子项但不会长开 → 让它吃满剩下的横向空间
         const parent = node.parentElement;
         const parentDisplay = parent ? window.getComputedStyle(parent).display : '';
@@ -480,6 +493,14 @@ window.__ModuleLoader__.load({
           if ('minWidth' in saved) {
             if (saved.minWidth) target.style.setProperty('min-width', saved.minWidth);
             else target.style.removeProperty('min-width');
+          }
+          if ('paddingLeft' in saved) {
+            if (saved.paddingLeft) target.style.setProperty('padding-left', saved.paddingLeft);
+            else target.style.removeProperty('padding-left');
+          }
+          if ('paddingRight' in saved) {
+            if (saved.paddingRight) target.style.setProperty('padding-right', saved.paddingRight);
+            else target.style.removeProperty('padding-right');
           }
         }
       };

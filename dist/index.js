@@ -17212,8 +17212,8 @@ function createWebdavTransport(opts) {
     async put(local, remote, opts2) {
       const target = p(remote);
       if (opts2?.mkdirs) await ensureParent(target);
-      const { readFileSync: readFileSync3 } = await import("node:fs");
-      await upload(client, target, readFileSync3(local));
+      const { readFileSync: readFileSync4 } = await import("node:fs");
+      await upload(client, target, readFileSync4(local));
     },
     async putBuffer(data, remote, opts2) {
       const target = p(remote);
@@ -20192,6 +20192,7 @@ import { readFile as readFile5, writeFile as writeFile4, mkdir as mkdir4 } from 
 
 // src/sync/engine.ts
 import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3, rm as rm3 } from "node:fs/promises";
+import { readFileSync as readFileSync3 } from "node:fs";
 import { stat as stat5 } from "node:fs/promises";
 import { createHash as createHash2 } from "node:crypto";
 
@@ -20534,7 +20535,11 @@ var WORKSPACE_SKIP_DIRS = /* @__PURE__ */ new Set([
   ".nuxt",
   ".turbo",
   ".cache",
-  "nas-sync"
+  "nas-sync",
+  // 0.3.7：插件自己的安装目录。手机上的工作区里就有 `dsh-nas-sync/`
+  // （含 vendor/pnpm-*.tgz 约 1 MB），同步它等于把插件搬来搬去，
+  // 而两端插件版本/平台本就不同，搬过去只会把对面弄坏。
+  "dsh-nas-sync"
 ]);
 var DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
 function isElectronAsarPath(p) {
@@ -21545,6 +21550,12 @@ var Engine = class {
   /** 本轮 push 成功的 rel —— 只有它们才有资格写进「本设备清单」（0.3.6） */
   pushedOk = /* @__PURE__ */ new Set();
   /**
+   * 工作区目录名 → 真实路径（0.3.7）。
+   * `workspaces/<名字>/…` 的落点**不在 $DSH_HOME 下**，必须查注册表；
+   * 之前直接 localOf() 算成 $DSH_HOME/workspaces/…，读不到文件导致 upload 全失败。
+   */
+  workspaceDirs = /* @__PURE__ */ new Map();
+  /**
    * rel → 本机绝对路径。
    *
    * 绝大多数分类就是 `localOf(rel)`（落在 $DSH_HOME 下）。**唯一例外是自定义文件夹**：
@@ -21556,7 +21567,31 @@ var Engine = class {
    */
   resolveLocal(rel) {
     const hit = customFolderLocalOf(rel, this.deps.config.customFolders ?? []);
-    return hit ? hit.local : localOf(rel);
+    if (hit) return hit.local;
+    const PREFIX = "workspaces/";
+    if (rel.startsWith(PREFIX)) {
+      const rest = rel.slice(PREFIX.length);
+      const slash = rest.indexOf("/");
+      const name2 = slash < 0 ? rest : rest.slice(0, slash);
+      const tail = slash < 0 ? "" : rest.slice(slash + 1);
+      const dir = this.workspaceDirs.get(name2);
+      if (dir) return tail ? join6(dir, ...tail.split("/")) : dir;
+    }
+    return localOf(rel);
+  }
+  /** 读注册表缓存「工作区目录名 → 真实路径」；同步/扫描前各刷一次。 */
+  loadWorkspaceDirs() {
+    this.workspaceDirs.clear();
+    try {
+      const raw = JSON.parse(readFileSync3(join6(dshHome(), "storages", "workspace.json"), "utf8"));
+      for (const w of Object.values(raw?.tables?.workspaces ?? {})) {
+        const p = String(w?.path ?? "");
+        if (!p) continue;
+        const name2 = safeName(p);
+        if (name2) this.workspaceDirs.set(name2, p);
+      }
+    } catch {
+    }
   }
   constructor(deps) {
     this.deps = deps;
@@ -21801,6 +21836,7 @@ var Engine = class {
   }
   async scan() {
     this.checkReady();
+    this.loadWorkspaceDirs();
     this.setPhase("scanning");
     const local = await this.scanner.buildManifest();
     const remote = await this.readRemoteManifest();
@@ -21854,6 +21890,7 @@ var Engine = class {
     this.running = true;
     this.abort = new AbortController();
     this.pushedOk.clear();
+    this.loadWorkspaceDirs();
     try {
       const { pending } = await this.scan();
       const localMap = new Map((await this.scanner.buildManifest()).map((e2) => [e2.rel, e2]));

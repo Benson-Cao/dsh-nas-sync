@@ -15,6 +15,7 @@
  */
 
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { ConflictItem, ManifestEntry, PendingFile, SyncPhase } from '../data/models.js';
@@ -49,6 +50,7 @@ import {
   repairSessionCwd,
   repairWorkspaceRegistry,
   rewriteSessionCwd,
+  safeName,
   workspaceRegistryReady,
 } from './portable.js';
 
@@ -128,6 +130,13 @@ export class Engine {
   private pushedOk = new Set<string>();
 
   /**
+   * 工作区目录名 → 真实路径（0.3.7）。
+   * `workspaces/<名字>/…` 的落点**不在 $DSH_HOME 下**，必须查注册表；
+   * 之前直接 localOf() 算成 $DSH_HOME/workspaces/…，读不到文件导致 upload 全失败。
+   */
+  private workspaceDirs = new Map<string, string>();
+
+  /**
    * rel → 本机绝对路径。
    *
    * 绝大多数分类就是 `localOf(rel)`（落在 $DSH_HOME 下）。**唯一例外是自定义文件夹**：
@@ -139,7 +148,37 @@ export class Engine {
    */
   private resolveLocal(rel: string): string {
     const hit = customFolderLocalOf(rel, this.deps.config.customFolders ?? []);
-    return hit ? hit.local : localOf(rel);
+    if (hit) return hit.local;
+
+    // 0.3.7：`workspaces/<名字>/<相对路径>` 的真实落点是注册表里该工作区的 path。
+    // 手机上的工作区在 $DSH_HOME 之外（files/home/wstest），直接 localOf() 会算成
+    // $DSH_HOME/workspaces/wstest/…，readFile ENOENT → 工作区文件从来没传成功过。
+    const PREFIX = 'workspaces/';
+    if (rel.startsWith(PREFIX)) {
+      const rest = rel.slice(PREFIX.length);
+      const slash = rest.indexOf('/');
+      const name = slash < 0 ? rest : rest.slice(0, slash);
+      const tail = slash < 0 ? '' : rest.slice(slash + 1);
+      const dir = this.workspaceDirs.get(name);
+      if (dir) return tail ? join(dir, ...tail.split('/')) : dir;
+    }
+    return localOf(rel);
+  }
+
+  /** 读注册表缓存「工作区目录名 → 真实路径」；同步/扫描前各刷一次。 */
+  private loadWorkspaceDirs(): void {
+    this.workspaceDirs.clear();
+    try {
+      const raw = JSON.parse(readFileSync(join(dshHome(), 'storages', 'workspace.json'), 'utf8'));
+      for (const w of Object.values<any>(raw?.tables?.workspaces ?? {})) {
+        const p = String(w?.path ?? '');
+        if (!p) continue;
+        const name = safeName(p);
+        if (name) this.workspaceDirs.set(name, p);
+      }
+    } catch {
+      /* 注册表读不到就退化成 localOf（和旧行为一致，不会更糟） */
+    }
   }
 
   constructor(deps: EngineDeps) {
@@ -419,6 +458,7 @@ export class Engine {
 
   async scan(): Promise<{ local: ManifestEntry[]; pending: PendingFile[]; conflicts: ConflictItem[] }> {
     this.checkReady();
+    this.loadWorkspaceDirs();
     this.setPhase('scanning');
     const local = await this.scanner.buildManifest();
     const remote = await this.readRemoteManifest();
@@ -490,6 +530,7 @@ export class Engine {
     this.running = true;
     this.abort = new AbortController();
     this.pushedOk.clear();
+    this.loadWorkspaceDirs();
 
     try {
       const { pending } = await this.scan();

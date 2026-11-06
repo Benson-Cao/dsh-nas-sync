@@ -1,6 +1,6 @@
 {
   "name": "dsh-nas-sync",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "DeepSeek Harness 插件：通过 WebDAV / 本地挂载把会话、附件、Skills、Profile 加密同步到 NAS，支持分块断点续传、冲突管理与设置页面板",
   "type": "module",
   "main": "dist/index.js",
