@@ -16,3 +16,6 @@ Thumbs.db
 *.part*
 *.chunk-manifest.json
 *.base
+
+# 测试构建产物（node scripts/build-test.mjs 可重建）
+dist-test/
