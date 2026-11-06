@@ -352,13 +352,12 @@ window.__ModuleLoader__.load({
     else if (typeof window !== 'undefined') window.addEventListener('DOMContentLoaded', startSidebarBadges, { once: true });
 
     const S = {
-      // r4：桌面端把这一栏放进一个 shrink-to-fit 的 flex 列里，原先 920px 的
-      // 上限会让右侧空出一大块（实测约占窗口 18%）。这里不再自己限宽，
-      // 改为 100% + flex-grow 去吃满宿主给的可用宽度；真正的限宽祖先由
-      // widenHostColumn() 在挂载时放开（可逆，见该函数注释）。
-      // 内边距一律交给宿主外框（原生页同样不自带 padding，宽度由外框决定）。
-      // 自己再叠一层 24px 会与外框叠加，两页左右缘必然对不齐 —— 0.3.7 就是栽在这。
-      root: { padding: '0', width: '100%', maxWidth: 'none', margin: 0, flex: '1 1 auto', minWidth: 0, alignSelf: 'stretch', color: 'var(--dsw-alias-label-primary)', fontSize: '13px', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '16px', height: '100%', overflow: 'auto', boxSizing: 'border-box' },
+      // 宽度对齐原生设置页：宿主自己的页面样式是
+      //   .page { flex-direction: column; align-items: center }
+      //   .page > * { width: 100%; max-width: 960px }
+      // 即「内容列最宽 960px + 居中」。我们先前既没有上限（铺满到侧栏边）、
+      // 又去量父宽强撑，方向正好反了 —— 0.3.7/0.3.8 两版都栽在这。
+      root: { padding: '0', width: '100%', maxWidth: '960px', margin: '0 auto', alignSelf: 'center', flex: '0 1 auto', minWidth: 0, color: 'var(--dsw-alias-label-primary)', fontSize: '13px', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '16px', height: '100%', overflow: 'auto', boxSizing: 'border-box' },
       card: { background: 'var(--dsw-alias-bg-layer-1)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' },
       title: { margin: 0, fontSize: '16px', fontWeight: 600 },
       subtitle: { margin: 0, color: 'var(--dsw-alias-label-secondary)', fontSize: '12px' },
@@ -425,118 +424,14 @@ window.__ModuleLoader__.load({
       try { return new Date(ms).toLocaleString(); } catch { return String(ms); }
     }
 
-    // ---- 桌面端加宽 -------------------------------------------------------
-    // 宿主的设置页把内容列做成「宽度随内容收缩」的 flex 子项，所以我们把自己
-    // 的 max-width 放开还不够 —— 真正卡宽度的是祖先节点。这里在挂载时向上找
-    // 「第一个显式在限宽的祖先」和「第一个不会长开的 flex 祖先」，各放开一处，
-    // 卸载时按原来的 inline 值原样还原。只在本面板显示期间生效，不碰其它设置页。
-    // 窄屏（<720px）不启用，避免把手机端布局撑坏。
-    function widenHostColumn(el) {
-      const undo = [];
-      let node = el.parentElement;
-
-      for (let depth = 0; node && depth < 6; depth += 1) {
-        const cs = window.getComputedStyle(node);
-        const inline = node.style;
-        const saved = {};
-        let touched = false;
-
-        // ① 显式 max-width（px / %）才是「限宽」；'none' 说明这层不背锅
-        if (cs.maxWidth && cs.maxWidth !== 'none' && cs.maxWidth !== '0px') {
-          saved.maxWidth = inline.maxWidth;
-          inline.setProperty('max-width', 'none', 'important');
-          touched = true;
-        }
-
-        // ③ 祖先的 padding **不动**。宿主设置页靠外框的 padding 给所有子页做同一套
-        //    缩进，原生页（插件/账户/通用…）都不自带左右内边距。我们若把外框 padding
-        //    清零、再叠自己的 24px，就会变成「外框 0 + 自己 24」对「外框 24 + 自己 0」，
-        //    看似相等、实则多清一层祖先就宽出去、少清一层又窄回来 —— 0.3.7 的教训。
-        //    正确做法：root 的 padding 设 0，让外框独一份决定左右缘。
-
-        // ② 是 flex 子项但不会长开 → 让它吃满剩下的横向空间
-        const parent = node.parentElement;
-        const parentDisplay = parent ? window.getComputedStyle(parent).display : '';
-        if (parentDisplay.indexOf('flex') !== -1 && Number(cs.flexGrow) === 0) {
-          saved.flexGrow = inline.flexGrow;
-          saved.minWidth = inline.minWidth;
-          inline.setProperty('flex-grow', '1', 'important');
-          inline.setProperty('min-width', '0', 'important');
-          touched = true;
-        }
-
-        if (touched) {
-          undo.push([node, saved]);
-          // 放开两处就够；再往上动会波及应用外壳
-          if (undo.length >= 2) break;
-        }
-        node = node.parentElement;
-      }
-
-      return function restore() {
-        for (let i = 0; i < undo.length; i += 1) {
-          const target = undo[i][0];
-          const saved = undo[i][1];
-          if ('maxWidth' in saved) {
-            if (saved.maxWidth) target.style.setProperty('max-width', saved.maxWidth);
-            else target.style.removeProperty('max-width');
-          }
-          if ('flexGrow' in saved) {
-            if (saved.flexGrow) target.style.setProperty('flex-grow', saved.flexGrow);
-            else target.style.removeProperty('flex-grow');
-          }
-          if ('minWidth' in saved) {
-            if (saved.minWidth) target.style.setProperty('min-width', saved.minWidth);
-            else target.style.removeProperty('min-width');
-          }
-        }
-      };
-    }
-
-    // 兜底：直接量父容器的内容宽度，把我们的宽度钉死成同一个数字。
-    // widenHostColumn 是「猜哪一层在限宽」，这个是「直接量出来」——
-    // 宿主换了外框样式也不会再跑偏。父容器尺寸变化时自动跟随。
-    function fitToParentWidth(el) {
-      const parent = el.parentElement;
-      if (!parent) return function noop() {};
-      const apply = () => {
-        const cs = window.getComputedStyle(parent);
-        const padL = parseFloat(cs.paddingLeft) || 0;
-        const padR = parseFloat(cs.paddingRight) || 0;
-        const w = Math.round(parent.clientWidth - padL - padR);
-        if (w > 0) el.style.setProperty('width', w + 'px', 'important');
-      };
-      apply();
-      let ro = null;
-      if (typeof ResizeObserver !== 'undefined') {
-        ro = new ResizeObserver(apply);
-        ro.observe(parent);
-      }
-      window.addEventListener('resize', apply);
-      return function restore() {
-        if (ro) ro.disconnect();
-        window.removeEventListener('resize', apply);
-        el.style.removeProperty('width');
-      };
-    }
-
     function PanelView({ t }) {
       const client = useRef(null);
       if (!client.current) client.current = api();
       const c = client.current;
 
-      // 挂载时放开宿主那一层的限宽，卸载时还原（见 widenHostColumn 注释）
       const rootRef = useRef(null);
-      useEffect(() => {
-        const el = rootRef.current;
-        if (!el || window.innerWidth < 720) return undefined;
-        const undoWiden = widenHostColumn(el);
-        const undoFit = fitToParentWidth(el);
-        return () => {
-          undoFit();
-          undoWiden();
-        };
-      }, []);
+      // 宽度完全交给 root 的样式（max-width:960 + margin:auto，与原生页同一套）。
+      // 不再在挂载时去改祖先：0.3.6~0.3.8 反复证明「猜哪一层在限宽」只会把布局搞坏。
 
       const [snap, setSnap] = useState(null);
       const [cfg, setCfg] = useState(null);
