@@ -53,3 +53,72 @@ export function mergeManifestPreserving(
   }
   return merged;
 }
+
+/** 分设备清单目录（0.3.6）。每台设备只写自己那份，读时合并。 */
+export const MANIFESTS_DIR = '/dsh/manifests';
+
+/** 旧版单份清单：只读一次用于迁移，之后不再写。 */
+export const LEGACY_MANIFEST = '/dsh/manifest.json';
+
+/** 设备名 → 清单远端路径（只保留安全字符，避免路径注入）。 */
+export function manifestFileOf(device: string): string {
+  const safe =
+    String(device || '')
+      .replace(/[^A-Za-z0-9._-]/g, '_')
+      // `..` 里的点属于允许字符，不清掉会留下路径穿越片段（../../etc/passwd）
+      .replace(/\.{2,}/g, '_')
+      .slice(0, 64) || '_unknown';
+  return MANIFESTS_DIR + '/' + safe + '.json';
+}
+
+/**
+ * 合并多份设备清单（0.3.6）。
+ *
+ * 同一个 rel 可能出现在多份里（两端都同步过同一文件）。冲突时：
+ *   - hash 相同 → 保留 device 字典序更小的那条，保证结果**稳定可复现**
+ *     （否则两端各自写、读的顺序不同，面板上的来源 emoji 会来回跳）
+ *   - hash 不同 → 保留 mtime 更新的那条（远端最新版本）
+ */
+export function mergeDeviceManifests(parts: ManifestEntry[][]): ManifestEntry[] {
+  const byRel = new Map<string, ManifestEntry>();
+  for (const list of parts) {
+    if (!Array.isArray(list)) continue;
+    for (const e of list) {
+      if (!e || typeof e.rel !== 'string') continue;
+      const cur = byRel.get(e.rel);
+      if (!cur) {
+        byRel.set(e.rel, e);
+        continue;
+      }
+      if (cur.hash === e.hash) {
+        if (String(e.device ?? '') < String(cur.device ?? '')) byRel.set(e.rel, e);
+        continue;
+      }
+      if ((e.mtime ?? 0) > (cur.mtime ?? 0)) byRel.set(e.rel, e);
+    }
+  }
+  return [...byRel.values()];
+}
+
+/**
+ * 本设备该写进自己那份清单的条目（0.3.6）。
+ *
+ * 只写「**确认在远端存在**」的：
+ *   - 本轮 push 成功的（`pushedOk`）
+ *   - 之前本设备写过、且内容哈希没变的
+ *
+ * 本地有、但本轮没传成功的一律不写 —— 否则对端按清单去下载一个不存在的文件，
+ * 就是 `workspaces/` 那种「远端 404、errors 永不归零」的幽灵条目。
+ */
+export function ownManifestEntries(
+  fresh: ManifestEntry[],
+  prevOwn: ManifestEntry[],
+  pushedOk: Set<string>,
+): ManifestEntry[] {
+  const prev = new Map(prevOwn.map((e) => [e.rel, e] as const));
+  return fresh.filter((e) => {
+    if (pushedOk.has(e.rel)) return true;
+    const o = prev.get(e.rel);
+    return o !== undefined && o.hash === e.hash;
+  });
+}

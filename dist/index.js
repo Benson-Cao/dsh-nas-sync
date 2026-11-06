@@ -21481,27 +21481,43 @@ init_merger();
 init_paths();
 
 // src/sync/manifest.ts
-function mergeManifestDevices(fresh, prev) {
-  const old = new Map(prev.map((e2) => [e2.rel, e2]));
-  return fresh.map((e2) => {
-    const before = old.get(e2.rel);
-    return before && before.device && before.hash === e2.hash ? { ...e2, device: before.device } : e2;
-  });
+var MANIFESTS_DIR = "/dsh/manifests";
+var LEGACY_MANIFEST = "/dsh/manifest.json";
+function manifestFileOf(device) {
+  const safe = String(device || "").replace(/[^A-Za-z0-9._-]/g, "_").replace(/\.{2,}/g, "_").slice(0, 64) || "_unknown";
+  return MANIFESTS_DIR + "/" + safe + ".json";
 }
-function mergeManifestPreserving(fresh, prevRemote, baseline) {
-  const merged = mergeManifestDevices(fresh, prevRemote);
-  const seen = new Set(merged.map((e2) => e2.rel));
-  const had = new Set(baseline.map((e2) => e2.rel));
-  for (const e2 of prevRemote) {
-    if (seen.has(e2.rel) || had.has(e2.rel)) continue;
-    merged.push(e2);
+function mergeDeviceManifests(parts) {
+  const byRel = /* @__PURE__ */ new Map();
+  for (const list of parts) {
+    if (!Array.isArray(list)) continue;
+    for (const e2 of list) {
+      if (!e2 || typeof e2.rel !== "string") continue;
+      const cur = byRel.get(e2.rel);
+      if (!cur) {
+        byRel.set(e2.rel, e2);
+        continue;
+      }
+      if (cur.hash === e2.hash) {
+        if (String(e2.device ?? "") < String(cur.device ?? "")) byRel.set(e2.rel, e2);
+        continue;
+      }
+      if ((e2.mtime ?? 0) > (cur.mtime ?? 0)) byRel.set(e2.rel, e2);
+    }
   }
-  return merged;
+  return [...byRel.values()];
+}
+function ownManifestEntries(fresh, prevOwn, pushedOk) {
+  const prev = new Map(prevOwn.map((e2) => [e2.rel, e2]));
+  return fresh.filter((e2) => {
+    if (pushedOk.has(e2.rel)) return true;
+    const o = prev.get(e2.rel);
+    return o !== void 0 && o.hash === e2.hash;
+  });
 }
 
 // src/sync/engine.ts
 import { join as join6 } from "node:path";
-var MANIFEST_REMOTE = "/dsh/manifest.json";
 var DEVICES_REMOTE = "/dsh/devices";
 var deviceClaimFile = (device) => DEVICES_REMOTE + "/" + device.replace(/[^A-Za-z0-9._-]/g, "_") + ".json";
 function sha256Hex(data) {
@@ -21524,8 +21540,10 @@ var Engine = class {
   chunker;
   running = false;
   abort = null;
-  /** scan() 缓存的远端清单（resolve 时回写用） */
+  /** scan() 缓存的远端清单（合并视图） */
   remoteManifest = [];
+  /** 本轮 push 成功的 rel —— 只有它们才有资格写进「本设备清单」（0.3.6） */
+  pushedOk = /* @__PURE__ */ new Set();
   /**
    * rel → 本机绝对路径。
    *
@@ -21651,9 +21669,43 @@ var Engine = class {
   setPhase(p) {
     this.deps.store.snapshot.phase = p;
   }
+  /**
+   * 读远端清单（0.3.6）：列 `/dsh/manifests/*.json`，逐份解密后按 rel 合并。
+   *
+   * 为什么拆：单份共享清单是「最后写入者胜出」，两端几乎同时同步时，
+   * 后写的那份会把对方刚记录的条目抹掉（实测手机 47 条幽灵条目就是这么来的）。
+   * 每台设备各写一份，读时合并，天然无覆盖。
+   *
+   * 目录为空时回落到旧版单份 `/dsh/manifest.json`，并顺手迁移成 `_legacy.json`。
+   */
   async readRemoteManifest() {
+    let names = [];
     try {
-      const enc = await this.deps.transport.getBuffer(MANIFEST_REMOTE);
+      names = await this.deps.transport.list(MANIFESTS_DIR);
+    } catch {
+      names = [];
+    }
+    const files = names.filter((n) => n.type === "file" && n.name.endsWith(".json"));
+    if (files.length === 0) {
+      const legacy = await this.readManifestAt(LEGACY_MANIFEST);
+      if (legacy.length === 0) return [];
+      try {
+        await this.writeManifestFile(manifestFileOf("_legacy"), legacy);
+      } catch {
+      }
+      return legacy;
+    }
+    const parts = [];
+    for (const f3 of files) {
+      const list = await this.readManifestAt(MANIFESTS_DIR + "/" + f3.name);
+      if (list.length > 0) parts.push(list);
+    }
+    return mergeDeviceManifests(parts);
+  }
+  /** 解密单份清单；文件不存在 / 口令不符都返回空（不抛）。 */
+  async readManifestAt(remote) {
+    try {
+      const enc = await this.deps.transport.getBuffer(remote);
       const plain = await Crypto.decrypt(enc, this.deps.config.passphrase);
       const list = JSON.parse(new TextDecoder().decode(plain));
       return Array.isArray(list) ? list : [];
@@ -21661,13 +21713,24 @@ var Engine = class {
       return [];
     }
   }
-  async writeRemoteManifest(entries) {
+  async writeManifestFile(remote, entries) {
     const enc = await Crypto.encrypt(
       new TextEncoder().encode(JSON.stringify(entries, null, 2)),
       this.deps.config.passphrase,
       this.deps.store.salt()
     );
-    await this.deps.transport.putBuffer(enc, MANIFEST_REMOTE, { mkdirs: true });
+    await this.deps.transport.putBuffer(enc, remote, { mkdirs: true });
+  }
+  /**
+   * 只写「本设备那份」清单：确认在远端存在的条目才写
+   * （本轮 push 成功 + 之前已确认且哈希未变）。
+   * 不写合并结果 —— 写别人的分片就是又回到互相覆盖。
+   */
+  async writeOwnManifest(fresh) {
+    const remote = manifestFileOf(selfDevice());
+    const prevOwn = await this.readManifestAt(remote);
+    const own = ownManifestEntries(fresh, prevOwn, this.pushedOk);
+    await this.writeManifestFile(remote, own);
   }
   /**
    * 同步完成后写本机声明。明文即可 —— 里面只有目录名和计数，不是敏感数据；
@@ -21790,6 +21853,7 @@ var Engine = class {
     this.checkReady();
     this.running = true;
     this.abort = new AbortController();
+    this.pushedOk.clear();
     try {
       const { pending } = await this.scan();
       const localMap = new Map((await this.scanner.buildManifest()).map((e2) => [e2.rel, e2]));
@@ -21810,6 +21874,7 @@ var Engine = class {
           if (mode === "pull" && item.action !== "download") continue;
           if (item.action === "upload") {
             await this.pushFile(item.rel, item.size, remoteMap.get(item.rel)?.hash);
+            this.pushedOk.add(item.rel);
             pushed++;
           } else if (item.action === "download") {
             const outcome = await this.downloadEntry(item.rel);
@@ -21850,14 +21915,9 @@ var Engine = class {
       }
       if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
-        const merged = mergeManifestPreserving(
-          fresh,
-          this.remoteManifest,
-          this.deps.store.localManifest
-        );
-        await this.writeRemoteManifest(merged);
+        await this.writeOwnManifest(fresh);
+        this.remoteManifest = await this.readRemoteManifest();
         this.deps.store.localManifest = fresh;
-        this.remoteManifest = merged;
         try {
           await this.writeDeviceClaim(fresh);
         } catch {
@@ -21959,7 +22019,9 @@ var Engine = class {
         // 本地版本胜出 = 本机上传，来源记为当前设备
         device: selfDevice()
       });
-      await this.writeRemoteManifest(this.remoteManifest);
+      this.pushedOk.add(rel);
+      await this.writeOwnManifest(await this.scanner.buildManifest());
+      this.remoteManifest = await this.readRemoteManifest();
     } else if (resolution === "remote") {
       const outcome = await this.downloadEntry(rel);
       if (outcome === "skipped") {
@@ -21980,7 +22042,7 @@ var Engine = class {
         hash: sha256Hex(data),
         device: prevDevice
       });
-      await this.writeRemoteManifest(this.remoteManifest);
+      this.remoteManifest = await this.readRemoteManifest();
     }
     this.deps.store.conflicts = this.deps.store.conflicts.filter((x2) => x2.rel !== rel);
     this.deps.store.snapshot.conflictCount = this.deps.store.conflicts.length;

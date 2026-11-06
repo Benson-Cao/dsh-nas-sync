@@ -21,11 +21,19 @@ import type { ConflictItem, ManifestEntry, PendingFile, SyncPhase } from '../dat
 import { Scanner } from './scanner.js';
 import { Crypto } from './crypto.js';
 import { Chunker } from './chunker.js';
-import type { NasTransport } from '../nas/transport.js';
+import type { NasEntry, NasTransport } from '../nas/transport.js';
 import type { NasSyncConfig, Store } from '../config.js';
 import { isMergeable } from './merger.js';
 import { localOf, dshHome } from '../paths.js';
-import { mergeManifestDevices, mergeManifestPreserving } from './manifest.js';
+import {
+  MANIFESTS_DIR,
+  LEGACY_MANIFEST,
+  manifestFileOf,
+  mergeDeviceManifests,
+  mergeManifestDevices,
+  mergeManifestPreserving,
+  ownManifestEntries,
+} from './manifest.js';
 import { join } from 'node:path';
 import {
   customFolderLocalOf,
@@ -52,7 +60,7 @@ export type SyncMode = 'push' | 'pull' | 'mirror';
  */
 export type DownloadOutcome = 'written' | 'merged' | 'skipped';
 
-const MANIFEST_REMOTE = '/dsh/manifest.json';
+// 旧的单份清单路径已迁到 manifest.ts 的 LEGACY_MANIFEST，这里不再直连。
 
 /**
  * 每台设备各自写一份「我贡献了哪些目录」的声明，互不覆盖。
@@ -113,8 +121,11 @@ export class Engine {
   private chunker: Chunker;
   private running = false;
   private abort: AbortController | null = null;
-  /** scan() 缓存的远端清单（resolve 时回写用） */
+  /** scan() 缓存的远端清单（合并视图） */
   private remoteManifest: ManifestEntry[] = [];
+
+  /** 本轮 push 成功的 rel —— 只有它们才有资格写进「本设备清单」（0.3.6） */
+  private pushedOk = new Set<string>();
 
   /**
    * rel → 本机绝对路径。
@@ -260,25 +271,74 @@ export class Engine {
     this.deps.store.snapshot.phase = p;
   }
 
+  /**
+   * 读远端清单（0.3.6）：列 `/dsh/manifests/*.json`，逐份解密后按 rel 合并。
+   *
+   * 为什么拆：单份共享清单是「最后写入者胜出」，两端几乎同时同步时，
+   * 后写的那份会把对方刚记录的条目抹掉（实测手机 47 条幽灵条目就是这么来的）。
+   * 每台设备各写一份，读时合并，天然无覆盖。
+   *
+   * 目录为空时回落到旧版单份 `/dsh/manifest.json`，并顺手迁移成 `_legacy.json`。
+   */
   private async readRemoteManifest(): Promise<ManifestEntry[]> {
+    let names: NasEntry[] = [];
     try {
-      const enc = await this.deps.transport.getBuffer(MANIFEST_REMOTE);
+      names = await this.deps.transport.list(MANIFESTS_DIR);
+    } catch {
+      names = []; // 目录还不存在 = 全新 NAS
+    }
+    const files = names.filter((n) => n.type === 'file' && n.name.endsWith('.json'));
+
+    if (files.length === 0) {
+      const legacy = await this.readManifestAt(LEGACY_MANIFEST);
+      if (legacy.length === 0) return [];
+      try {
+        await this.writeManifestFile(manifestFileOf('_legacy'), legacy);
+      } catch {
+        /* 迁移失败只是每轮多读一次旧文件，不影响同步 */
+      }
+      return legacy;
+    }
+
+    const parts: ManifestEntry[][] = [];
+    for (const f of files) {
+      const list = await this.readManifestAt(MANIFESTS_DIR + '/' + f.name);
+      if (list.length > 0) parts.push(list);
+    }
+    return mergeDeviceManifests(parts);
+  }
+
+  /** 解密单份清单；文件不存在 / 口令不符都返回空（不抛）。 */
+  private async readManifestAt(remote: string): Promise<ManifestEntry[]> {
+    try {
+      const enc = await this.deps.transport.getBuffer(remote);
       const plain = await Crypto.decrypt(enc, this.deps.config.passphrase);
       const list = JSON.parse(new TextDecoder().decode(plain));
       return Array.isArray(list) ? list : [];
     } catch {
-      // 首次同步，远端无 manifest（或口令已变更）
       return [];
     }
   }
 
-  private async writeRemoteManifest(entries: ManifestEntry[]): Promise<void> {
+  private async writeManifestFile(remote: string, entries: ManifestEntry[]): Promise<void> {
     const enc = await Crypto.encrypt(
       new TextEncoder().encode(JSON.stringify(entries, null, 2)),
       this.deps.config.passphrase,
       this.deps.store.salt(),
     );
-    await this.deps.transport.putBuffer(enc, MANIFEST_REMOTE, { mkdirs: true });
+    await this.deps.transport.putBuffer(enc, remote, { mkdirs: true });
+  }
+
+  /**
+   * 只写「本设备那份」清单：确认在远端存在的条目才写
+   * （本轮 push 成功 + 之前已确认且哈希未变）。
+   * 不写合并结果 —— 写别人的分片就是又回到互相覆盖。
+   */
+  private async writeOwnManifest(fresh: ManifestEntry[]): Promise<void> {
+    const remote = manifestFileOf(selfDevice());
+    const prevOwn = await this.readManifestAt(remote);
+    const own = ownManifestEntries(fresh, prevOwn, this.pushedOk);
+    await this.writeManifestFile(remote, own);
   }
 
   /**
@@ -429,6 +489,7 @@ export class Engine {
     this.checkReady();
     this.running = true;
     this.abort = new AbortController();
+    this.pushedOk.clear();
 
     try {
       const { pending } = await this.scan();
@@ -458,6 +519,7 @@ export class Engine {
 
           if (item.action === 'upload') {
             await this.pushFile(item.rel, item.size, remoteMap.get(item.rel)?.hash);
+            this.pushedOk.add(item.rel);
             pushed++;
           } else if (item.action === 'download') {
             // 守卫已下沉到 downloadEntry()（0.3.5），这里只按落地结果计数，
@@ -524,16 +586,13 @@ export class Engine {
          * 与上一轮一致的条目**保留原来源**，只有真正变了的才归给本机。
          * 不做这一步，来源每同步一次就被刷成"本机"，等于没记。
          */
-        // 补回按基线判定：对端新增的才补，本机删掉的不补（0.3.4 会复活已删除文件）。
-        const merged = mergeManifestPreserving(
-          fresh,
-          this.remoteManifest,
-          this.deps.store.localManifest,
-        );
-        await this.writeRemoteManifest(merged);
-        // 记下本轮本地清单，作为下一轮的删除基线
+        // 0.3.6：只写本设备那份清单，再重读合并视图。
+        // 不再「把远端独有的条目补回」—— 每份清单只含确认在远端存在的东西，
+        // 补回反而会给对端制造下载不到的幽灵条目。
+        await this.writeOwnManifest(fresh);
+        this.remoteManifest = await this.readRemoteManifest();
+        // 本地基线留着（0.4.x 的删除传播要用）
         this.deps.store.localManifest = fresh;
-        this.remoteManifest = merged;
         // 写本机来源声明。失败不能让整轮同步判失败（只是少了 emoji 而已）。
         try {
           await this.writeDeviceClaim(fresh);
@@ -690,7 +749,9 @@ export class Engine {
         // 本地版本胜出 = 本机上传，来源记为当前设备
         device: selfDevice(),
       });
-      await this.writeRemoteManifest(this.remoteManifest);
+      this.pushedOk.add(rel);
+      await this.writeOwnManifest(await this.scanner.buildManifest());
+      this.remoteManifest = await this.readRemoteManifest();
     } else if (resolution === 'remote') {
       const outcome = await this.downloadEntry(rel);
       if (outcome === 'skipped') {
@@ -715,7 +776,9 @@ export class Engine {
         hash: sha256Hex(data),
         device: prevDevice,
       });
-      await this.writeRemoteManifest(this.remoteManifest);
+      // 分设备清单下，这条 rel 属于对端的分片，本机不改它 —— 只刷新合并视图。
+      // 若下载时改写了内容（会话 cwd），下一轮会判成 upload 并写进本机分片。
+      this.remoteManifest = await this.readRemoteManifest();
     }
     // skip：什么都不做
 
