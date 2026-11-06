@@ -246,7 +246,45 @@ registerNasSyncUi(ctx, HostBridge(scope))
 
 
 
-### 5.2 自定义文件夹：每台机器各自映射
+### 5.2 插件：只同步「装配清单」，不搬包体
+
+`profiles/<profile>/node_modules/` 里的插件**永远不会被同步** ——
+`Scanner` 的 `walkFiles()` 遇到 `node_modules` 直接跳过。跨设备过去的只有：
+
+```
+profiles/<p>/package.json        pnpm-lock.yaml       cordis.yml
+profiles/<p>/cordis.patch.yml    pnpm-workspace.yaml
+```
+
+所以典型现象是：另一端 `package.json` 里明明列着插件、插件列表却是空的。
+原因有三条，缺一不可地阻止「插件自己跑过去」：
+
+1. 包体在 `node_modules` 里，扫描器跳过；
+2. 就算搬过去也没用 —— 手机是 `web` profile、电脑是 `desktop` profile，两套独立插件集；
+3. 包体含平台相关产物（手机那份 109 MB，含 `playwright-core`、`puppeteer`），
+   安卓的解压到 Windows 上跑不起来。
+
+**补齐用「插件对账」**（0.4.0）：面板 → 插件对账 → 对账，它会拿
+「远端各 profile 的 dependencies」减去「本机**选定 profile 的实际安装**」，
+列出缺的插件并调宿主自己的 CLI 安装：
+
+```
+dsh plugin --profile <profile> add <包>@<版本>
+```
+
+几个刻意的设计：
+
+- 比的是**实际安装**（`node_modules` 里有没有），不是本机 `package.json` ——
+  后者也会被同步过来，拿清单比清单永远相等，看不出「清单到了包没装」。
+- 不按 profile 同名对比：手机 `web` 对电脑 `desktop`，同名比永远比不出东西；
+  默认把包装得最多的 profile 当目标，界面上可切换。
+- `link:` / `file:` / `workspace:` 依赖指向对端本机路径，装不了，只展示不给按钮；
+  `git+` 依赖已装即算满足（spec 是来源不是版本，拿它比版本号会永远不相等）。
+- 装完会把声明了 `dsh.bundle.patch` 的包登记进 `dsh.profile.bundles`
+  （CLI 只转交 pnpm，不改这段声明），否则「装上了但不加载」。
+- 手机端没有宿主 CLI，面板退化成只给命令、不代装。
+
+### 5.3 自定义文件夹：每台机器各自映射
 
 工作区文件只覆盖「工作区」这一种目录。要同步别的目录（比如 `D:\Projects`），
 加一条**自定义文件夹**：
@@ -266,7 +304,7 @@ registerNasSyncUi(ctx, HostBridge(scope))
 `name` 会清掉路径分隔符与 Windows 非法字符（否则 `../x` 能写到 rel 空间之外）；
 重名只保留第一条；下载时 rel 里出现 `..` 或空段直接拒绝。
 
-### 5.3 文件夹来源设备标记
+### 5.4 文件夹来源设备标记
 
 面板里「同步内容」的每个分类、以及「自定义文件夹」的每一行，会显示一个来源设备
 emoji（💻 Windows / 📱 Android / 🖥️ macOS / 🐧 Linux）。**本机不显示**——自己传的

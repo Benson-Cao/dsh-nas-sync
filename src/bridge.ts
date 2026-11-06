@@ -26,10 +26,13 @@
  */
 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { join } from 'node:path';
 import type { Store } from './config.js';
 import type { Engine } from './sync/engine.js';
 import type { NasSyncConfig } from './config.js';
 import { listSkills } from './sync/scanner.js';
+import { dshHome } from './paths.js';
+import { Installer, resolveCliScript } from './sync/installer.js';
 
 export const BRIDGE_PREFIX = '/nas-sync-api';
 
@@ -105,6 +108,8 @@ export interface BridgeDeps {
 
 export function createBridge(ctx: any, deps: BridgeDeps): void {
   const token = randomBytes(24).toString('base64url');
+  // 插件安装任务：一次只允许跑一个 pnpm，避免两个进程抢 profile 的锁。
+  const installer = new Installer(() => join(dshHome(), 'profiles'));
 
   // 通道 1（主路）：结构化 index-inject。桌面端 boot payload 只认这个。
   // 官方用法见 @deepseek-ai/dsh-client-ui-theme：ctx.on('webserver/index-inject', …)。
@@ -290,6 +295,35 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
         }
         const next = deps.patchConfig(body.config) as NasSyncConfig;
         return ok(res, { config: publicConfig(next) });
+      }
+
+      // ---- 插件对账 / 安装（0.4.0）----
+      // 插件的包体不走同步，只同步装配清单，所以「对端装了、本机没装」要靠这里补齐。
+      if (sub === '/plugins' && method === 'GET') {
+        const want = url.searchParams.get('target') || undefined;
+        const audit = await deps.getEngine().auditPlugins(want);
+        return ok(res, {
+          ...audit,
+          canInstall: resolveCliScript() !== null,
+          running: installer.running(),
+        });
+      }
+      if (sub === '/plugins/install' && method === 'POST') {
+        const body = await readBody();
+        const profile = String(body?.profile || '');
+        const items = Array.isArray(body?.items) ? body.items : [];
+        if (!profile) return fail(res, 'bad_request', 'profile 不能为空');
+        const clean = items
+          .filter((i: any) => i && typeof i.name === 'string' && typeof i.target === 'string')
+          .map((i: any) => ({ name: i.name, target: i.target }));
+        const job = installer.start(profile, clean);
+        return ok(res, job);
+      }
+      if (sub === '/plugins/install' && method === 'GET') {
+        const id = url.searchParams.get('id') || '';
+        const job = installer.get(id);
+        if (!job) return fail(res, 'not_found', '没有这个安装任务');
+        return ok(res, job);
       }
 
       return fail(res, 'not_found', '未知端点: ' + method + ' ' + sub);

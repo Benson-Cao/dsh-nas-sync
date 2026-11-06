@@ -525,7 +525,42 @@ function apply(ctx: any, config: any): void {
     },
   }));
 
-  // 7. nas_sync：执行一次同步
+  // 7. nas_plugin_audit：插件对账（0.4.0）
+  //    插件的包体不走同步（扫描器跳过 node_modules），跨设备只过去装配清单，
+  //    所以「对端装了、本机没有」很常见。这个工具只算差集，不安装。
+  ctx.tools.register(defineTool({
+    name: 'nas_plugin_audit',
+    description: '插件对账：列出其它设备装了、这台机器还没装的插件（含可直接执行的安装命令）。只读，不安装。',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          gaps: { type: 'json' },
+          target: { type: 'string' },
+          remoteProfiles: { type: 'json' },
+          localProfiles: { type: 'json' },
+        },
+      },
+      render: (_args: any, value: any) => {
+        const gaps = Array.isArray(value.gaps) ? value.gaps : [];
+        if (gaps.length === 0) return [{ type: 'text', text: '插件已对齐，没有缺失。' }];
+        const lines = gaps.map(
+          (g: any) =>
+            `- [${g.profile}] ${g.name}@${g.spec}（${g.status === 'missing' ? '未安装' : '版本不符'}）` +
+            (g.installable ? `\n  ${g.command}` : '\n  指向对端本地路径，无法在本机安装'),
+        );
+        return [{ type: 'text', text: `缺 ${gaps.length} 个插件：\n${lines.join('\n')}` }];
+      },
+    },
+    async execute() {
+      const r = await engine.auditPlugins();
+      return { gaps: r.gaps, target: r.target, remoteProfiles: r.remoteProfiles, localProfiles: r.localProfiles };
+    },
+  }));
+
+  // 8. nas_sync：执行一次同步
   ctx.tools.register(defineTool({
     name: 'nas_sync',
     description: '立即执行一次 NAS 同步。mode=push 只上传本地变更；pull 只下载远端变更；mirror 双向。大文件走分块断点续传，全程加密。',

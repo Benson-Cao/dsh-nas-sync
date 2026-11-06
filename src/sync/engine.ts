@@ -15,7 +15,7 @@
  */
 
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { ConflictItem, ManifestEntry, PendingFile, SyncPhase } from '../data/models.js';
@@ -26,6 +26,13 @@ import type { NasEntry, NasTransport } from '../nas/transport.js';
 import type { NasSyncConfig, Store } from '../config.js';
 import { isMergeable } from './merger.js';
 import { localOf, dshHome } from '../paths.js';
+import {
+  diffPlugins,
+  installCommand,
+  parseProfilePackage,
+  type PluginGap,
+  type RemoteProfile,
+} from './plugins.js';
 import {
   MANIFESTS_DIR,
   LEGACY_MANIFEST,
@@ -91,6 +98,46 @@ function prefixOf(rel: string): string {
   if (parts.length === 0 || !parts[0]) return '';
   if (parts[0] === 'custom-folders' && parts[1]) return 'custom-folders/' + parts[1];
   return parts[0];
+}
+
+/**
+ * 读一个 profile 的 `node_modules`，得到「已安装的包名 → 版本」。
+ *
+ * 注意这里读的是**实际安装状态**，不是 profile 的 package.json。因为 package.json
+ * 本身会被同步过来（清单到了、包没到），拿清单比清单永远相等，看不出缺插件。
+ * link/软链依赖读不到 version 时记空串 —— 只要能列出来就说明装上了。
+ */
+function readInstalled(nodeModulesDir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const versionOf = (p: string): string => {
+    try {
+      return String(JSON.parse(readFileSync(join(p, 'package.json'), 'utf8')).version ?? '');
+    } catch {
+      return '';
+    }
+  };
+  let entries: any[] = [];
+  try {
+    entries = readdirSync(nodeModulesDir, { withFileTypes: true });
+  } catch {
+    return out; // 没有 node_modules：一个都没装
+  }
+  for (const e of entries) {
+    const name = String(e.name);
+    if (name.startsWith('.')) continue;
+    if (name.startsWith('@')) {
+      try {
+        for (const s of readdirSync(join(nodeModulesDir, name), { withFileTypes: true })) {
+          out[name + '/' + s.name] = versionOf(join(nodeModulesDir, name, s.name));
+        }
+      } catch {
+        /* 空的 scope 目录 */
+      }
+      continue;
+    }
+    out[name] = versionOf(join(nodeModulesDir, name));
+  }
+  return out;
 }
 
 /**
@@ -454,6 +501,84 @@ export class Engine {
     } catch {
       /* .base 只是合并辅助，失败可以接受 */
     }
+  }
+
+  /**
+   * 插件对账（0.4.0）。
+   *
+   * 插件的**包体永远不走同步**：`Scanner` 的 `walkFiles()` 遇到 `node_modules`
+   * 直接跳过，跨设备过去的只有 `profiles/<p>/package.json` 这类装配清单。
+   * 于是典型症状是「对端明明装了，这台机器上插件列表里没有」。
+   *
+   * 取数：
+   *   · 远端 —— NAS 上每个 profile 的 package.json（解密后解析）；
+   *   · 本机 —— **选定 profile** 的 node_modules 实际装了什么（不是清单）。
+   *
+   * 不按 profile 同名对比：手机跑 `web`、电脑跑 `desktop`，同名比永远比不出东西。
+   * 默认拿「本机包装得最多的 profile」当目标（通常就是正在用的那个）。
+   */
+  async auditPlugins(targetProfile?: string): Promise<{
+    gaps: PluginGap[];
+    target: string;
+    localProfiles: Array<{ profile: string; count: number }>;
+    remoteProfiles: string[];
+  }> {
+    this.checkReady();
+    const root = join(dshHome(), 'profiles');
+
+    const locals: Array<{ profile: string; installed: Record<string, string> }> = [];
+    let dirNames: string[] = [];
+    try {
+      dirNames = readdirSync(root, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => String(d.name));
+    } catch {
+      dirNames = [];
+    }
+    for (const p of dirNames) {
+      const dir = join(root, p);
+      if (!existsSync(join(dir, 'package.json'))) continue;
+      locals.push({ profile: p, installed: readInstalled(join(dir, 'node_modules')) });
+    }
+
+    // 目标 profile：显式指定 > 包最多的那个 > 空
+    let target = '';
+    if (targetProfile && locals.some((l) => l.profile === targetProfile)) {
+      target = targetProfile;
+    } else if (locals.length > 0) {
+      target = locals.slice().sort((a, b) => Object.keys(b.installed).length - Object.keys(a.installed).length)[0].profile;
+    }
+    const installed = (locals.find((l) => l.profile === target) || { installed: {} }).installed;
+
+    const remote: RemoteProfile[] = [];
+    let remoteDirs: NasEntry[] = [];
+    try {
+      remoteDirs = await this.deps.transport.list('/dsh/profiles');
+    } catch {
+      remoteDirs = [];
+    }
+    for (const d of remoteDirs) {
+      if (d.type !== 'directory') continue;
+      const plain = await this.fetchRemotePlain('/dsh/profiles/' + d.name + '/package.json');
+      if (!plain) continue;
+      const parsed = parseProfilePackage(new TextDecoder().decode(plain));
+      if (!parsed) continue;
+      remote.push({ profile: d.name, deps: parsed.deps, bundles: parsed.bundles });
+    }
+
+    const gaps = diffPlugins(installed, remote).map((g) => ({
+      ...g,
+      // 命令要装到**目标** profile，而不是清单来源的那个：手机跑 web、电脑跑 desktop，
+      // 照抄 `--profile web` 会装进去但永远不会被加载。
+      command: g.target ? installCommand(target, g.target) : '',
+    }));
+
+    return {
+      gaps,
+      target,
+      localProfiles: locals.map((l) => ({ profile: l.profile, count: Object.keys(l.installed).length })),
+      remoteProfiles: remote.map((r) => r.profile),
+    };
   }
 
   async scan(): Promise<{ local: ManifestEntry[]; pending: PendingFile[]; conflicts: ConflictItem[] }> {

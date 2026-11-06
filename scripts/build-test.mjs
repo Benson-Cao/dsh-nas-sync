@@ -16,6 +16,7 @@ const entries = [
   ['src/sync/scanner.ts', 'dist-test/scanner.mjs'],
   ['src/sync/portable.ts', 'dist-test/portable.mjs'],
   ['src/sync/manifest.ts', 'dist-test/manifest.mjs'],
+  ['src/sync/plugins.ts', 'dist-test/plugins.mjs'],
 ];
 
 for (const [entry, outfile] of entries) {

@@ -78,6 +78,21 @@ window.__ModuleLoader__.load({
       needRefresh: '页面没有拿到请求令牌，请退出本页重新进入。',
       refresh: '刷新',
       statusSection: '同步状态',
+      pluginSection: '插件对账',
+      pluginHint: '插件的包体不走同步（只同步装配清单），这里列出「别的设备装了、这台机器没装」的插件。安装会调用 dsh CLI，装完需重启 DSH。',
+      pluginCheck: '对账',
+      pluginChecking: '对账中…',
+      pluginTarget: '装到',
+      pluginInstall: '安装',
+      pluginInstallAll: '全部安装',
+      pluginAllDone: '所有插件已对齐，没有缺失。',
+      pluginMissing: '未安装',
+      pluginOutdated: '版本不符',
+      pluginNoCli: '这台设备没有可用的 dsh CLI，只能复制命令手动执行。',
+      pluginNotInstallable: '指向对端本地路径，本机装不了（需在对端重新 link）',
+      pluginInstalling: '安装中…',
+      pluginDone: '安装完成，重启 DSH 后生效。',
+      pluginFailed: '安装失败：',
       lastSync: '上次成功同步',
       never: '从未',
       pending: '待同步',
@@ -165,6 +180,21 @@ window.__ModuleLoader__.load({
       needRefresh: 'Page token missing — please leave and reopen this panel.',
       refresh: 'Refresh',
       statusSection: 'Status',
+      pluginSection: 'Plugin audit',
+      pluginHint: 'Plugin packages never sync (only install manifests do). This lists plugins other devices have but this machine does not. Installing calls the dsh CLI; restart DSH afterwards.',
+      pluginCheck: 'Check',
+      pluginChecking: 'Checking…',
+      pluginTarget: 'Install into',
+      pluginInstall: 'Install',
+      pluginInstallAll: 'Install all',
+      pluginAllDone: 'All plugins are present.',
+      pluginMissing: 'not installed',
+      pluginOutdated: 'version differs',
+      pluginNoCli: 'No usable dsh CLI on this device — copy the command and run it manually.',
+      pluginNotInstallable: 'points at the other device\'s local path; cannot install here',
+      pluginInstalling: 'Installing…',
+      pluginDone: 'Installed. Restart DSH to load it.',
+      pluginFailed: 'Install failed: ',
       lastSync: 'Last successful sync',
       never: 'never',
       pending: 'Pending',
@@ -439,6 +469,13 @@ window.__ModuleLoader__.load({
       const [conflicts, setConflicts] = useState(null);
       const [busy, setBusy] = useState('');
       const [msg, setMsg] = useState(null); // {kind:'ok'|'err', text}
+      // ---- 插件对账（0.4.0）----
+      // audit: /plugins 的结果 { gaps, canInstall, remoteProfiles, localProfiles }
+      // auditBusy: '' | 'check' | 'install'
+      // installJob: 安装任务快照（轮询 /plugins/install?id=）
+      const [audit, setAudit] = useState(null);
+      const [auditBusy, setAuditBusy] = useState('');
+      const [installJob, setInstallJob] = useState(null);
       const [passDraft, setPassDraft] = useState('');
       const [passSet, setPassSet] = useState(false);
       // 设备上真实存在的技能名单（含体积），用于渲染「技能」下的子勾选框。
@@ -489,6 +526,62 @@ window.__ModuleLoader__.load({
       }, [c, t]);
 
       useEffect(() => { refreshAll(); }, [refreshAll]);
+
+      // ---- 插件对账 ----
+      // 对账口径：拿「远端各 profile 的依赖」去比「本机**选定** profile 的实际安装」。
+      // 不按 profile 同名比：手机跑 web、电脑跑 desktop，同名比永远比不出东西。
+      const runAudit = useCallback(async (target) => {
+        if (!c.ready) return;
+        setAuditBusy('check');
+        try {
+          const q = target ? '?target=' + encodeURIComponent(target) : '';
+          const v = await c.call('/plugins' + q);
+          setAudit(v);
+        } catch (e) {
+          setMsg({ kind: 'err', text: e.message });
+        } finally {
+          setAuditBusy('');
+        }
+      }, [c, t]);
+
+      /** 安装一组插件；轮询到任务结束再刷新对账结果。 */
+      const installItems = useCallback(async (profile, items) => {
+        if (!items.length) return;
+        setAuditBusy('install');
+        setMsg(null);
+        try {
+          let job = await c.call('/plugins/install', { method: 'POST', body: { profile, items } });
+          setInstallJob(job);
+          // pnpm 装包可能要几十秒，轮询而不阻塞界面；上限 5 分钟，超时也要把控制权还给用户。
+          const deadline = Date.now() + 5 * 60 * 1000;
+          while (job && job.state === 'running' && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 1500));
+            job = await c.call('/plugins/install?id=' + encodeURIComponent(job.id));
+            setInstallJob(job);
+          }
+          if (job && job.state === 'done') {
+            const extra = job.registered && job.registered.length ? '（已登记：' + job.registered.join(', ') + '）' : '';
+            setMsg({ kind: 'ok', text: t('pluginDone') + extra });
+            await runAudit(audit && audit.target);
+          } else {
+            const tail = (job && job.log ? String(job.log) : '').slice(-400);
+            setMsg({ kind: 'err', text: t('pluginFailed') + (tail || 'timeout') });
+          }
+        } catch (e) {
+          setMsg({ kind: 'err', text: e.message });
+        } finally {
+          setAuditBusy('');
+        }
+      }, [c, t, runAudit, audit]);
+
+      /** 全部安装：装进对账选定的那个 profile。 */
+      const installAll = useCallback(async () => {
+        const gaps = (audit && audit.gaps) || [];
+        const items = gaps.filter((g) => g.installable && g.target).map((g) => ({ name: g.name, target: g.target }));
+        if (!items.length || !audit) return;
+        await installItems(audit.target, items);
+      }, [audit, installItems]);
+
       useEffect(() => {
         const timer = setInterval(() => {
           if (!c.ready) return;
@@ -727,6 +820,66 @@ window.__ModuleLoader__.load({
             h('button', { style: Object.assign({}, S.btn, busy === 'test' ? S.btnDisabled : {}), disabled: busy === 'test', onClick: () => doTest() }, busy === 'test' ? t('testing') : t('testConnection')),
           ),
           msg ? h('div', { role: 'alert', style: Object.assign({ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }, msg.kind === 'ok' ? S.msgOk : S.msgErr) }, msg.text) : null,
+        ),
+
+        // 插件对账卡（0.4.0）：插件的包体不走同步，只同步装配清单，
+        // 所以「别的设备装了、这台机器没有」是常态，这里给出差集与一键安装。
+        h('div', { style: S.card },
+          h('div', { style: S.row },
+            h('h3', { style: S.section }, t('pluginSection')),
+            h('button', {
+              style: Object.assign({}, S.btn, auditBusy === 'check' ? S.btnDisabled : {}),
+              disabled: Boolean(auditBusy),
+              onClick: () => runAudit(audit && audit.target),
+            }, auditBusy === 'check' ? t('pluginChecking') : '⟳ ' + t('pluginCheck')),
+          ),
+          h('p', { style: S.hint }, t('pluginHint')),
+          audit && audit.localProfiles && audit.localProfiles.length
+            ? h('div', { style: S.segRow },
+                h('span', { style: S.label }, t('pluginTarget')),
+                audit.localProfiles.map((p) => h('button', {
+                  key: 'tp-' + p.profile,
+                  type: 'button',
+                  style: Object.assign({}, S.seg, audit.target === p.profile ? S.segOn : null),
+                  disabled: Boolean(auditBusy),
+                  onClick: () => runAudit(p.profile),
+                }, p.profile + ' (' + p.count + ')')),
+              )
+            : null,
+          audit
+            ? (audit.gaps && audit.gaps.length
+              ? h('div', { style: S.scopeList },
+                  audit.gaps.map((g) => h('div', { key: g.profile + '|' + g.name, style: S.fileRow },
+                    h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 } },
+                      h('span', { style: S.fileName }, g.name + '@' + g.spec),
+                      h('span', { style: S.hint },
+                        '[' + g.profile + '] ' + (g.status === 'missing' ? t('pluginMissing') : t('pluginOutdated')) +
+                        (g.installable ? '' : ' · ' + t('pluginNotInstallable'))),
+                    ),
+                    g.installable
+                      ? h('button', {
+                          style: Object.assign({}, S.btn, auditBusy === 'install' ? S.btnDisabled : {}),
+                          disabled: Boolean(auditBusy),
+                          onClick: () => installItems(audit.target, [{ name: g.name, target: g.target }]),
+                        }, t('pluginInstall'))
+                      : h('span', { style: S.badge }, '—'),
+                  )),
+                  h('div', { style: Object.assign({}, S.row, { marginTop: '8px' }) },
+                    h('button', {
+                      style: Object.assign({}, S.btn, S.btnPrimary, auditBusy ? S.btnDisabled : {}),
+                      disabled: Boolean(auditBusy),
+                      onClick: () => installAll(),
+                    }, auditBusy === 'install' ? t('pluginInstalling') : t('pluginInstallAll') + ' → ' + audit.target),
+                    audit.canInstall ? null : h('span', { style: S.hint }, t('pluginNoCli')),
+                  ),
+                )
+              : h('p', { style: S.subtitle }, t('pluginAllDone')))
+            : h('p', { style: S.hint }, '—'),
+          installJob && installJob.state === 'running'
+            ? h('pre', {
+                style: Object.assign({}, S.hint, { whiteSpace: 'pre-wrap', maxHeight: '160px', overflow: 'auto' }),
+              }, String(installJob.log || '').slice(-800))
+            : null,
         ),
 
         // 配置卡

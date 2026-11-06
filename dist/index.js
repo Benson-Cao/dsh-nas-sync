@@ -17212,8 +17212,8 @@ function createWebdavTransport(opts) {
     async put(local, remote, opts2) {
       const target = p(remote);
       if (opts2?.mkdirs) await ensureParent(target);
-      const { readFileSync: readFileSync4 } = await import("node:fs");
-      await upload(client, target, readFileSync4(local));
+      const { readFileSync: readFileSync5 } = await import("node:fs");
+      await upload(client, target, readFileSync5(local));
     },
     async putBuffer(data, remote, opts2) {
       const target = p(remote);
@@ -17222,10 +17222,10 @@ function createWebdavTransport(opts) {
     },
     async get(remote, local) {
       const buf = await client.getFileContents(p(remote));
-      const { writeFileSync: writeFileSync2, mkdirSync: mkdirSync2, dirname: dirname3 } = await import("node:fs");
+      const { writeFileSync: writeFileSync3, mkdirSync: mkdirSync2, dirname: dirname4 } = await import("node:fs");
       const path4 = await import("node:path");
       mkdirSync2(path4.dirname(local), { recursive: true });
-      writeFileSync2(local, buf);
+      writeFileSync3(local, buf);
     },
     async getBuffer(remote) {
       const buf = await client.getFileContents(p(remote));
@@ -20192,7 +20192,7 @@ import { readFile as readFile5, writeFile as writeFile4, mkdir as mkdir4 } from 
 
 // src/sync/engine.ts
 import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3, rm as rm3 } from "node:fs/promises";
-import { readFileSync as readFileSync3 } from "node:fs";
+import { readFileSync as readFileSync3, readdirSync, existsSync as existsSync3 } from "node:fs";
 import { stat as stat5 } from "node:fs/promises";
 import { createHash as createHash2 } from "node:crypto";
 
@@ -21425,7 +21425,7 @@ var Chunker = class {
     let active = 0;
     let failed = null;
     await new Promise((resolve3, reject) => {
-      const spawn = () => {
+      const spawn2 = () => {
         if (failed) return;
         while (queue.length > 0 && active < this.opts.concurrency) {
           const i2 = queue.shift();
@@ -21433,14 +21433,14 @@ var Chunker = class {
           this.uploadOne(cipher, i2, remotePath).then(() => {
             active--;
             if (queue.length === 0 && active === 0) resolve3();
-            else spawn();
+            else spawn2();
           }).catch((e2) => {
             failed = e2;
             reject(e2);
           });
         }
       };
-      spawn();
+      spawn2();
     });
     const manifest = {
       chunks: Array.from({ length: num }, (_, i2) => this.chunkRemote(remotePath, i2).split("/").pop()),
@@ -21484,6 +21484,84 @@ var Chunker = class {
 // src/sync/engine.ts
 init_merger();
 init_paths();
+
+// src/sync/plugins.ts
+function depKind(spec) {
+  const s2 = String(spec || "").trim();
+  if (!s2) return "other";
+  if (s2.startsWith("link:")) return "link";
+  if (s2.startsWith("file:")) return "file";
+  if (s2.startsWith("workspace:")) return "workspace";
+  if (/^(git\+|git:|github:|gitlab:|bitbucket:)/i.test(s2)) return "git";
+  if (/\.(tgz|tar\.gz|tar)$/i.test(s2)) return "tarball";
+  if (/^(npm:)?[\^*~><=\s]*v?\d/.test(s2) || /^(latest|next|beta|alpha|canary|\*)$/.test(s2)) return "registry";
+  if (/^[a-z0-9][a-z0-9._-]*$/i.test(s2)) return "registry";
+  return "other";
+}
+function parseProfilePackage(raw) {
+  let obj;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!obj || typeof obj !== "object") return null;
+  const deps = {};
+  for (const [k, v] of Object.entries(obj.dependencies ?? {})) {
+    if (typeof v === "string") deps[k] = v;
+  }
+  const bundles = Array.isArray(obj?.dsh?.profile?.bundles) ? obj.dsh.profile.bundles.filter((x2) => typeof x2 === "string") : [];
+  return { deps, bundles };
+}
+function sameSpec(local, remote) {
+  const a = String(local || "").trim();
+  const b = String(remote || "").trim();
+  if (a === b) return true;
+  return false;
+}
+function installTarget(name2, spec) {
+  const kind = depKind(spec);
+  if (kind === "registry") return `${name2}@${spec}`;
+  if (kind === "git") return spec;
+  return null;
+}
+function installCommand(profile, target) {
+  return `dsh plugin --profile ${profile} add ${target}`;
+}
+function diffPlugins(installed, remote) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const r2 of remote) {
+    for (const [name2, spec] of Object.entries(r2.deps)) {
+      if (name2.startsWith("@deepseek-ai/")) continue;
+      const kind = depKind(spec);
+      const have = Object.prototype.hasOwnProperty.call(installed, name2) ? installed[name2] : null;
+      const specIsSource = kind === "link" || kind === "file" || kind === "workspace" || kind === "git" || kind === "tarball";
+      if (have !== null && (specIsSource || sameSpec(have, spec))) continue;
+      const target = installTarget(name2, spec);
+      const key = name2 + "\0" + spec;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        profile: r2.profile,
+        name: name2,
+        spec,
+        kind,
+        status: have === null ? "missing" : "outdated",
+        localVersion: have,
+        installable: target !== null,
+        target,
+        command: target ? installCommand(r2.profile, target) : ""
+      });
+    }
+  }
+  out.sort((a, b) => {
+    if (a.status !== b.status) return a.status === "missing" ? -1 : 1;
+    if (a.profile !== b.profile) return a.profile < b.profile ? -1 : 1;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
+  return out;
+}
 
 // src/sync/manifest.ts
 var MANIFESTS_DIR = "/dsh/manifests";
@@ -21533,6 +21611,37 @@ function prefixOf(rel) {
   if (parts.length === 0 || !parts[0]) return "";
   if (parts[0] === "custom-folders" && parts[1]) return "custom-folders/" + parts[1];
   return parts[0];
+}
+function readInstalled(nodeModulesDir) {
+  const out = {};
+  const versionOf = (p) => {
+    try {
+      return String(JSON.parse(readFileSync3(join6(p, "package.json"), "utf8")).version ?? "");
+    } catch {
+      return "";
+    }
+  };
+  let entries = [];
+  try {
+    entries = readdirSync(nodeModulesDir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const e2 of entries) {
+    const name2 = String(e2.name);
+    if (name2.startsWith(".")) continue;
+    if (name2.startsWith("@")) {
+      try {
+        for (const s2 of readdirSync(join6(nodeModulesDir, name2), { withFileTypes: true })) {
+          out[name2 + "/" + s2.name] = versionOf(join6(nodeModulesDir, name2, s2.name));
+        }
+      } catch {
+      }
+      continue;
+    }
+    out[name2] = versionOf(join6(nodeModulesDir, name2));
+  }
+  return out;
 }
 function normalizeWorkspaceName(raw) {
   const s2 = String(raw || "").replace(/[（(][^）)]*[）)]/g, "").replace(/[_\s-]+/g, "").toLowerCase();
@@ -21834,6 +21943,70 @@ var Engine = class {
     } catch {
     }
   }
+  /**
+   * 插件对账（0.4.0）。
+   *
+   * 插件的**包体永远不走同步**：`Scanner` 的 `walkFiles()` 遇到 `node_modules`
+   * 直接跳过，跨设备过去的只有 `profiles/<p>/package.json` 这类装配清单。
+   * 于是典型症状是「对端明明装了，这台机器上插件列表里没有」。
+   *
+   * 取数：
+   *   · 远端 —— NAS 上每个 profile 的 package.json（解密后解析）；
+   *   · 本机 —— **选定 profile** 的 node_modules 实际装了什么（不是清单）。
+   *
+   * 不按 profile 同名对比：手机跑 `web`、电脑跑 `desktop`，同名比永远比不出东西。
+   * 默认拿「本机包装得最多的 profile」当目标（通常就是正在用的那个）。
+   */
+  async auditPlugins(targetProfile) {
+    this.checkReady();
+    const root = join6(dshHome(), "profiles");
+    const locals = [];
+    let dirNames = [];
+    try {
+      dirNames = readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => String(d.name));
+    } catch {
+      dirNames = [];
+    }
+    for (const p of dirNames) {
+      const dir = join6(root, p);
+      if (!existsSync3(join6(dir, "package.json"))) continue;
+      locals.push({ profile: p, installed: readInstalled(join6(dir, "node_modules")) });
+    }
+    let target = "";
+    if (targetProfile && locals.some((l) => l.profile === targetProfile)) {
+      target = targetProfile;
+    } else if (locals.length > 0) {
+      target = locals.slice().sort((a, b) => Object.keys(b.installed).length - Object.keys(a.installed).length)[0].profile;
+    }
+    const installed = (locals.find((l) => l.profile === target) || { installed: {} }).installed;
+    const remote = [];
+    let remoteDirs = [];
+    try {
+      remoteDirs = await this.deps.transport.list("/dsh/profiles");
+    } catch {
+      remoteDirs = [];
+    }
+    for (const d of remoteDirs) {
+      if (d.type !== "directory") continue;
+      const plain = await this.fetchRemotePlain("/dsh/profiles/" + d.name + "/package.json");
+      if (!plain) continue;
+      const parsed = parseProfilePackage(new TextDecoder().decode(plain));
+      if (!parsed) continue;
+      remote.push({ profile: d.name, deps: parsed.deps, bundles: parsed.bundles });
+    }
+    const gaps = diffPlugins(installed, remote).map((g) => ({
+      ...g,
+      // 命令要装到**目标** profile，而不是清单来源的那个：手机跑 web、电脑跑 desktop，
+      // 照抄 `--profile web` 会装进去但永远不会被加载。
+      command: g.target ? installCommand(target, g.target) : ""
+    }));
+    return {
+      gaps,
+      target,
+      localProfiles: locals.map((l) => ({ profile: l.profile, count: Object.keys(l.installed).length })),
+      remoteProfiles: remote.map((r2) => r2.profile)
+    };
+  }
   async scan() {
     this.checkReady();
     this.loadWorkspaceDirs();
@@ -22111,6 +22284,167 @@ init_paths();
 
 // src/bridge.ts
 import { randomBytes as randomBytes3, timingSafeEqual } from "node:crypto";
+import { join as join8 } from "node:path";
+init_paths();
+
+// src/sync/installer.ts
+import { spawn } from "node:child_process";
+import { existsSync as existsSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname3, join as join7 } from "node:path";
+var LOG_CAP = 16 * 1024;
+function resolveCliScript() {
+  const exe = process.execPath;
+  if (!exe) return null;
+  const appAsar = join7(dirname3(exe), "resources", "app.asar");
+  try {
+    if (!existsSync4(appAsar)) return null;
+  } catch {
+    return null;
+  }
+  return join7(
+    appAsar,
+    "dsh",
+    "node_modules",
+    "@deepseek-ai",
+    "dsh-desktop-host",
+    "lib",
+    "cli.js"
+  );
+}
+function readProfileJson(profileDir) {
+  try {
+    return JSON.parse(readFileSync4(join7(profileDir, "package.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+function registerBundles(profileDir, installed) {
+  const pkg = readProfileJson(profileDir);
+  if (!pkg) return [];
+  const want = [];
+  for (const name2 of installed) {
+    try {
+      const pj = JSON.parse(readFileSync4(join7(profileDir, "node_modules", name2, "package.json"), "utf8"));
+      if (pj?.dsh?.bundle?.patch) want.push(name2);
+    } catch {
+    }
+  }
+  if (want.length === 0) return [];
+  const dsh = pkg.dsh ??= {};
+  const prof = dsh.profile ??= {};
+  const bundles = Array.isArray(prof.bundles) ? prof.bundles : prof.bundles = [];
+  const added = [];
+  for (const name2 of want) {
+    if (!bundles.includes(name2)) {
+      bundles.push(name2);
+      added.push(name2);
+    }
+  }
+  if (added.length === 0) return [];
+  try {
+    writeFileSync2(join7(profileDir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+  } catch {
+    return [];
+  }
+  return added;
+}
+var Installer = class {
+  constructor(profilesRoot) {
+    this.profilesRoot = profilesRoot;
+  }
+  jobs = /* @__PURE__ */ new Map();
+  seq = 0;
+  /** 当前是否有任务在跑（同一时刻只允许一个，避免两个 pnpm 抢 profile 的锁）。 */
+  running() {
+    for (const j of this.jobs.values()) if (j.state === "running") return j;
+    return null;
+  }
+  get(id) {
+    return this.jobs.get(id);
+  }
+  list() {
+    return [...this.jobs.values()].sort((a, b) => b.startedAt - a.startedAt);
+  }
+  /**
+   * 启动一次安装。`items` 里的 `target` 由 plugins.ts 的 installTarget() 生成，
+   * 这里不再解析 spec；`name` 只用于装完登记 `dsh.profile.bundles`。
+   */
+  start(profile, items) {
+    const cli = resolveCliScript();
+    if (!cli) throw new Error("\u8FD9\u53F0\u8BBE\u5907\u4E0A\u6CA1\u6709\u53EF\u7528\u7684 dsh CLI\uFF0C\u65E0\u6CD5\u81EA\u52A8\u5B89\u88C5\uFF08\u53EF\u4EE5\u590D\u5236\u547D\u4EE4\u624B\u52A8\u6267\u884C\uFF09");
+    const items2 = items.filter((i2) => i2 && i2.target && i2.name);
+    if (items2.length === 0) throw new Error("\u6CA1\u6709\u53EF\u5B89\u88C5\u7684\u63D2\u4EF6");
+    const busy = this.running();
+    if (busy) throw new Error(`\u5DF2\u6709\u5B89\u88C5\u4EFB\u52A1\u5728\u8FDB\u884C\u4E2D\uFF08${busy.profile}\uFF09`);
+    const targets = items2.map((i2) => i2.target);
+    const names = items2.map((i2) => i2.name);
+    const id = `job-${Date.now()}-${++this.seq}`;
+    const job = {
+      id,
+      profile,
+      targets,
+      state: "running",
+      code: null,
+      log: "",
+      startedAt: Date.now(),
+      endedAt: null,
+      registered: []
+    };
+    this.jobs.set(id, job);
+    const append = (chunk) => {
+      job.log += String(chunk);
+      if (job.log.length > LOG_CAP) job.log = job.log.slice(-LOG_CAP);
+    };
+    let child;
+    try {
+      child = spawn(
+        process.execPath,
+        // 与 dsh.cmd 完全一致：--expose-internals + ELECTRON_RUN_AS_NODE，
+        // 少一个参数宿主 CLI 可能起不来。
+        ["--expose-internals", cli, "plugin", "--profile", profile, "add", ...targets],
+        {
+          cwd: this.profilesRoot(),
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+    } catch (e2) {
+      job.state = "failed";
+      job.endedAt = Date.now();
+      job.log = `\u65E0\u6CD5\u542F\u52A8 dsh CLI\uFF1A${e2?.message ?? e2}`;
+      return job;
+    }
+    child.stdout?.on("data", append);
+    child.stderr?.on("data", append);
+    child.on("error", (e2) => {
+      job.state = "failed";
+      job.endedAt = Date.now();
+      append(`
+\u542F\u52A8\u5931\u8D25\uFF1A${e2?.message ?? e2}
+`);
+    });
+    child.on("close", (code) => {
+      job.code = code;
+      job.endedAt = Date.now();
+      job.state = code === 0 ? "done" : "failed";
+      if (code === 0) {
+        const profileDir = join7(this.profilesRoot(), profile);
+        job.registered = registerBundles(profileDir, names);
+        if (job.registered.length > 0) {
+          append(`
+\u5DF2\u767B\u8BB0\u5230 dsh.profile.bundles\uFF1A${job.registered.join(", ")}
+\u91CD\u542F DSH \u540E\u751F\u6548\u3002
+`);
+        } else {
+          append("\n\u5B89\u88C5\u5B8C\u6210\u3002\u82E5\u63D2\u4EF6\u672A\u51FA\u73B0\uFF0C\u8BF7\u91CD\u542F DSH\u3002\n");
+        }
+      }
+    });
+    return job;
+  }
+};
+
+// src/bridge.ts
 var BRIDGE_PREFIX = "/nas-sync-api";
 function sendJson(res, status, body) {
   res.writeHead(status, {
@@ -22165,6 +22499,7 @@ function publicConfig(cfg) {
 }
 function createBridge(ctx, deps) {
   const token = randomBytes3(24).toString("base64url");
+  const installer = new Installer(() => join8(dshHome(), "profiles"));
   if (typeof ctx.on === "function") {
     ctx.on("webserver/index-inject", (table) => {
       table.push(
@@ -22323,6 +22658,30 @@ function createBridge(ctx, deps) {
         }
         const next = deps.patchConfig(body.config);
         return ok(res, { config: publicConfig(next) });
+      }
+      if (sub === "/plugins" && method === "GET") {
+        const want = url.searchParams.get("target") || void 0;
+        const audit = await deps.getEngine().auditPlugins(want);
+        return ok(res, {
+          ...audit,
+          canInstall: resolveCliScript() !== null,
+          running: installer.running()
+        });
+      }
+      if (sub === "/plugins/install" && method === "POST") {
+        const body = await readBody();
+        const profile = String(body?.profile || "");
+        const items = Array.isArray(body?.items) ? body.items : [];
+        if (!profile) return fail(res, "bad_request", "profile \u4E0D\u80FD\u4E3A\u7A7A");
+        const clean = items.filter((i2) => i2 && typeof i2.name === "string" && typeof i2.target === "string").map((i2) => ({ name: i2.name, target: i2.target }));
+        const job = installer.start(profile, clean);
+        return ok(res, job);
+      }
+      if (sub === "/plugins/install" && method === "GET") {
+        const id = url.searchParams.get("id") || "";
+        const job = installer.get(id);
+        if (!job) return fail(res, "not_found", "\u6CA1\u6709\u8FD9\u4E2A\u5B89\u88C5\u4EFB\u52A1");
+        return ok(res, job);
       }
       return fail(res, "not_found", "\u672A\u77E5\u7AEF\u70B9: " + method + " " + sub);
     } catch (e2) {
@@ -22758,6 +23117,37 @@ function apply(ctx, config) {
     async execute(args) {
       await engine.skipPending(args.file);
       return { success: true, message: null };
+    }
+  }));
+  ctx.tools.register(defineTool({
+    name: "nas_plugin_audit",
+    description: "\u63D2\u4EF6\u5BF9\u8D26\uFF1A\u5217\u51FA\u5176\u5B83\u8BBE\u5907\u88C5\u4E86\u3001\u8FD9\u53F0\u673A\u5668\u8FD8\u6CA1\u88C5\u7684\u63D2\u4EF6\uFF08\u542B\u53EF\u76F4\u63A5\u6267\u884C\u7684\u5B89\u88C5\u547D\u4EE4\uFF09\u3002\u53EA\u8BFB\uFF0C\u4E0D\u5B89\u88C5\u3002",
+    parameters: {},
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          gaps: { type: "json" },
+          target: { type: "string" },
+          remoteProfiles: { type: "json" },
+          localProfiles: { type: "json" }
+        }
+      },
+      render: (_args, value) => {
+        const gaps = Array.isArray(value.gaps) ? value.gaps : [];
+        if (gaps.length === 0) return [{ type: "text", text: "\u63D2\u4EF6\u5DF2\u5BF9\u9F50\uFF0C\u6CA1\u6709\u7F3A\u5931\u3002" }];
+        const lines = gaps.map(
+          (g) => `- [${g.profile}] ${g.name}@${g.spec}\uFF08${g.status === "missing" ? "\u672A\u5B89\u88C5" : "\u7248\u672C\u4E0D\u7B26"}\uFF09` + (g.installable ? `
+  ${g.command}` : "\n  \u6307\u5411\u5BF9\u7AEF\u672C\u5730\u8DEF\u5F84\uFF0C\u65E0\u6CD5\u5728\u672C\u673A\u5B89\u88C5")
+        );
+        return [{ type: "text", text: `\u7F3A ${gaps.length} \u4E2A\u63D2\u4EF6\uFF1A
+${lines.join("\n")}` }];
+      }
+    },
+    async execute() {
+      const r2 = await engine.auditPlugins();
+      return { gaps: r2.gaps, target: r2.target, remoteProfiles: r2.remoteProfiles, localProfiles: r2.localProfiles };
     }
   }));
   ctx.tools.register(defineTool({
