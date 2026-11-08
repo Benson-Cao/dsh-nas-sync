@@ -20512,19 +20512,6 @@ function isSessionRel(rel) {
 function isWorkspaceRegistryRel(rel) {
   return rel === WORKSPACE_REGISTRY_REL;
 }
-function workspaceRegistryReady(home = dshHome()) {
-  try {
-    const p = join4(home, "storages", "workspace.json");
-    if (!existsSync2(p)) return false;
-    const d = JSON.parse(readFileSync2(p, "utf-8"));
-    const ids = d?.global?.workspaceIds;
-    if (!Array.isArray(ids) || ids.length === 0) return false;
-    if (d?.global?.initialized === false) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
 function safeName(p) {
   if (typeof p !== "string" || p.length === 0) return "workspace";
   const parts = p.split(/[\\/]+/).filter(Boolean);
@@ -20540,6 +20527,31 @@ function mapRemotePath(remotePath, home = dshHome()) {
     }
   }
   return { local: join4(home, WORKSPACES_DIR, safeName(remotePath)), mapped: true };
+}
+async function resolveNewWorkspaceDir(remotePath, home) {
+  const name2 = safeName(remotePath);
+  const target = join4(home, WORKSPACES_DIR, name2);
+  const legacy = join4(home, WORKSPACE_FILES_PREFIX, name2);
+  if (name2 !== "workspace") {
+    try {
+      if (existsSync2(legacy) && !existsSync2(target)) {
+        await mkdir2(join4(home, WORKSPACES_DIR), { recursive: true });
+        try {
+          await rename(legacy, target);
+        } catch {
+        }
+      }
+    } catch {
+    }
+    try {
+      if (existsSync2(target)) return { local: resolve(target), mapped: false };
+      if (existsSync2(legacy)) return { local: resolve(legacy), mapped: false };
+    } catch {
+    }
+  }
+  const m2 = mapRemotePath(remotePath, home);
+  await mkdir2(m2.local, { recursive: true });
+  return m2;
 }
 function workspaceRelOf(dirPath) {
   return `${WORKSPACE_FILES_PREFIX}/${safeName(dirPath)}`;
@@ -20899,6 +20911,37 @@ async function repairWorkspaceRegistry(home = dshHome()) {
   await rename(tmp, localPath);
   return result;
 }
+function registryView(text) {
+  let d;
+  try {
+    d = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const spaces = d?.tables?.workspaces ?? {};
+  const view = /* @__PURE__ */ new Map();
+  for (const w of Object.values(spaces)) {
+    const title = String(w?.title ?? "").trim().toLowerCase();
+    if (!title) continue;
+    const set = view.get(title) ?? /* @__PURE__ */ new Set();
+    for (const s2 of Array.isArray(w?.sessionIds) ? w.sessionIds : []) {
+      set.add(String(s2));
+    }
+    view.set(title, set);
+  }
+  return view;
+}
+function registryCovers(remoteText, localText) {
+  const remote = registryView(remoteText);
+  const local = registryView(localText);
+  if (!remote || !local) return true;
+  for (const [title, sessions] of local) {
+    const rs = remote.get(title);
+    if (!rs) return false;
+    for (const s2 of sessions) if (!rs.has(s2)) return false;
+  }
+  return true;
+}
 async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
   let remote;
   try {
@@ -20937,16 +20980,14 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
       const currentPath = existing["path"];
       const badPath = typeof currentPath !== "string" || currentPath.length === 0 || !existsSync2(currentPath);
       if (badPath) {
-        const m3 = mapRemotePath(currentPath ?? rw["path"], home);
-        await mkdir2(m3.local, { recursive: true });
+        const m3 = await resolveNewWorkspaceDir(currentPath ?? rw["path"], home);
         existing["path"] = m3.local;
         remapped += 1;
       }
       if (!globals["workspaceIds"].includes(id)) globals["workspaceIds"].push(id);
       continue;
     }
-    const m2 = mapRemotePath(rw["path"], home);
-    await mkdir2(m2.local, { recursive: true });
+    const m2 = await resolveNewWorkspaceDir(rw["path"], home);
     workspaces[id] = {
       ...rw,
       path: m2.local,
@@ -20961,6 +21002,9 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
   }
   const norm = normalizeWorkspaceRegistry(local);
   const deduped = norm.removed + norm.merged;
+  if (added === 0 && remapped === 0 && deduped === 0 && norm.orderFixed === 0) {
+    return { added: 0, remapped: 0, total: Object.keys(workspaces).length, deduped: 0 };
+  }
   await mkdir2(join4(home, "storages"), { recursive: true });
   const tmp = localPath + ".nas-sync.tmp";
   await writeFile2(tmp, JSON.stringify(local, null, 2) + "\n");
@@ -21874,6 +21918,14 @@ var Engine = class {
   /** 本轮 push 成功的 rel —— 只有它们才有资格写进「本设备清单」（0.3.6） */
   pushedOk = /* @__PURE__ */ new Set();
   /**
+   * 本机的工作区注册表本轮是否需要发布到 NAS（0.5.5）。
+   *
+   * 由 `pullWorkspaceRegistry()` 在合并后判定：只有「本机有、远端缺」的标题或
+   * 会话归属才需要发布。注册表是单文件、两端 id 又必然不同，若按哈希差异发布，
+   * 两台机器会每轮互相盖回去，变成 5 分钟一次的无用上传。
+   */
+  registryNeedsPush = false;
+  /**
    * 工作区目录名 → 真实路径（0.3.7）。
    * `workspaces/<名字>/…` 的落点**不在 $DSH_HOME 下**，必须查注册表；
    * 之前直接 localOf() 算成 $DSH_HOME/workspaces/…，读不到文件导致 upload 全失败。
@@ -22352,6 +22404,7 @@ var Engine = class {
     const conflicts = [];
     const last = this.deps.store.snapshot.lastSyncTime ?? 0;
     for (const [rel, le] of localMap) {
+      if (isWorkspaceRegistryRel(rel)) continue;
       const re = remoteMap.get(rel);
       if (!re) {
         pending.push({ rel, size: le.size, action: "upload" });
@@ -22376,6 +22429,7 @@ var Engine = class {
       }
     }
     for (const [rel, re] of remoteMap) {
+      if (isWorkspaceRegistryRel(rel)) continue;
       if (!localMap.has(rel)) {
         pending.push({ rel, size: re.size, action: "download" });
       }
@@ -22395,7 +22449,10 @@ var Engine = class {
     this.running = true;
     this.abort = new AbortController();
     this.pushedOk.clear();
+    this.registryNeedsPush = mode === "push";
+    if (mode !== "push") await this.pullWorkspaceRegistry();
     this.loadWorkspaceDirs();
+    if (this.registryNeedsPush && mode !== "pull") await this.pushWorkspaceRegistry();
     this.deps.store.snapshot.running = true;
     this.deps.store.snapshot.progress = { total: 0, done: 0, errors: 0 };
     this.deps.store.save();
@@ -22518,12 +22575,67 @@ var Engine = class {
       await this.deps.transport.putBuffer(cipher, remote, { mkdirs: true });
     }
   }
-  /** 下载单个文件并解密写盘。工作区注册表与会话头要额外处理，见各分支注释。 */
+  /**
+   * 把 NAS 上的工作区注册表**合并**进本机（只加不改）。
+   *
+   * 0.5.5 之前这一步只发生在「本机没有可用注册表」的时候：`downloadEntry()` 里
+   * 有一条 `isWorkspaceRegistryRel(rel) && workspaceRegistryReady() → skipped`。
+   * 于是**只要本机注册表已经可用，远端注册表就永远不会被合并** —— 手机上新加的
+   * 工作区（如「鲸鱼宠物」）在电脑上永远不出现：
+   *
+   *   loadWorkspaceDirs() 没有这个映射
+   *     → resolveLocal('workspaces/鲸鱼宠物/…') 退化成 $DSH_HOME/workspaces/鲸鱼宠物
+   *     → 59 个文件确实落地了，但既不在注册表里（侧栏看不见），也不在扫描范围
+   *       （nassyncworkspaces/）里
+   *     → 用户看到的就是「手机上的文件夹什么都没同步过来」。
+   *
+   * 合并本身是保守的（见 mergeWorkspaceRegistry：本地已有的 id 一律保留 path/title），
+   * 所以每轮都跑也不会抹掉本机条目；无变化时它连盘都不写。
+   */
+  async pullWorkspaceRegistry() {
+    this.registryNeedsPush = false;
+    const localAbs = join6(dshHome(), WORKSPACE_REGISTRY_REL);
+    let plain = null;
+    try {
+      plain = await this.fetchRemotePlain("/dsh/" + WORKSPACE_REGISTRY_REL);
+    } catch (e2) {
+      console.warn("[dsh-nas-sync] \u62C9\u53D6\u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\u5931\u8D25\uFF1A" + e2.message);
+      return;
+    }
+    if (!plain) {
+      this.registryNeedsPush = true;
+      return;
+    }
+    const remoteText = Buffer.from(plain).toString("utf8");
+    try {
+      const r2 = await mergeWorkspaceRegistry(remoteText);
+      if (r2.added > 0 || r2.remapped > 0 || r2.deduped > 0) {
+        console.warn(
+          "[dsh-nas-sync] \u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\u5DF2\u5408\u5E76\uFF1A\u65B0\u589E " + r2.added + "\u3001\u4FEE\u6B63\u8DEF\u5F84 " + r2.remapped + "\u3001\u53BB\u91CD " + r2.deduped
+        );
+      }
+      const localText = await readFile4(localAbs, "utf8");
+      this.registryNeedsPush = !registryCovers(remoteText, localText);
+    } catch (e2) {
+      console.warn("[dsh-nas-sync] \u5408\u5E76\u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\u5931\u8D25\uFF1A" + e2.message);
+    }
+  }
+  /** 把本机注册表发布到 NAS（只在 pullWorkspaceRegistry 判定「本机有多出来的部分」时调用）。 */
+  async pushWorkspaceRegistry() {
+    try {
+      const abs = join6(dshHome(), WORKSPACE_REGISTRY_REL);
+      const buf = await readFile4(abs);
+      await this.pushFile(WORKSPACE_REGISTRY_REL, buf.length);
+      this.pushedOk.add(WORKSPACE_REGISTRY_REL);
+    } catch (e2) {
+      console.warn("[dsh-nas-sync] \u53D1\u5E03\u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\u5931\u8D25\uFF1A" + e2.message);
+    }
+  }
+  /**
+   * 下载单个文件并解密写盘。工作区注册表与会话头要额外处理，见各分支注释。
+   */
   async downloadEntry(rel) {
     this.setPhase("downloading");
-    if (isWorkspaceRegistryRel(rel) && workspaceRegistryReady()) {
-      return "skipped";
-    }
     const plain = await this.fetchRemotePlain("/dsh/" + rel);
     if (!plain) {
       console.warn("[dsh-nas-sync] \u8DF3\u8FC7\uFF1A\u8FDC\u7AEF\u5DF2\u4E0D\u5B58\u5728 " + rel);

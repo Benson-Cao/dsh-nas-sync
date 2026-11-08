@@ -226,16 +226,29 @@ registerNasSyncUi(ctx, HostBridge(scope))
   不下载合并** —— 双向 mirror 每轮拉注册表会把对端的工作区归属合进来，反复改写
   `default` / `path` / `sessionIds`。**0.3.5 起这是条件式的**：新机器首次同步
   （本机还没有可用注册表）仍然放行合并，否则侧栏工作区名会全丢。
+- **0.5.5 修正上一版把「合并」也一起挡掉了的坑**：只要本机注册表可用，远端注册表
+  就永不合并，于是手机上新加的工作区在电脑上永远不出现 —— 它那几十个文件确实下
+  来了，但落在 `$DSH_HOME/workspaces/<名字>`（`resolveLocal` 查不到映射时的退化
+  落点），既不在侧栏、也不在 `nassyncworkspaces/` 的扫描范围里，用户看到的就是
+  「什么都没同步过来」。现在的规则：
+  - **每轮同步开头**先拉远端注册表**合并**（只加不改，本地 path/title 一律保留）；
+  - 合并后只有「本机有、远端缺」的标题或会话归属才**发布**一次（`registryCovers()`
+    判定）。注册表是单文件、两端工作区 id 又天然不同，按哈希差异发布会让两台机器
+    每轮互相盖回去 —— 5 分钟一次的无用上传；
+  - 注册表**不进差集**，所以面板不会永远显示「待同步 1 项」；
+  - 新增工作区落地时，若同名目录已在 `$DSH_HOME/workspaces/<名字>` 有实物，先
+    **搬**到 `nassyncworkspaces/<名字>` 再登记：不重下一遍，也不留一份谁都看不见的垃圾。
 - 远端绝对路径在本机不存在时，映射到 `$DSH_HOME/nassyncworkspaces/<名字>` 并 `mkdir`。
 - 会话文件落地时改写表头 `cwd` 为映射后的路径；每轮同步结束再做一次幂等修复。
 - **跨平台会话不下地**：判定看**原始 cwd**（不是映射后的路径）。手机上的会话
   不会落到 Windows，反之亦然 —— 否则每轮都会在 `nassyncworkspaces/` 造一份重复，
   被收尾的 `dedupeSessionDirs()` 反复隔离。
 
-> **为什么映射到 `~/.dsh/workspaces/`**：它仍在 `$DSH_HOME` 之内，于是「工作区文件」
-> 可以当成 rel 前缀 `workspaces/` 的普通分类来同步；同时手机上的
-> `/data/.../home/wstest` 与电脑上的 `~/.dsh/workspaces/wstest` 在 rel 空间里
+> **为什么映射到 `~/.dsh/nassyncworkspaces/`**：它仍在 `$DSH_HOME` 之内，于是
+> 「工作区文件」可以当成 rel 前缀 `workspaces/` 的普通分类来同步；同时手机上的
+> `/data/.../home/wstest` 与电脑上的 `~/.dsh/nassyncworkspaces/wstest` 在 rel 空间里
 > 收敛成同一个 `workspaces/wstest/`，两端算法一致就不会错位。
+> 名字里刻意不带连字符（`-` 是 dsh 会话目录名里的路径分隔符）。
 
 > **⚠️ 会话文件是「多帧追加」的 zstd**：每写一批记录就 append 一个 frame。
 > Node 的 `zstdDecompressSync` / `createZstdDecompress()` **都只解第一帧**（实测：

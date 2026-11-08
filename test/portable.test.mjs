@@ -6,7 +6,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as zlib from 'node:zlib';
@@ -19,6 +19,8 @@ import {
   workspaceRegistryReady,
   rewriteSessionCwd,
   platformMismatch,
+  mergeWorkspaceRegistry,
+  registryCovers,
 } from '../dist-test/portable.mjs';
 
 function home() {
@@ -164,4 +166,122 @@ test('dedupeSessionDirs：没有 sessions 目录时安全返回', async () => {
   const h = home();
   const r = await dedupeSessionDirs(h);
   assert.deepEqual(r, { scanned: 0, duplicates: 0, isolated: 0 });
+});
+
+// ---------------------------------------------------------------------------
+// 0.5.5：本机注册表已可用时，远端注册表仍要合并且把旧退化落点搬正
+// ---------------------------------------------------------------------------
+
+/** 造一个「本机已有 2 个工作区 + 一份已下到 workspaces/<名字> 的工作区文件」的家目录。 */
+function homeWithSyncedWorkspaces(whaleFiles = 3) {
+  const h = home();
+  mkdirSync(join(h, 'storages'), { recursive: true });
+  mkdirSync(join(h, 'nassyncworkspaces', 'wstest'), { recursive: true });
+  const desktop = join(h, 'Desktop', '胎教Agent');
+  mkdirSync(desktop, { recursive: true });
+  writeFileSync(join(h, 'storages', 'workspace.json'), JSON.stringify({
+    unit: { name: 'workspace', version: 2 },
+    global: {
+      initialized: true,
+      defaultWorkspaceId: 'id-wstest',
+      workspaceIds: ['id-wstest', 'id-taijiao'],
+      archivedSessionIds: [],
+      pinnedSessionIds: [],
+    },
+    tables: {
+      workspaces: {
+        'id-wstest': {
+          path: join(h, 'nassyncworkspaces', 'wstest'),
+          title: 'wstest', sessionIds: ['s1'], createdAt: 'x', updatedAt: 'x',
+        },
+        'id-taijiao': {
+          path: desktop, title: '胎教Agent', sessionIds: ['s2'], createdAt: 'x', updatedAt: 'x',
+        },
+      },
+    },
+  }, null, 2));
+
+  const legacy = join(h, 'workspaces', '鲸鱼宠物');
+  mkdirSync(join(legacy, 'src'), { recursive: true });
+  for (let i = 0; i < whaleFiles; i++) writeFileSync(join(legacy, 'f' + i + '.txt'), String(i));
+  return { h, desktop, legacy };
+}
+
+const REMOTE_REGISTRY = JSON.stringify({
+  unit: { name: 'workspace', version: 2 },
+  global: {
+    initialized: true,
+    defaultWorkspaceId: 'id-whale',
+    workspaceIds: ['id-whale', 'id-taijiao', 'id-wstest'],
+    archivedSessionIds: [],
+    pinnedSessionIds: [],
+  },
+  tables: {
+    workspaces: {
+      'id-whale': {
+        path: '/data/user/0/com.dsh.harness/files/home/鲸鱼宠物',
+        title: '鲸鱼宠物', sessionIds: ['s9', 's10'], createdAt: 'x', updatedAt: 'x',
+      },
+      'id-taijiao': {
+        path: '/data/user/0/com.dsh.harness/files/home/.dsh/nassyncworkspaces/胎教Agent',
+        title: '胎教Agent', sessionIds: ['s2', 's3'], createdAt: 'x', updatedAt: 'x',
+      },
+      'id-wstest': {
+        path: '/data/user/0/com.dsh.harness/files/home/wstest',
+        title: 'wstest', sessionIds: ['s1'], createdAt: 'x', updatedAt: 'x',
+      },
+    },
+  },
+});
+
+test('mergeWorkspaceRegistry：本机已有注册表也合并，新增工作区并搬正旧落点', async () => {
+  const { h, desktop, legacy } = homeWithSyncedWorkspaces();
+  const r = await mergeWorkspaceRegistry(REMOTE_REGISTRY, h);
+  assert.equal(r.added, 1, JSON.stringify(r));
+
+  const reg = JSON.parse(readFileSync(join(h, 'storages', 'workspace.json'), 'utf8'));
+  const whale = reg.tables.workspaces['id-whale'];
+  assert.ok(whale, '应新增鲸鱼宠物');
+  assert.equal(whale.path, join(h, 'nassyncworkspaces', '鲸鱼宠物'));
+  assert.deepEqual(whale.sessionIds, ['s9', 's10']);
+  // 文件跟着搬家，一个不落
+  assert.equal(existsSync(legacy), false, '旧落点应已清空');
+  assert.equal(readdirSync(whale.path).filter((f) => f.endsWith('.txt')).length, 3);
+  // 本机条目一律不动
+  assert.equal(reg.tables.workspaces['id-wstest'].path, join(h, 'nassyncworkspaces', 'wstest'));
+  assert.equal(reg.tables.workspaces['id-taijiao'].path, desktop);
+  assert.deepEqual(reg.tables.workspaces['id-taijiao'].sessionIds, ['s2', 's3'], '只并集归属');
+});
+
+test('mergeWorkspaceRegistry：内容没变化时不写盘（不刷 mtime）', async () => {
+  const { h } = homeWithSyncedWorkspaces();
+  await mergeWorkspaceRegistry(REMOTE_REGISTRY, h);
+  const p = join(h, 'storages', 'workspace.json');
+  const before = statSync(p).mtimeMs;
+  const r = await mergeWorkspaceRegistry(REMOTE_REGISTRY, h);
+  assert.deepEqual([r.added, r.remapped, r.deduped], [0, 0, 0]);
+  assert.equal(statSync(p).mtimeMs, before, '无变化不该重写注册表');
+});
+
+test('registryCovers：远端已覆盖本机 → 不发布；本机有远端缺的 → 发布', () => {
+  const local = JSON.stringify({
+    tables: { workspaces: { a: { title: 'wstest', sessionIds: ['s1'] } } },
+  });
+  const remoteSame = JSON.stringify({
+    tables: { workspaces: { b: { title: 'wstest', sessionIds: ['s1', 's2'] } } },
+  });
+  // 远端同一标题下会话更多 → 本机没有新东西，不该发布（否则两台机器会互相盖回去）
+  assert.equal(registryCovers(remoteSame, local), true);
+  // 本机多一个远端没有的标题 → 必须发布
+  const localExtra = JSON.stringify({
+    tables: { workspaces: { a: { title: '新工作区', sessionIds: [] } } },
+  });
+  assert.equal(registryCovers(remoteSame, localExtra), false);
+  // 同一标题但本机有远端缺的会话归属 → 也必须发布
+  const localMoreSessions = JSON.stringify({
+    tables: { workspaces: { a: { title: 'wstest', sessionIds: ['s1', 's7'] } } },
+  });
+  assert.equal(registryCovers(remoteSame, localMoreSessions), false);
+  // 解析不了远端 → 别冒险覆盖
+  assert.equal(registryCovers('not json', local), true);
 });

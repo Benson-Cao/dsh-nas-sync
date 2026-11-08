@@ -137,6 +137,53 @@ export function mapRemotePath(remotePath: unknown, home: string = dshHome()): Ma
   return { local: join(home, WORKSPACES_DIR, safeName(remotePath)), mapped: true };
 }
 
+/**
+ * 给**新增**的工作区条目挑一个本机落点，并顺手收拢旧版的退化落点。
+ *
+ * 退化落点是怎么来的：`resolveLocal('workspaces/<名字>/…')` 在注册表里查不到
+ * 这个名字时会退化成 `localOf(rel)`，即 `$DSH_HOME/workspaces/<名字>/…`。所以
+ * 一个「NAS 上有、本机注册表里没有」的工作区，文件其实是**下下来了**，只是全
+ * 落在 `workspaces/<名字>` 下面 —— 它既不在注册表里（侧栏看不见），也不在扫描
+ * 范围（`nassyncworkspaces/`）里，每轮同步还会重新看见「远端有、本地无」再下一遍。
+ *
+ * 合并注册表时必须把这种目录**搬**到标准位置，否则用户看到的就是 59 个文件
+ * 「什么都没同步过来」，而磁盘上其实早有一份。
+ * 搬不动（跨卷 / 被占用）就原地认领 —— 绝不为了布局整洁丢掉已经下好的文件。
+ */
+async function resolveNewWorkspaceDir(
+  remotePath: unknown,
+  home: string,
+): Promise<MappedPath> {
+  const name = safeName(remotePath);
+  const target = join(home, WORKSPACES_DIR, name);
+  const legacy = join(home, WORKSPACE_FILES_PREFIX, name);
+
+  if (name !== 'workspace') {
+    try {
+      if (existsSync(legacy) && !existsSync(target)) {
+        await mkdir(join(home, WORKSPACES_DIR), { recursive: true });
+        try {
+          await rename(legacy, target);
+        } catch {
+          /* 跨卷或被占用：下面原地认领 */
+        }
+      }
+    } catch {
+      /* 探测失败就当没有旧落点 */
+    }
+    try {
+      if (existsSync(target)) return { local: resolve(target), mapped: false };
+      if (existsSync(legacy)) return { local: resolve(legacy), mapped: false };
+    } catch {
+      /* 非法路径 */
+    }
+  }
+
+  const m = mapRemotePath(remotePath, home);
+  await mkdir(m.local, { recursive: true });
+  return m;
+}
+
 /** 某个工作区目录在 rel 空间的挂载点，如 `/a/b/wstest` → `workspaces/wstest`。 */
 export function workspaceRelOf(dirPath: string): string {
   return `${WORKSPACE_FILES_PREFIX}/${safeName(dirPath)}`;
@@ -693,6 +740,51 @@ export async function repairWorkspaceRegistry(
   return result;
 }
 
+/** 注册表里「工作区标题 → 会话归属集合」的语义视图，用于跨设备比较。 */
+function registryView(text: string): Map<string, Set<string>> | null {
+  let d: any;
+  try {
+    d = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const spaces = (d?.tables?.workspaces ?? {}) as Record<string, any>;
+  const view = new Map<string, Set<string>>();
+  for (const w of Object.values(spaces)) {
+    const title = String((w as any)?.title ?? '').trim().toLowerCase();
+    if (!title) continue;
+    const set = view.get(title) ?? new Set<string>();
+    for (const s of Array.isArray((w as any)?.sessionIds) ? (w as any).sessionIds : []) {
+      set.add(String(s));
+    }
+    view.set(title, set);
+  }
+  return view;
+}
+
+/**
+ * 远端注册表是否**已经覆盖**本机这份（标题齐 + 每个标题下的会话归属不缺）。
+ *
+ * 为什么需要：注册表是**单文件**，两台设备合并后会各自保留自己的工作区 id
+ * （normalizeWorkspaceRegistry 按标题去重，keeper 取本机那份），所以两边的字节
+ * 永远不可能相同。若按「哈希不同就上传」来判定，两台机器会每轮各传一次、
+ * 无限互相盖回去 —— 5 分钟一次的无用上传。
+ *
+ * 判据改成「本机有没有远端缺的东西」：缺就发布一次，不缺就不动。合并是单调的
+ * （只并集、只增），所以两台设备比较两三轮后必然都变成「谁都不缺」，自然收敛。
+ */
+export function registryCovers(remoteText: string, localText: string): boolean {
+  const remote = registryView(remoteText);
+  const local = registryView(localText);
+  if (!remote || !local) return true; // 解析不了就别冒险覆盖远端
+  for (const [title, sessions] of local) {
+    const rs = remote.get(title);
+    if (!rs) return false;
+    for (const s of sessions) if (!rs.has(s)) return false;
+  }
+  return true;
+}
+
 /**
  * 合并同步来的工作区注册表。
  *
@@ -755,8 +847,7 @@ export async function mergeWorkspaceRegistry(
       const badPath =
         typeof currentPath !== 'string' || currentPath.length === 0 || !existsSync(currentPath);
       if (badPath) {
-        const m = mapRemotePath(currentPath ?? rw['path'], home);
-        await mkdir(m.local, { recursive: true });
+        const m = await resolveNewWorkspaceDir(currentPath ?? rw['path'], home);
         existing['path'] = m.local;
         remapped += 1;
       }
@@ -764,8 +855,7 @@ export async function mergeWorkspaceRegistry(
       continue;
     }
 
-    const m = mapRemotePath(rw['path'], home);
-    await mkdir(m.local, { recursive: true });
+    const m = await resolveNewWorkspaceDir(rw['path'], home);
     workspaces[id] = {
       ...rw,
       path: m.local,
@@ -786,6 +876,17 @@ export async function mergeWorkspaceRegistry(
   // 写回前必须做一次完整收敛。
   const norm = normalizeWorkspaceRegistry(local);
   const deduped = norm.removed + norm.merged;
+
+  /**
+   * 没变化就不写盘（0.5.5）。
+   *
+   * 合并现在**每轮同步都会跑**（见 engine.pullWorkspaceRegistry），而它原来是无条件
+   * 重写 `workspace.json`：内容一模一样也会刷新 mtime，dsh 的工作区监听被反复惊动，
+   * 侧栏会跟着抖，用户还会以为「同步一直在改我的工作区」。
+   */
+  if (added === 0 && remapped === 0 && deduped === 0 && norm.orderFixed === 0) {
+    return { added: 0, remapped: 0, total: Object.keys(workspaces).length, deduped: 0 };
+  }
 
   await mkdir(join(home, 'storages'), { recursive: true });
   /**

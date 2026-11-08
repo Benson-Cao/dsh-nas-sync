@@ -60,9 +60,10 @@ import {
   dedupeSessionDirs,
   repairSessionCwd,
   repairWorkspaceRegistry,
+  registryCovers,
   rewriteSessionCwd,
   safeName,
-  workspaceRegistryReady,
+  WORKSPACE_REGISTRY_REL,
 } from './portable.js';
 
 export type SyncMode = 'push' | 'pull' | 'mirror';
@@ -220,6 +221,15 @@ export class Engine {
 
   /** 本轮 push 成功的 rel —— 只有它们才有资格写进「本设备清单」（0.3.6） */
   private pushedOk = new Set<string>();
+
+  /**
+   * 本机的工作区注册表本轮是否需要发布到 NAS（0.5.5）。
+   *
+   * 由 `pullWorkspaceRegistry()` 在合并后判定：只有「本机有、远端缺」的标题或
+   * 会话归属才需要发布。注册表是单文件、两端 id 又必然不同，若按哈希差异发布，
+   * 两台机器会每轮互相盖回去，变成 5 分钟一次的无用上传。
+   */
+  private registryNeedsPush = false;
 
   /**
    * 工作区目录名 → 真实路径（0.3.7）。
@@ -817,6 +827,9 @@ export class Engine {
     const last = this.deps.store.snapshot.lastSyncTime ?? 0;
 
     for (const [rel, le] of localMap) {
+      // 注册表不参与差集：它由 pullWorkspaceRegistry() 每轮**合并**，永远不可能
+      // 和远端字节一致（合并结果包含本机条目），留在差集里会变成「永远待同步 1 项」。
+      if (isWorkspaceRegistryRel(rel)) continue;
       const re = remoteMap.get(rel);
       if (!re) {
         pending.push({ rel, size: le.size, action: 'upload' });
@@ -845,6 +858,7 @@ export class Engine {
 
     // 远端有、本地无 -> 下载
     for (const [rel, re] of remoteMap) {
+      if (isWorkspaceRegistryRel(rel)) continue;
       if (!localMap.has(rel)) {
         pending.push({ rel, size: re.size, action: 'download' });
       }
@@ -875,7 +889,24 @@ export class Engine {
     this.running = true;
     this.abort = new AbortController();
     this.pushedOk.clear();
+    /**
+     * 先并注册表，再读「工作区名字 → 本机目录」映射（0.5.5）。
+     *
+     * 顺序不能反：`loadWorkspaceDirs()` 是 rel 落地位置的唯一依据，手机上新加的
+     * 工作区必须在本轮扫描前就被它认出来，否则这一轮它那几十个文件会落到
+     * `$DSH_HOME/workspaces/<名字>` 这个退化位置（既看不见、还要下一遍）。
+     *
+     * push 模式不动本机注册表，但要无条件发布（没有比较依据）；其余模式先合并，
+     * 再按 registryCovers 判定「本机有没有远端缺的东西」决定是否发布 —— 否则
+     * 两台设备的注册表 id 天然不同，会每轮互相盖回去。
+     */
+    this.registryNeedsPush = mode === 'push';
+    if (mode !== 'push') await this.pullWorkspaceRegistry();
     this.loadWorkspaceDirs();
+
+    // 本机有远端缺的工作区/会话归属 → 发布一次，让对端也能拿到（判定见 registryCovers）。
+    // 放在扫描前：远端注册表越早收敛，对端下一步的落地位置就越准。
+    if (this.registryNeedsPush && mode !== 'pull') await this.pushWorkspaceRegistry();
     /**
      * 先落盘「运行中 + 空进度」，再进 scan（0.5.1）。
      *
@@ -1067,17 +1098,82 @@ export class Engine {
     }
   }
 
-  /** 下载单个文件并解密写盘。工作区注册表与会话头要额外处理，见各分支注释。 */
+  /**
+   * 把 NAS 上的工作区注册表**合并**进本机（只加不改）。
+   *
+   * 0.5.5 之前这一步只发生在「本机没有可用注册表」的时候：`downloadEntry()` 里
+   * 有一条 `isWorkspaceRegistryRel(rel) && workspaceRegistryReady() → skipped`。
+   * 于是**只要本机注册表已经可用，远端注册表就永远不会被合并** —— 手机上新加的
+   * 工作区（如「鲸鱼宠物」）在电脑上永远不出现：
+   *
+   *   loadWorkspaceDirs() 没有这个映射
+   *     → resolveLocal('workspaces/鲸鱼宠物/…') 退化成 $DSH_HOME/workspaces/鲸鱼宠物
+   *     → 59 个文件确实落地了，但既不在注册表里（侧栏看不见），也不在扫描范围
+   *       （nassyncworkspaces/）里
+   *     → 用户看到的就是「手机上的文件夹什么都没同步过来」。
+   *
+   * 合并本身是保守的（见 mergeWorkspaceRegistry：本地已有的 id 一律保留 path/title），
+   * 所以每轮都跑也不会抹掉本机条目；无变化时它连盘都不写。
+   */
+  private async pullWorkspaceRegistry(): Promise<void> {
+    this.registryNeedsPush = false;
+    const localAbs = join(dshHome(), WORKSPACE_REGISTRY_REL);
+    let plain: Uint8Array | null = null;
+    try {
+      plain = await this.fetchRemotePlain('/dsh/' + WORKSPACE_REGISTRY_REL);
+    } catch (e) {
+      // 拉不到注册表不该让整轮同步判失败：注册表只决定「目录名 + 会话归属」，
+      // 文件本身各自按 rel 走，缺了它只是这一轮看不到新工作区。
+      console.warn('[dsh-nas-sync] 拉取工作区注册表失败：' + (e as Error).message);
+      return;
+    }
+    // 远端还没有 → 把本机这份发上去，让新机器也能拿到工作区名
+    if (!plain) {
+      this.registryNeedsPush = true;
+      return;
+    }
+    // 必须经 Buffer：plain 是 Uint8Array，`toString('utf8')` 会走
+    // Array.prototype.toString 拼成 "123,34,…" 的逗号串，JSON.parse 必失败。
+    const remoteText = Buffer.from(plain).toString('utf8');
+    try {
+      const r = await mergeWorkspaceRegistry(remoteText);
+      if (r.added > 0 || r.remapped > 0 || r.deduped > 0) {
+        console.warn(
+          '[dsh-nas-sync] 工作区注册表已合并：新增 ' + r.added +
+          '、修正路径 ' + r.remapped + '、去重 ' + r.deduped,
+        );
+      }
+      const localText = await readFile(localAbs, 'utf8');
+      this.registryNeedsPush = !registryCovers(remoteText, localText);
+    } catch (e) {
+      console.warn('[dsh-nas-sync] 合并工作区注册表失败：' + (e as Error).message);
+    }
+  }
+
+  /** 把本机注册表发布到 NAS（只在 pullWorkspaceRegistry 判定「本机有多出来的部分」时调用）。 */
+  private async pushWorkspaceRegistry(): Promise<void> {
+    try {
+      const abs = join(dshHome(), WORKSPACE_REGISTRY_REL);
+      const buf = await readFile(abs);
+      await this.pushFile(WORKSPACE_REGISTRY_REL, buf.length);
+      this.pushedOk.add(WORKSPACE_REGISTRY_REL);
+    } catch (e) {
+      // 发布失败不影响整轮结果：下一轮 pull 会重新判定并重试
+      console.warn('[dsh-nas-sync] 发布工作区注册表失败：' + (e as Error).message);
+    }
+  }
+
+  /**
+   * 下载单个文件并解密写盘。工作区注册表与会话头要额外处理，见各分支注释。
+   */
   private async downloadEntry(rel: string): Promise<DownloadOutcome> {
     this.setPhase('downloading');
 
-    // 0.3.5：守卫下沉到这里统一判定（原来只在 sync() 循环里，resolve('remote') 能绕过）。
-    // **条件式**：本机注册表已可用才禁止下载合并；新机器首次同步必须放行，
-    // 否则侧栏工作区名与会话归属全丢 —— repairWorkspaceRegistry() 在本机没有
-    // 注册表时直接返回 0，兜不住这个场景。
-    if (isWorkspaceRegistryRel(rel) && workspaceRegistryReady()) {
-      return 'skipped';
-    }
+    // 0.5.5：这里原来有一条 `isWorkspaceRegistryRel(rel) && workspaceRegistryReady()
+    // → 'skipped'` 的守卫，导致「本机注册表一可用，远端注册表就再也不合并」。
+    // 那个守卫是想防「覆盖」，但真正的覆盖风险早在下面的合并分支里解决了
+    // （mergeWorkspaceRegistry 只加不改、本地 path/title 一律保留），所以守卫
+    // 已删除；每轮同步改由 pullWorkspaceRegistry() 在扫描前统一合并。
 
     const plain = await this.fetchRemotePlain('/dsh/' + rel);
     if (!plain) {
