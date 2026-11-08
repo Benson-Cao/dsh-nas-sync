@@ -20915,6 +20915,41 @@ function normalizeWorkspaceRegistry(local) {
   const removed = dedupeWorkspaceSessions(local);
   return { merged, removed, orderFixed };
 }
+async function registerSessionForRel(rel, home = dshHome()) {
+  const parts = String(rel || "").split("/");
+  if (parts.length < 4 || parts[0] !== "sessions") return false;
+  const enc = parts[1];
+  const sid = parts[parts.length - 2];
+  if (!enc || !sid) return false;
+  const p = join4(home, WORKSPACE_REGISTRY_REL);
+  let reg;
+  try {
+    reg = JSON.parse(await readFile2(p, "utf8"));
+  } catch {
+    return false;
+  }
+  const spaces = reg?.["tables"]?.["workspaces"];
+  if (!spaces || typeof spaces !== "object") return false;
+  let hit = null;
+  for (const w of Object.values(spaces)) {
+    const d = String(w?.["path"] ?? "");
+    if (d && encodeCwd(d) === enc) {
+      hit = w;
+      break;
+    }
+  }
+  if (!hit) return false;
+  const ids = Array.isArray(hit["sessionIds"]) ? hit["sessionIds"].map(String) : [];
+  if (ids.includes(sid)) return false;
+  hit["sessionIds"] = [...ids, sid];
+  hit["updatedAt"] = (/* @__PURE__ */ new Date()).toISOString();
+  normalizeWorkspaceRegistry(reg);
+  await mkdir2(join4(home, "storages"), { recursive: true });
+  const tmp = p + ".nas-sync.tmp";
+  await writeFile2(tmp, JSON.stringify(reg, null, 2) + "\n");
+  await rename(tmp, p);
+  return true;
+}
 async function repairWorkspaceRegistry(home = dshHome()) {
   const localPath = join4(home, WORKSPACE_REGISTRY_REL);
   let text;
@@ -22562,6 +22597,10 @@ var Engine = class {
           await this.flushSessionImports();
         } catch {
         }
+        try {
+          await this.registerImportedSessions();
+        } catch {
+        }
       }
       if (!this.abort.signal.aborted) {
         try {
@@ -22638,6 +22677,23 @@ var Engine = class {
     } else {
       await this.deps.transport.putBuffer(cipher, remote, { mkdirs: true });
     }
+  }
+  /**
+   * 补登记：「同步进来的会话」逐个确保在工作区注册表里有名分（0.5.7）。
+   *
+   * 0.5.6 导入的会话只落了文件、没登记，侧栏就看不到（见 registerSessionForRel 注释）。
+   * 每轮跑一次、只处理 `sessionImports` 里的条目 —— 不去全盘扫描工作区目录，
+   * 免得把用户在侧栏里删掉的会话（目录可能还在）又复活出来。
+   */
+  async registerImportedSessions() {
+    let n = 0;
+    for (const rec of Object.values(this.deps.store.sessionImports ?? {})) {
+      try {
+        if (await registerSessionForRel(rec.localRel)) n += 1;
+      } catch {
+      }
+    }
+    if (n > 0) console.log("[dsh-nas-sync] \u5DF2\u8865\u767B\u8BB0 " + n + " \u4E2A\u4F1A\u8BDD\u5230\u4FA7\u680F");
   }
   /**
    * 把某个 rel 的新指纹写回**它所属的那份设备清单**（0.5.6）。
@@ -22827,6 +22883,12 @@ var Engine = class {
           await rm3(localAbs.slice(0, cut), { recursive: true, force: true });
         } catch {
         }
+      }
+      try {
+        if (await registerSessionForRel(targetRel)) {
+          console.log("[dsh-nas-sync] \u4F1A\u8BDD\u5DF2\u767B\u8BB0\u5230\u4FA7\u680F\uFF1A" + targetRel);
+        }
+      } catch {
       }
       if (targetRel !== rel) {
         this.deps.store.sessionImports[rel] = {

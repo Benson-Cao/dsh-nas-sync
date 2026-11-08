@@ -22,6 +22,7 @@ import {
   platformMismatch,
   mergeWorkspaceRegistry,
   registryCovers,
+  registerSessionForRel,
 } from '../dist-test/portable.mjs';
 
 function home() {
@@ -302,4 +303,33 @@ test('registryCovers：远端已覆盖本机 → 不发布；本机有远端缺�
   assert.equal(registryCovers(remoteSame, localMoreSessions), false);
   // 解析不了远端 → 别冒险覆盖
   assert.equal(registryCovers('not json', local), true);
+});
+
+// ---------------------------------------------------------------------------
+// 0.5.7：同步进来的会话必须登记到工作区，否则侧栏看不到
+// ---------------------------------------------------------------------------
+
+test('registerSessionForRel：把会话登记到对应工作区（幂等、散装目录不登记）', async () => {
+  const h = home();
+  const ws = join(h, 'nassyncworkspaces', '鲸鱼宠物');
+  mkdirSync(ws, { recursive: true });
+  mkdirSync(join(h, 'storages'), { recursive: true });
+  writeFileSync(join(h, 'storages', 'workspace.json'), JSON.stringify({
+    unit: { name: 'workspace', version: 2 },
+    global: { initialized: true, defaultWorkspaceId: 'w1', workspaceIds: ['w1'], archivedSessionIds: [], pinnedSessionIds: [] },
+    tables: { workspaces: { w1: { path: ws, title: '鲸鱼宠物', sessionIds: [], createdAt: 'x', updatedAt: 'x' } } },
+  }, null, 2));
+
+  const sid = 'session-bd10402b-112e-4079-8f3e-e3600e221594';
+  const rel = ['sessions', encodeCwd(ws), sid, 'session.v4.jsonl.zstd'].join('/');
+  assert.equal(await registerSessionForRel(rel, h), true);
+
+  const reg = JSON.parse(readFileSync(join(h, 'storages', 'workspace.json'), 'utf8'));
+  assert.deepEqual(reg.tables.workspaces.w1.sessionIds, [sid]);
+  // 幂等：第二次不再写
+  assert.equal(await registerSessionForRel(rel, h), false);
+
+  // 散装目录（不在注册表里的工作区）不登记
+  const stray = ['sessions', encodeCwd('/data/user/0/other/home'), 'session-x', 'session.v4.jsonl.zstd'].join('/');
+  assert.equal(await registerSessionForRel(stray, h), false);
 });

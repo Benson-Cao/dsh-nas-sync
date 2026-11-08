@@ -743,6 +743,62 @@ export function normalizeWorkspaceRegistry(local: Record<string, any>): Registry
 }
 
 /** 自愈：把本机现存注册表直接收敛到合法状态（原子写，幂等）。 */
+/**
+ * 把某个会话登记到它所在的工作区（0.5.7）。
+ *
+ * 为什么必须有这一步：dsh 的侧栏**不是**「扫 sessions/ 目录里有什么就显示什么」，
+ * 而是按 `workspace.json` 里每个工作区的 `sessionIds` 列出来的。实测证据：
+ * 电脑上 `Desktop\胎教Agent` 目录里有 3 个会话、3 个都在磁盘上，侧栏只显示 2 个
+ * —— 第 3 个恰恰是注册表里没登记的那个。
+ *
+ * 所以同步下来的会话如果没登记，文件在、内容对、就是**不出现在侧栏**：用户看到的
+ * 就是「同步成功了但会话没过来」。跨平台导入最容易踩（dsh 只在本机新建会话时登记）。
+ *
+ * @param rel  `sessions/<cwd编码>/<sessionId>/session.v<N>.jsonl.zstd`
+ * @returns 是否真的写盘（已登记过 / 该目录不是注册工作区 → false）
+ */
+export async function registerSessionForRel(
+  rel: string,
+  home: string = dshHome(),
+): Promise<boolean> {
+  const parts = String(rel || '').split('/');
+  if (parts.length < 4 || parts[0] !== 'sessions') return false;
+  const enc = parts[1];
+  const sid = parts[parts.length - 2];
+  if (!enc || !sid) return false;
+
+  const p = join(home, WORKSPACE_REGISTRY_REL);
+  let reg: Record<string, any>;
+  try {
+    reg = JSON.parse(await readFile(p, 'utf8'));
+  } catch {
+    return false; // 本机还没有注册表：等合并生成，下一轮再登记
+  }
+  const spaces = reg?.['tables']?.['workspaces'];
+  if (!spaces || typeof spaces !== 'object') return false;
+
+  // 用「cwd 编码」反查工作区：注册表里的 path 编码后应该等于 rel 的第二段
+  let hit: Record<string, any> | null = null;
+  for (const w of Object.values<any>(spaces)) {
+    const d = String(w?.['path'] ?? '');
+    if (d && encodeCwd(d) === enc) { hit = w; break; }
+  }
+  if (!hit) return false; // 散装目录（不在注册表里的工作区）
+
+  const ids: string[] = Array.isArray(hit['sessionIds']) ? hit['sessionIds'].map(String) : [];
+  if (ids.includes(sid)) return false;
+  hit['sessionIds'] = [...ids, sid];
+  hit['updatedAt'] = new Date().toISOString();
+
+  // 收敛一遍再写：同一个 session 不能被两个工作区同时记账，否则 dsh 拒绝激活
+  normalizeWorkspaceRegistry(reg);
+  await mkdir(join(home, 'storages'), { recursive: true });
+  const tmp = p + '.nas-sync.tmp';
+  await writeFile(tmp, JSON.stringify(reg, null, 2) + '\n');
+  await rename(tmp, p);
+  return true;
+}
+
 export async function repairWorkspaceRegistry(
   home: string = dshHome(),
 ): Promise<RegistryNormalizeResult> {

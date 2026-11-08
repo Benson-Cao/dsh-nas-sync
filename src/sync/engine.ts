@@ -59,6 +59,7 @@ import {
   sessionCwdOf,
   dedupeSessionDirs,
   repairSessionCwd,
+  registerSessionForRel,
   repairWorkspaceRegistry,
   registryCovers,
   rewriteSessionCwd,
@@ -1035,6 +1036,11 @@ export class Engine {
         } catch {
           /* 回传失败不该让整轮同步判失败，下一轮会重试 */
         }
+        try {
+          await this.registerImportedSessions();
+        } catch {
+          /* 登记失败不影响整轮结果 */
+        }
       }
 
       // 收尾修复：把本次以及**以前**同步进来的会话统一检查一遍 cwd。
@@ -1153,6 +1159,25 @@ export class Engine {
     } else {
       await this.deps.transport.putBuffer(cipher, remote, { mkdirs: true });
     }
+  }
+
+  /**
+   * 补登记：「同步进来的会话」逐个确保在工作区注册表里有名分（0.5.7）。
+   *
+   * 0.5.6 导入的会话只落了文件、没登记，侧栏就看不到（见 registerSessionForRel 注释）。
+   * 每轮跑一次、只处理 `sessionImports` 里的条目 —— 不去全盘扫描工作区目录，
+   * 免得把用户在侧栏里删掉的会话（目录可能还在）又复活出来。
+   */
+  private async registerImportedSessions(): Promise<void> {
+    let n = 0;
+    for (const rec of Object.values(this.deps.store.sessionImports ?? {})) {
+      try {
+        if (await registerSessionForRel(rec.localRel)) n += 1;
+      } catch {
+        /* 单条失败不影响其它 */
+      }
+    }
+    if (n > 0) console.log('[dsh-nas-sync] 已补登记 ' + n + ' 个会话到侧栏');
   }
 
   /**
@@ -1414,6 +1439,16 @@ export class Engine {
         } catch {
           /* 删不掉也不影响下一轮再修 */
         }
+      }
+
+      // 登记到工作区（0.5.7）：dsh 的侧栏按注册表 sessionIds 列会话，不登记就是
+      // 「文件在、内容对、侧栏没有」。跨平台导入（以及新机器首次同步）必踩。
+      try {
+        if (await registerSessionForRel(targetRel)) {
+          console.log('[dsh-nas-sync] 会话已登记到侧栏：' + targetRel);
+        }
+      } catch {
+        /* 登记失败不影响文件落地，下一轮 sync 的补登记还会再试 */
       }
 
       // 改写过的副本要记账（0.5.6）：本地这个 rel 永不上传、远端原文没变就永不
