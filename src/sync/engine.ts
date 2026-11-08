@@ -23,7 +23,7 @@ import { isIgnoredRel, Scanner } from './scanner.js';
 import { Crypto } from './crypto.js';
 import { Chunker } from './chunker.js';
 import type { NasEntry, NasTransport } from '../nas/transport.js';
-import type { NasSyncConfig, Store } from '../config.js';
+import type { NasSyncConfig, SessionImportRecord, Store } from '../config.js';
 import { isMergeable } from './merger.js';
 import { localOf, dshHome } from '../paths.js';
 import {
@@ -62,6 +62,7 @@ import {
   repairWorkspaceRegistry,
   registryCovers,
   rewriteSessionCwd,
+  rewriteSessionCwdTo,
   safeName,
   WORKSPACE_REGISTRY_REL,
 } from './portable.js';
@@ -230,6 +231,12 @@ export class Engine {
    * 两台机器会每轮互相盖回去，变成 5 分钟一次的无用上传。
    */
   private registryNeedsPush = false;
+
+  /**
+   * 已经提示过「导入被跳过」的 rel（0.5.6）。
+   * 这种跳过每轮都会发生（本机有同 id 会话就一直跳过），不记一下就变成每轮刷日志。
+   */
+  private importSkipWarned = new Set<string>();
 
   /**
    * 工作区目录名 → 真实路径（0.3.7）。
@@ -826,10 +833,38 @@ export class Engine {
 
     const last = this.deps.store.snapshot.lastSyncTime ?? 0;
 
+    /**
+     * 跨平台会话的导入记录（0.5.6）。
+     *
+     * 落地时 cwd 被改写，本地副本和远端原文**永远不是同一份字节**：
+     *   · 不挡下载 → 远端原文每轮都被判「本地没有」→ 每轮重下一遍；
+     *   · 不挡上传 → 本地改写副本每轮都被判「远端没有」→ 每轮重传一份（NAS 上还会
+     *     多出一份 cwd 是本机路径的副本，对端拿到既打不开、还会撞出同 id 双份）。
+     * 所以按 rel 记账：远端原文 hash 没变就不再下载，本地这份也不走上传；
+     * 用户在本机真的继续过它（localHash 变了）由 flushSessionImports() 改回原 cwd 回传。
+     */
+    const imports = this.deps.store.sessionImports ?? (this.deps.store.sessionImports = {});
+    const importedLocalRel = new Set<string>();
+    for (const [remoteRel, rec] of Object.entries(imports)) {
+      let alive = false;
+      try {
+        alive = existsSync(this.resolveLocal(rec.localRel));
+      } catch {
+        alive = false;
+      }
+      if (!alive || !remoteMap.has(remoteRel)) {
+        delete imports[remoteRel]; // 本地副本被删 / 远端原文没了 → 下次重新导入
+        continue;
+      }
+      importedLocalRel.add(rec.localRel);
+    }
+
     for (const [rel, le] of localMap) {
       // 注册表不参与差集：它由 pullWorkspaceRegistry() 每轮**合并**，永远不可能
       // 和远端字节一致（合并结果包含本机条目），留在差集里会变成「永远待同步 1 项」。
       if (isWorkspaceRegistryRel(rel)) continue;
+      // 跨平台会话的本地改写副本：镜像，不参与上传（回传走 flushSessionImports）
+      if (importedLocalRel.has(rel)) continue;
       const re = remoteMap.get(rel);
       if (!re) {
         pending.push({ rel, size: le.size, action: 'upload' });
@@ -859,6 +894,9 @@ export class Engine {
     // 远端有、本地无 -> 下载
     for (const [rel, re] of remoteMap) {
       if (isWorkspaceRegistryRel(rel)) continue;
+      // 已经导入过且远端原文没变 → 本地那份就是它（cwd 已改写），不必再下一遍
+      const rec = imports[rel];
+      if (rec && rec.remoteHash === re.hash) continue;
       if (!localMap.has(rel)) {
         pending.push({ rel, size: re.size, action: 'download' });
       }
@@ -967,7 +1005,7 @@ export class Engine {
           if (mode === 'pull' && item.action !== 'download') continue;
 
           if (item.action === 'upload') {
-            await this.pushFile(item.rel, item.size, remoteMap.get(item.rel)?.hash);
+            await this.pushFile(item.rel, remoteMap.get(item.rel)?.hash);
             this.pushedOk.add(item.rel);
             pushed++;
           } else if (item.action === 'download') {
@@ -987,6 +1025,16 @@ export class Engine {
         // 成功或失败都算「还在推进」—— 心跳不关心结果，只关心有没有卡死
         beat();
         this.deps.store.save();
+      }
+
+      // 本机继续过的跨平台会话：改回原 cwd 回传（见 flushSessionImports）。
+      // 放在收尾修复之前 —— 回传要用「本轮还没被 dedupe 搬动过」的本地副本。
+      if (!this.abort.signal.aborted) {
+        try {
+          await this.flushSessionImports();
+        } catch {
+          /* 回传失败不该让整轮同步判失败，下一轮会重试 */
+        }
       }
 
       // 收尾修复：把本次以及**以前**同步进来的会话统一检查一遍 cwd。
@@ -1077,25 +1125,109 @@ export class Engine {
   }
 
   /** 上传单个文件（整体密文；大文件走分块）。remoteHash 存在且为可合并文本时先存 .base。 */
-  private async pushFile(rel: string, size: number, remoteHash?: string): Promise<void> {
+  private async pushFile(rel: string, remoteHash?: string): Promise<void> {
     this.setPhase('uploading');
     const localAbs = this.resolveLocal(rel);
-    const remote = '/dsh/' + rel;
 
     // 可合并文本且远端已有版本 → 先把远端旧内容存为 .base（三路合并公共祖先）
     if (isMergeable(rel) && remoteHash) {
       await this.saveBase(rel);
     }
 
-    const data = await readFile(localAbs);
+    await this.pushBytes(rel, await readFile(localAbs));
+  }
+
+  /**
+   * 把一段明文按同步协议发到 `rel`（加密 + 分块或直传）。
+   *
+   * 抽出来是为了让「回写跨平台会话」也能复用：那条路径的源文件在**本机另一个
+   * rel** 下（cwd 已被改写），不能走 pushFile 的 resolveLocal。
+   */
+  private async pushBytes(rel: string, data: Uint8Array): Promise<void> {
+    const remote = '/dsh/' + rel;
     const plainHash = sha256Hex(data);
     const cipher = await Crypto.encrypt(data, this.deps.config.passphrase, this.deps.store.salt());
 
-    if (size >= this.deps.config.chunkThreshold) {
-      await this.chunker.upload(cipher, plainHash, size, remote);
+    if (data.length >= this.deps.config.chunkThreshold) {
+      await this.chunker.upload(cipher, plainHash, data.length, remote);
     } else {
       await this.deps.transport.putBuffer(cipher, remote, { mkdirs: true });
     }
+  }
+
+  /**
+   * 把某个 rel 的新指纹写回**它所属的那份设备清单**（0.5.6）。
+   *
+   * 为什么必须写：清单是「远端有什么」的唯一真相。跨平台会话回传后如果只把字节
+   * PUT 上去、不更新清单，对端扫描时比的是「本地 hash vs 清单 hash」——两边都还是
+   * 旧的、相等，于是它根本不会发现自己需要下载，回传等于白做。
+   *
+   * 为什么能改别人的分片：这里只动**这一条**的指纹（hash/size/mtime），不增不删；
+   * 对端下一轮会用自己的扫描结果重写整份清单，不会打架。
+   */
+  private async updateRemoteManifestEntry(rel: string, hash: string, size: number): Promise<void> {
+    let names: NasEntry[] = [];
+    try {
+      names = await this.deps.transport.list(MANIFESTS_DIR);
+    } catch {
+      return;
+    }
+    for (const f of names) {
+      if (f.type !== 'file' || !f.name.endsWith('.json') || f.name === '_legacy.json') continue;
+      const remote = MANIFESTS_DIR + '/' + f.name;
+      const list = await this.readManifestAt(remote);
+      const i = list.findIndex((e) => e.rel === rel);
+      if (i < 0) continue;
+      list[i] = { ...(list[i] as ManifestEntry), hash, size, mtime: Date.now() };
+      await this.writeManifestFile(remote, list);
+      return;
+    }
+    // 哪份清单都没有它：对端还没把这条写进清单，下次扫描会按新增处理，无需补记
+  }
+
+  /**
+   * 回写「本机继续过的跨平台会话」（0.5.6）。
+   *
+   * 场景：手机会话被导入到电脑（cwd 改成电脑路径），用户在电脑上接着聊。
+   * 如果不管，这段新增内容只会留在电脑上 —— 本地那份是镜像、不参与上传，
+   * 手机永远看不到，属于**静默丢数据**。
+   *
+   * 做法：把 cwd 改回**原机器的路径**，按原 rel 回传，并把新指纹写回对端清单。
+   * 这样手机拿到的是自己平台的路径、打开就能跑；两端仍只有一条 rel、一个
+   * sessionId，不会撞出重复会话。
+   */
+  private async flushSessionImports(): Promise<number> {
+    const imports = this.deps.store.sessionImports ?? {};
+    let republished = 0;
+    for (const [remoteRel, rec] of Object.entries(imports) as [string, SessionImportRecord][]) {
+      if (this.abort?.signal.aborted) break;
+      let local: Buffer;
+      try {
+        local = await readFile(this.resolveLocal(rec.localRel));
+      } catch {
+        continue; // 本地副本没了：scan() 会把记录清掉
+      }
+      if (sha256Hex(local) === rec.localHash) continue; // 没动过，不用回传
+
+      const back = rewriteSessionCwdTo(local, rec.originalCwd) ?? local;
+      try {
+        await this.pushBytes(remoteRel, back);
+        const backHash = sha256Hex(back);
+        // 记账：远端已经换成了「回传后的那份」
+        rec.remoteHash = backHash;
+        rec.localHash = sha256Hex(local);
+        // 关键一步：把新指纹写进对端清单，否则对端会以为远端还是老内容、不下载
+        await this.updateRemoteManifestEntry(remoteRel, backHash, back.length);
+        republished += 1;
+      } catch (e) {
+        console.warn('[dsh-nas-sync] 回传跨平台会话失败（' + remoteRel + '）：' + (e as Error).message);
+      }
+    }
+    if (republished > 0) {
+      this.deps.store.save();
+      console.log('[dsh-nas-sync] 已回传本机继续过的跨平台会话 ' + republished + ' 个');
+    }
+    return republished;
   }
 
   /**
@@ -1155,7 +1287,7 @@ export class Engine {
     try {
       const abs = join(dshHome(), WORKSPACE_REGISTRY_REL);
       const buf = await readFile(abs);
-      await this.pushFile(WORKSPACE_REGISTRY_REL, buf.length);
+      await this.pushFile(WORKSPACE_REGISTRY_REL);
       this.pushedOk.add(WORKSPACE_REGISTRY_REL);
     } catch (e) {
       // 发布失败不影响整轮结果：下一轮 pull 会重新判定并重试
@@ -1208,50 +1340,94 @@ export class Engine {
       // Buffer 专有 API，直接传 Uint8Array 会在帧解析处抛错并被吞掉。
       const raw = Buffer.from(plain);
 
-      // 0.3.4：跨平台判定必须看**原始 cwd**，不能看映射后的 out.dir。
-      // out.dir 永远是本机路径（Windows 上是盘符路径、手机上是 /data/...），
-      // platformMismatch(out.dir) 恒为 false，等于没拦。结果 mirror 每轮把
-      // 对端会话映射进本机 nassyncworkspaces/ 新目录，和本机权威目录撞出
-      // 同 id 双份，收尾 dedupeSessionDirs 就每轮隔离一批（实测 11 份）。
+      // 0.3.4：跨平台判定必须看**原始 cwd**，不能看改写后的路径（它恒为本机路径）。
+      //
+      // 0.5.6：**从「一律丢弃」改成「有落脚点就导入」**。0.3.4 之所以一刀切，是为了绕开
+      // 「改写后的副本和远端原文永久不同字节 → 每轮再下一次 + 再传一份」的死循环
+      // （和本机权威目录撞出同 id 双份，实测 11 份）。那个收敛问题现在由
+      // `store.sessionImports` 解决（见 scan() 与 flushSessionImports()），所以只要能
+      // 找到本机的落脚目录，跨平台会话就可以安全导入、直接在这个工作区里打开。
       const originalCwd = sessionCwdOf(raw);
-      if (originalCwd && platformMismatch(originalCwd)) {
-        console.warn('[dsh-nas-sync] 跳过异平台会话（原始 cwd=' + originalCwd + '）: ' + rel);
-        return 'skipped';
-      }
+      if (!originalCwd) return 'skipped'; // 连 cwd 都读不出来：不落盘，避免幽灵会话
 
-      const out = rewriteSessionCwd(raw);
-      // out === null 表示 cwd 本机已存在、无需改写；但**落点仍要按本机 cwd
-      // 归一**，否则会写回原 rel 的远端目录，再次制造同 id 双份。
-      const localCwd = out ? out.dir : originalCwd
-        ? mapRemotePath(originalCwd).local
-        : null;
-      if (localCwd) {
-        await mkdir(localCwd, { recursive: true });
+      let targetDir: string;
+      let written: Buffer;
+      const crossPlatform = platformMismatch(originalCwd);
 
-        // rel 形如 sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd
-        const parts = rel.split('/');
-        const sid = parts[parts.length - 2] ?? '';
-        const fileName = parts[parts.length - 1] ?? '';
-        const wantDir = encodeCwd(localCwd);
-        const targetRel = wantDir === parts[1] ? rel : ['sessions', wantDir, sid, fileName].join('/');
-        const target = this.resolveLocal(targetRel);
-        const cut2 = Math.max(target.lastIndexOf('/'), target.lastIndexOf('\\'));
-        await mkdir(target.slice(0, cut2), { recursive: true });
-        await writeFile(target, out ? out.buf : raw);
-
-        // 目录名变了就别把旧副本留着 —— 同一个 sessionId 出现在两个 cwd 目录下，
-        // dsh 会当成两个会话（其中一个永远打不开）。
-        if (target !== localAbs) {
-          try {
-            await rm(localAbs.slice(0, cut), { recursive: true, force: true });
-          } catch {
-            /* 删不掉也不影响下一轮再修 */
-          }
+      if (crossPlatform) {
+        // 跨平台：优先用注册表里**同名工作区**的真实路径（电脑上可能是
+        // `Desktop\胎教Agent`，而不是映射出来的 nassyncworkspaces 目录 —— 用错会
+        // 导进另一个工作区，侧栏里看起来就是「会话跑到别的地方去了」）。
+        targetDir = this.workspaceDirs.get(safeName(originalCwd)) ?? mapRemotePath(originalCwd).local;
+        // 只在目标目录**已经存在**时导入：硬造一个空目录只会得到一个「打得开但
+        // 模型跑不动」的幽灵会话（手机上 `.dsh` 之内的散装 cwd 正是这类）。
+        if (!existsSync(targetDir)) {
+          console.warn('[dsh-nas-sync] 跳过异平台会话（本机没有对应工作区 ' + targetDir + '）：' + rel);
+          return 'skipped';
         }
-        return 'written';
+        written = rewriteSessionCwdTo(raw, targetDir) ?? raw;
+      } else {
+        // 同平台：沿用原逻辑（cwd 本机已存在就不动，否则映射到 nassyncworkspaces）。
+        const out = rewriteSessionCwd(raw);
+        targetDir = out ? out.dir : originalCwd;
+        written = out ? out.buf : raw;
+        await mkdir(targetDir, { recursive: true });
       }
-      // 连 cwd 都读不出来：不落盘，避免造出一个打不开的幽灵会话。
-      return 'skipped';
+
+      // rel 形如 sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd
+      const parts = rel.split('/');
+      const sid = parts[parts.length - 2] ?? '';
+      const fileName = parts[parts.length - 1] ?? '';
+      const wantDir = encodeCwd(targetDir);
+      const targetRel = wantDir === parts[1] ? rel : ['sessions', wantDir, sid, fileName].join('/');
+      const target = this.resolveLocal(targetRel);
+
+      /**
+       * 跨平台导入撞上「本机**自己**的同 id 会话」时不覆盖。
+       *
+       * 同一个 sessionId 在两端各继续过一段 = 两条独立历史，谁盖谁都是丢数据
+       * （典型：手机上开过、电脑上也开过的同一个会话）。
+       * 例外：target 就是**上次给这条 rel 建的镜像**（记录里对得上）—— 那是正常更新。
+       */
+      const priorRecord = this.deps.store.sessionImports[rel];
+      const isOurMirror = priorRecord?.localRel === targetRel;
+      if (crossPlatform && targetRel !== rel && !isOurMirror && existsSync(target)) {
+        const cur = await readFile(target);
+        if (sha256Hex(cur) !== sha256Hex(written)) {
+          if (!this.importSkipWarned.has(rel)) {
+            this.importSkipWarned.add(rel);
+            console.warn('[dsh-nas-sync] 跳过导入（本机已有同 id 会话，避免互相覆盖）：' + rel);
+          }
+          return 'skipped';
+        }
+      }
+
+      const cut2 = Math.max(target.lastIndexOf('/'), target.lastIndexOf('\\'));
+      await mkdir(target.slice(0, cut2), { recursive: true });
+      await writeFile(target, written);
+
+      // 目录名变了就别把旧副本留着 —— 同一个 sessionId 出现在两个 cwd 目录下，
+      // dsh 会当成两个会话（其中一个永远打不开）。
+      if (target !== localAbs) {
+        try {
+          await rm(localAbs.slice(0, cut), { recursive: true, force: true });
+        } catch {
+          /* 删不掉也不影响下一轮再修 */
+        }
+      }
+
+      // 改写过的副本要记账（0.5.6）：本地这个 rel 永不上传、远端原文没变就永不
+      // 重下 —— 否则两端字节永远对不上，扫描每轮都会各做一次无用功。
+      if (targetRel !== rel) {
+        this.deps.store.sessionImports[rel] = {
+          remoteHash: sha256Hex(plain),
+          localRel: targetRel,
+          localHash: sha256Hex(written),
+          originalCwd,
+        };
+        this.deps.store.save();
+      }
+      return 'written';
     }
 
     await writeFile(localAbs, plain);
@@ -1269,7 +1445,7 @@ export class Engine {
       const st = await stat(localAbs);
       // 冲突场景：远端旧内容正是公共祖先，务必先存 .base
       await this.saveBase(rel);
-      await this.pushFile(rel, st.size, c.remoteHash);
+      await this.pushFile(rel, c.remoteHash);
       // 回写远端 manifest，防止下次扫描再次判定为冲突
       const data = await readFile(localAbs);
       this.remoteManifest = this.remoteManifest.filter((e) => e.rel !== rel);
@@ -1296,6 +1472,15 @@ export class Engine {
       }
       // 回写远端 manifest：本地 mtime 已变化，记录最新指纹
       const localAbs = this.resolveLocal(rel);
+      // 会话被改写 cwd 后，目录名也跟着变了（`sessions/<cwd编码>/…`），原 rel 上
+      // 根本没有这个文件 —— 再去 stat 会直接抛错。这种情况内容已经落到别处，
+      // 冲突按「已解决」处理即可。
+      if (!existsSync(localAbs)) {
+        this.deps.store.conflicts = this.deps.store.conflicts.filter((x) => x.rel !== rel);
+        this.deps.store.snapshot.conflictCount = this.deps.store.conflicts.length;
+        this.deps.store.save();
+        return;
+      }
       const st = await stat(localAbs);
       const data = await readFile(localAbs);
       // 远端版本胜出 = 内容来自对方设备，来源必须保留，否则会被刷成"本机"

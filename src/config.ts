@@ -16,6 +16,18 @@ import type { ManifestEntry } from './data/models.js';
 
 export const NS_NAS_SYNC = 'nas-sync';
 
+/** 跨平台会话的导入记录：远端原文指纹 + 本地改写后的副本。 */
+export interface SessionImportRecord {
+  /** 远端原文（未改写 cwd）的 sha256 —— 它没变就不重复下载 */
+  remoteHash: string;
+  /** 本地落地副本的 rel（cwd 已被改成本机路径，目录名也随之变了） */
+  localRel: string;
+  /** 落地时本地副本的 sha256 —— 之后变了说明用户在本机继续过它 */
+  localHash: string;
+  /** 远端原文里的 cwd（回传时要改回这条路径，否则对端打不开） */
+  originalCwd: string;
+}
+
 /**
  * 同步内容分类的默认勾选状态（r3）。
  *
@@ -272,6 +284,14 @@ export class Store {
   localManifest: ManifestEntry[] = [];
   /** 用户显式修改过的配置覆盖层（合并到 entry config 之上）；null = 未改过 */
   userConfig: Record<string, unknown> | null = null;
+  /**
+   * 跨平台会话的导入记录（0.5.6）：远端 rel → 本地落地副本。
+   *
+   * 跨平台会话落地时 cwd 会被改写（不改就打不开），于是本地副本和远端原文
+   * **永远不是同一份字节**。不记这一笔，扫描每轮都会判「远端有本地无 → 再下一遍」
+   * 和「本地有远端无 → 再传一份」，永不收敛。
+   */
+  sessionImports: Record<string, SessionImportRecord> = {};
 
   constructor() {
     let salt: string | null = null;
@@ -300,6 +320,9 @@ export class Store {
         if (Array.isArray(data.conflicts)) this.conflicts = data.conflicts;
         if (Array.isArray(data.localManifest)) this.localManifest = data.localManifest;
         if (data.userConfig && typeof data.userConfig === 'object') this.userConfig = data.userConfig;
+        if (data.sessionImports && typeof data.sessionImports === 'object') {
+          this.sessionImports = data.sessionImports as Record<string, SessionImportRecord>;
+        }
         if (typeof data.saltHex === 'string' && data.saltHex.length === 32) salt = data.saltHex;
       }
     } catch {
@@ -322,6 +345,7 @@ export class Store {
         conflicts: this.conflicts,
         localManifest: this.localManifest,
         userConfig: this.userConfig,
+        sessionImports: this.sessionImports,
       }, null, 2), 'utf-8');
     } catch {
       /* 写失败不致命，下次再试 */

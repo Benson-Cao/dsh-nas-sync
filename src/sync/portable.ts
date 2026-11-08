@@ -492,8 +492,7 @@ export interface SessionRewrite {
 }
 
 /**
- * 把会话头里的 cwd 改写成本机路径。
- *
+ * 把会话头里的 cwd 改写成本机路径。 *
  * **只替换第一帧**，其余追加帧逐字节保留 —— 会话历史不会因为这次改写而重新
  * 编码（也就没有「解压不完整导致丢记录」的风险）。
  *
@@ -522,6 +521,36 @@ export function rewriteSessionCwd(buf: Buffer, home: string = dshHome()): Sessio
 export function sessionCwdOf(buf: Buffer): string | null {
   const parsed = readHeaderCwd(buf);
   return parsed && typeof parsed.header['cwd'] === 'string' ? (parsed.header['cwd'] as string) : null;
+}
+
+/**
+ * 把会话头的 cwd 改写成**指定**路径（0.5.6）。
+ *
+ * 为什么需要：跨平台会话落地时 cwd 被改成了本机路径（否则打不开），于是它和
+ * 远端原文永久不同 —— 用户在本机继续这个会话后，改动要回传给原机器，就必须把
+ * cwd 再改回**原机器那条路径**，否则对端打开会报 working-directory does not exist。
+ *
+ * 与 `rewriteSessionCwd()` 的区别：那个是「按 mapRemotePath 猜落点」，这个由调用方
+ * 给定目标路径，用于反向回写。只重写第 0 帧，后续帧逐字节保留（同 zstd 多帧限制）。
+ *
+ * @returns null 表示无需改写（cwd 已经是目标值）或格式不认识
+ */
+export function rewriteSessionCwdTo(buf: Buffer, dir: string): Buffer | null {
+  if (zstdCompress === null) return null;
+  const parsed = readHeaderCwd(buf);
+  if (!parsed) return null;
+  if (parsed.header['cwd'] === dir) return null;
+
+  let end: number;
+  try {
+    end = zstdFrameEnd(buf, 0);
+  } catch {
+    return null;
+  }
+
+  parsed.header['cwd'] = dir;
+  const headFrame = zstdCompress(Buffer.from(JSON.stringify(parsed.header) + parsed.rest, 'utf8'));
+  return Buffer.concat([headFrame, buf.subarray(end)]);
 }
 
 export interface RegistryMergeResult {

@@ -20447,6 +20447,14 @@ var Store = class {
   localManifest = [];
   /** 用户显式修改过的配置覆盖层（合并到 entry config 之上）；null = 未改过 */
   userConfig = null;
+  /**
+   * 跨平台会话的导入记录（0.5.6）：远端 rel → 本地落地副本。
+   *
+   * 跨平台会话落地时 cwd 会被改写（不改就打不开），于是本地副本和远端原文
+   * **永远不是同一份字节**。不记这一笔，扫描每轮都会判「远端有本地无 → 再下一遍」
+   * 和「本地有远端无 → 再传一份」，永不收敛。
+   */
+  sessionImports = {};
   constructor() {
     let salt = null;
     try {
@@ -20461,6 +20469,9 @@ var Store = class {
         if (Array.isArray(data.conflicts)) this.conflicts = data.conflicts;
         if (Array.isArray(data.localManifest)) this.localManifest = data.localManifest;
         if (data.userConfig && typeof data.userConfig === "object") this.userConfig = data.userConfig;
+        if (data.sessionImports && typeof data.sessionImports === "object") {
+          this.sessionImports = data.sessionImports;
+        }
         if (typeof data.saltHex === "string" && data.saltHex.length === 32) salt = data.saltHex;
       }
     } catch {
@@ -20481,7 +20492,8 @@ var Store = class {
         pendingFiles: this.pendingFiles,
         conflicts: this.conflicts,
         localManifest: this.localManifest,
-        userConfig: this.userConfig
+        userConfig: this.userConfig,
+        sessionImports: this.sessionImports
       }, null, 2), "utf-8");
     } catch {
     }
@@ -20761,6 +20773,21 @@ function rewriteSessionCwd(buf, home = dshHome()) {
 function sessionCwdOf(buf) {
   const parsed = readHeaderCwd(buf);
   return parsed && typeof parsed.header["cwd"] === "string" ? parsed.header["cwd"] : null;
+}
+function rewriteSessionCwdTo(buf, dir) {
+  if (zstdCompress === null) return null;
+  const parsed = readHeaderCwd(buf);
+  if (!parsed) return null;
+  if (parsed.header["cwd"] === dir) return null;
+  let end;
+  try {
+    end = zstdFrameEnd(buf, 0);
+  } catch {
+    return null;
+  }
+  parsed.header["cwd"] = dir;
+  const headFrame = zstdCompress(Buffer.from(JSON.stringify(parsed.header) + parsed.rest, "utf8"));
+  return Buffer.concat([headFrame, buf.subarray(end)]);
 }
 function dedupeWorkspaceSessions(local) {
   const tables = local?.["tables"];
@@ -21926,6 +21953,11 @@ var Engine = class {
    */
   registryNeedsPush = false;
   /**
+   * 已经提示过「导入被跳过」的 rel（0.5.6）。
+   * 这种跳过每轮都会发生（本机有同 id 会话就一直跳过），不记一下就变成每轮刷日志。
+   */
+  importSkipWarned = /* @__PURE__ */ new Set();
+  /**
    * 工作区目录名 → 真实路径（0.3.7）。
    * `workspaces/<名字>/…` 的落点**不在 $DSH_HOME 下**，必须查注册表；
    * 之前直接 localOf() 算成 $DSH_HOME/workspaces/…，读不到文件导致 upload 全失败。
@@ -22403,8 +22435,24 @@ var Engine = class {
     const pending = [];
     const conflicts = [];
     const last = this.deps.store.snapshot.lastSyncTime ?? 0;
+    const imports = this.deps.store.sessionImports ?? (this.deps.store.sessionImports = {});
+    const importedLocalRel = /* @__PURE__ */ new Set();
+    for (const [remoteRel, rec] of Object.entries(imports)) {
+      let alive = false;
+      try {
+        alive = existsSync3(this.resolveLocal(rec.localRel));
+      } catch {
+        alive = false;
+      }
+      if (!alive || !remoteMap.has(remoteRel)) {
+        delete imports[remoteRel];
+        continue;
+      }
+      importedLocalRel.add(rec.localRel);
+    }
     for (const [rel, le] of localMap) {
       if (isWorkspaceRegistryRel(rel)) continue;
+      if (importedLocalRel.has(rel)) continue;
       const re = remoteMap.get(rel);
       if (!re) {
         pending.push({ rel, size: le.size, action: "upload" });
@@ -22430,6 +22478,8 @@ var Engine = class {
     }
     for (const [rel, re] of remoteMap) {
       if (isWorkspaceRegistryRel(rel)) continue;
+      const rec = imports[rel];
+      if (rec && rec.remoteHash === re.hash) continue;
       if (!localMap.has(rel)) {
         pending.push({ rel, size: re.size, action: "download" });
       }
@@ -22490,7 +22540,7 @@ var Engine = class {
           if (mode === "push" && item.action !== "upload") continue;
           if (mode === "pull" && item.action !== "download") continue;
           if (item.action === "upload") {
-            await this.pushFile(item.rel, item.size, remoteMap.get(item.rel)?.hash);
+            await this.pushFile(item.rel, remoteMap.get(item.rel)?.hash);
             this.pushedOk.add(item.rel);
             pushed++;
           } else if (item.action === "download") {
@@ -22506,6 +22556,12 @@ var Engine = class {
         }
         beat();
         this.deps.store.save();
+      }
+      if (!this.abort.signal.aborted) {
+        try {
+          await this.flushSessionImports();
+        } catch {
+        }
       }
       if (!this.abort.signal.aborted) {
         try {
@@ -22559,21 +22615,98 @@ var Engine = class {
     }
   }
   /** 上传单个文件（整体密文；大文件走分块）。remoteHash 存在且为可合并文本时先存 .base。 */
-  async pushFile(rel, size, remoteHash) {
+  async pushFile(rel, remoteHash) {
     this.setPhase("uploading");
     const localAbs = this.resolveLocal(rel);
-    const remote = "/dsh/" + rel;
     if (isMergeable(rel) && remoteHash) {
       await this.saveBase(rel);
     }
-    const data = await readFile4(localAbs);
+    await this.pushBytes(rel, await readFile4(localAbs));
+  }
+  /**
+   * 把一段明文按同步协议发到 `rel`（加密 + 分块或直传）。
+   *
+   * 抽出来是为了让「回写跨平台会话」也能复用：那条路径的源文件在**本机另一个
+   * rel** 下（cwd 已被改写），不能走 pushFile 的 resolveLocal。
+   */
+  async pushBytes(rel, data) {
+    const remote = "/dsh/" + rel;
     const plainHash = sha256Hex(data);
     const cipher = await Crypto.encrypt(data, this.deps.config.passphrase, this.deps.store.salt());
-    if (size >= this.deps.config.chunkThreshold) {
-      await this.chunker.upload(cipher, plainHash, size, remote);
+    if (data.length >= this.deps.config.chunkThreshold) {
+      await this.chunker.upload(cipher, plainHash, data.length, remote);
     } else {
       await this.deps.transport.putBuffer(cipher, remote, { mkdirs: true });
     }
+  }
+  /**
+   * 把某个 rel 的新指纹写回**它所属的那份设备清单**（0.5.6）。
+   *
+   * 为什么必须写：清单是「远端有什么」的唯一真相。跨平台会话回传后如果只把字节
+   * PUT 上去、不更新清单，对端扫描时比的是「本地 hash vs 清单 hash」——两边都还是
+   * 旧的、相等，于是它根本不会发现自己需要下载，回传等于白做。
+   *
+   * 为什么能改别人的分片：这里只动**这一条**的指纹（hash/size/mtime），不增不删；
+   * 对端下一轮会用自己的扫描结果重写整份清单，不会打架。
+   */
+  async updateRemoteManifestEntry(rel, hash, size) {
+    let names = [];
+    try {
+      names = await this.deps.transport.list(MANIFESTS_DIR);
+    } catch {
+      return;
+    }
+    for (const f3 of names) {
+      if (f3.type !== "file" || !f3.name.endsWith(".json") || f3.name === "_legacy.json") continue;
+      const remote = MANIFESTS_DIR + "/" + f3.name;
+      const list = await this.readManifestAt(remote);
+      const i2 = list.findIndex((e2) => e2.rel === rel);
+      if (i2 < 0) continue;
+      list[i2] = { ...list[i2], hash, size, mtime: Date.now() };
+      await this.writeManifestFile(remote, list);
+      return;
+    }
+  }
+  /**
+   * 回写「本机继续过的跨平台会话」（0.5.6）。
+   *
+   * 场景：手机会话被导入到电脑（cwd 改成电脑路径），用户在电脑上接着聊。
+   * 如果不管，这段新增内容只会留在电脑上 —— 本地那份是镜像、不参与上传，
+   * 手机永远看不到，属于**静默丢数据**。
+   *
+   * 做法：把 cwd 改回**原机器的路径**，按原 rel 回传，并把新指纹写回对端清单。
+   * 这样手机拿到的是自己平台的路径、打开就能跑；两端仍只有一条 rel、一个
+   * sessionId，不会撞出重复会话。
+   */
+  async flushSessionImports() {
+    const imports = this.deps.store.sessionImports ?? {};
+    let republished = 0;
+    for (const [remoteRel, rec] of Object.entries(imports)) {
+      if (this.abort?.signal.aborted) break;
+      let local;
+      try {
+        local = await readFile4(this.resolveLocal(rec.localRel));
+      } catch {
+        continue;
+      }
+      if (sha256Hex(local) === rec.localHash) continue;
+      const back = rewriteSessionCwdTo(local, rec.originalCwd) ?? local;
+      try {
+        await this.pushBytes(remoteRel, back);
+        const backHash = sha256Hex(back);
+        rec.remoteHash = backHash;
+        rec.localHash = sha256Hex(local);
+        await this.updateRemoteManifestEntry(remoteRel, backHash, back.length);
+        republished += 1;
+      } catch (e2) {
+        console.warn("[dsh-nas-sync] \u56DE\u4F20\u8DE8\u5E73\u53F0\u4F1A\u8BDD\u5931\u8D25\uFF08" + remoteRel + "\uFF09\uFF1A" + e2.message);
+      }
+    }
+    if (republished > 0) {
+      this.deps.store.save();
+      console.log("[dsh-nas-sync] \u5DF2\u56DE\u4F20\u672C\u673A\u7EE7\u7EED\u8FC7\u7684\u8DE8\u5E73\u53F0\u4F1A\u8BDD " + republished + " \u4E2A");
+    }
+    return republished;
   }
   /**
    * 把 NAS 上的工作区注册表**合并**进本机（只加不改）。
@@ -22625,7 +22758,7 @@ var Engine = class {
     try {
       const abs = join6(dshHome(), WORKSPACE_REGISTRY_REL);
       const buf = await readFile4(abs);
-      await this.pushFile(WORKSPACE_REGISTRY_REL, buf.length);
+      await this.pushFile(WORKSPACE_REGISTRY_REL);
       this.pushedOk.add(WORKSPACE_REGISTRY_REL);
     } catch (e2) {
       console.warn("[dsh-nas-sync] \u53D1\u5E03\u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\u5931\u8D25\uFF1A" + e2.message);
@@ -22651,32 +22784,60 @@ var Engine = class {
     if (isSessionRel(rel)) {
       const raw = Buffer.from(plain);
       const originalCwd = sessionCwdOf(raw);
-      if (originalCwd && platformMismatch(originalCwd)) {
-        console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u5F02\u5E73\u53F0\u4F1A\u8BDD\uFF08\u539F\u59CB cwd=" + originalCwd + "\uFF09: " + rel);
-        return "skipped";
-      }
-      const out = rewriteSessionCwd(raw);
-      const localCwd = out ? out.dir : originalCwd ? mapRemotePath(originalCwd).local : null;
-      if (localCwd) {
-        await mkdir3(localCwd, { recursive: true });
-        const parts = rel.split("/");
-        const sid = parts[parts.length - 2] ?? "";
-        const fileName = parts[parts.length - 1] ?? "";
-        const wantDir = encodeCwd(localCwd);
-        const targetRel = wantDir === parts[1] ? rel : ["sessions", wantDir, sid, fileName].join("/");
-        const target = this.resolveLocal(targetRel);
-        const cut2 = Math.max(target.lastIndexOf("/"), target.lastIndexOf("\\"));
-        await mkdir3(target.slice(0, cut2), { recursive: true });
-        await writeFile3(target, out ? out.buf : raw);
-        if (target !== localAbs) {
-          try {
-            await rm3(localAbs.slice(0, cut), { recursive: true, force: true });
-          } catch {
-          }
+      if (!originalCwd) return "skipped";
+      let targetDir;
+      let written;
+      const crossPlatform = platformMismatch(originalCwd);
+      if (crossPlatform) {
+        targetDir = this.workspaceDirs.get(safeName(originalCwd)) ?? mapRemotePath(originalCwd).local;
+        if (!existsSync3(targetDir)) {
+          console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u5F02\u5E73\u53F0\u4F1A\u8BDD\uFF08\u672C\u673A\u6CA1\u6709\u5BF9\u5E94\u5DE5\u4F5C\u533A " + targetDir + "\uFF09\uFF1A" + rel);
+          return "skipped";
         }
-        return "written";
+        written = rewriteSessionCwdTo(raw, targetDir) ?? raw;
+      } else {
+        const out = rewriteSessionCwd(raw);
+        targetDir = out ? out.dir : originalCwd;
+        written = out ? out.buf : raw;
+        await mkdir3(targetDir, { recursive: true });
       }
-      return "skipped";
+      const parts = rel.split("/");
+      const sid = parts[parts.length - 2] ?? "";
+      const fileName = parts[parts.length - 1] ?? "";
+      const wantDir = encodeCwd(targetDir);
+      const targetRel = wantDir === parts[1] ? rel : ["sessions", wantDir, sid, fileName].join("/");
+      const target = this.resolveLocal(targetRel);
+      const priorRecord = this.deps.store.sessionImports[rel];
+      const isOurMirror = priorRecord?.localRel === targetRel;
+      if (crossPlatform && targetRel !== rel && !isOurMirror && existsSync3(target)) {
+        const cur = await readFile4(target);
+        if (sha256Hex(cur) !== sha256Hex(written)) {
+          if (!this.importSkipWarned.has(rel)) {
+            this.importSkipWarned.add(rel);
+            console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u5BFC\u5165\uFF08\u672C\u673A\u5DF2\u6709\u540C id \u4F1A\u8BDD\uFF0C\u907F\u514D\u4E92\u76F8\u8986\u76D6\uFF09\uFF1A" + rel);
+          }
+          return "skipped";
+        }
+      }
+      const cut2 = Math.max(target.lastIndexOf("/"), target.lastIndexOf("\\"));
+      await mkdir3(target.slice(0, cut2), { recursive: true });
+      await writeFile3(target, written);
+      if (target !== localAbs) {
+        try {
+          await rm3(localAbs.slice(0, cut), { recursive: true, force: true });
+        } catch {
+        }
+      }
+      if (targetRel !== rel) {
+        this.deps.store.sessionImports[rel] = {
+          remoteHash: sha256Hex(plain),
+          localRel: targetRel,
+          localHash: sha256Hex(written),
+          originalCwd
+        };
+        this.deps.store.save();
+      }
+      return "written";
     }
     await writeFile3(localAbs, plain);
     return "written";
@@ -22690,7 +22851,7 @@ var Engine = class {
       const localAbs = this.resolveLocal(rel);
       const st = await stat5(localAbs);
       await this.saveBase(rel);
-      await this.pushFile(rel, st.size, c.remoteHash);
+      await this.pushFile(rel, c.remoteHash);
       const data = await readFile4(localAbs);
       this.remoteManifest = this.remoteManifest.filter((e2) => e2.rel !== rel);
       this.remoteManifest.push({
@@ -22713,6 +22874,12 @@ var Engine = class {
         return;
       }
       const localAbs = this.resolveLocal(rel);
+      if (!existsSync3(localAbs)) {
+        this.deps.store.conflicts = this.deps.store.conflicts.filter((x2) => x2.rel !== rel);
+        this.deps.store.snapshot.conflictCount = this.deps.store.conflicts.length;
+        this.deps.store.save();
+        return;
+      }
       const st = await stat5(localAbs);
       const data = await readFile4(localAbs);
       const prevDevice = this.remoteManifest.find((e2) => e2.rel === rel)?.device;

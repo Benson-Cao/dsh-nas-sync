@@ -18,6 +18,7 @@ import {
   dedupeSessionDirs,
   workspaceRegistryReady,
   rewriteSessionCwd,
+  rewriteSessionCwdTo,
   platformMismatch,
   mergeWorkspaceRegistry,
   registryCovers,
@@ -137,6 +138,23 @@ test('rewriteSessionCwd：cwd 本机已存在时不动', () => {
   const head = JSON.stringify({ type: 'session', id: 's-2', cwd: local }) + '\n';
   const buf = zlib.zstdCompressSync(Buffer.from(head, 'utf8'));
   assert.equal(rewriteSessionCwd(buf, h), null);
+});
+
+test('rewriteSessionCwdTo：改回原机器路径，尾帧原样，已是目标值则返回 null', () => {
+  const head = JSON.stringify({ type: 'session', id: 's-3', cwd: 'C:\\Users\\me\\nassyncworkspaces\\鲸鱼宠物' }) + '\n';
+  const frame0 = zlib.zstdCompressSync(Buffer.from(head, 'utf8'));
+  const frame1 = zlib.zstdCompressSync(Buffer.from('{"n":1}\n', 'utf8'));
+  const buf = Buffer.concat([frame0, frame1]);
+
+  const phoneCwd = '/data/user/0/com.dsh.harness/files/home/鲸鱼宠物';
+  const back = rewriteSessionCwdTo(buf, phoneCwd);
+  assert.ok(back, '应返回改写结果');
+  // 尾帧逐字节保留（同 zstd 多帧限制：整文件重压会把历史截成只剩表头）
+  assert.deepEqual(back.subarray(back.length - frame1.length), frame1);
+  const text0 = zlib.zstdDecompressSync(back).toString('utf8');
+  assert.equal(JSON.parse(text0.split('\n')[0]).cwd, phoneCwd);
+  // 已经是目标值 → 不需要改写
+  assert.equal(rewriteSessionCwdTo(back, phoneCwd), null);
 });
 
 test('dedupeSessionDirs：同一 sid 落在两个 project 目录 → 隔离副本', async () => {
