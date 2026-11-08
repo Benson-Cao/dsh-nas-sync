@@ -31,6 +31,47 @@ export interface LocalProfile {
 /** 设备类别。用于「各自最优」：平台专属插件不该被建议跨平台安装。 */
 export type DeviceClass = 'mobile' | 'desktop' | 'cli' | 'unknown';
 
+/**
+ * 「插件同步管理」里的一侧 —— 本机（手机）或某个对端（电脑）。
+ *
+ * 为什么要有它：对账只报差集，用户看到的是一份"缺什么"的清单，却不知道
+ * **两端各装了什么**。手机与电脑的插件集本来就不该一样（竖屏适配 vs 桌面布局），
+ * 所以面板要能并排看两侧，差集才有参照物。
+ *
+ * 数据来源按可靠性排序：
+ *   · `self`   —— 本机磁盘（profile 声明 + node_modules 里的真实版本），永远最新
+ *   · `claim`  —— 对端每次同步结束时写下的插件快照（`dsh/devices/<device>.json`）
+ *   · `remote` —— 退路：NAS 上 `/dsh/profiles/<档>/package.json` 的声明，没有版本精度
+ */
+export interface PluginSide {
+  /** 设备标识（`android_localhost` / `win32_Benson`），退路模式下是 profile 名 */
+  id: string;
+  kind: DeviceClass;
+  /** self = 本机；claim = 对端自报；remote = 从远端装配清单推断 */
+  source: 'self' | 'claim' | 'remote';
+  /** 这一侧涉及的 profile（对端可能同时有 desktop 与 acp 两个档） */
+  profiles: string[];
+  /** 快照时间；remote 退路模式下为 null */
+  updatedAt: number | null;
+  /** 声明的第三方插件（不含 @deepseek-ai 内置），按包名排序 */
+  plugins: Array<{ name: string; version: string }>;
+}
+
+/**
+ * 从设备标识猜设备类别。
+ *
+ * `selfDevice()` 拼的是 `<platform>_<hostname>`（手机 `android_localhost`、
+ * 电脑 `win32_Benson`）。声明文件里只有这个字符串，没有别的类别信息，
+ * 所以按平台前缀判断 —— 比看 profile 名可靠（对端可能根本没跑 web 档）。
+ */
+export function deviceKindOf(id: string): DeviceClass {
+  const s = String(id || '').toLowerCase();
+  if (s.includes('android') || s.includes('phone') || s.includes('mobile') || s.includes('ios')) return 'mobile';
+  if (s.includes('win32') || s.includes('win64') || s.includes('darwin') || s.includes('desktop') || s.includes('mac')) return 'desktop';
+  if (s.includes('linux') || s.includes('cli') || s.includes('acp') || s.includes('termux')) return 'cli';
+  return 'unknown';
+}
+
 export interface PluginGap {
   profile: string;
   name: string;

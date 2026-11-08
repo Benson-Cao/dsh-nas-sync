@@ -21564,6 +21564,13 @@ init_merger();
 init_paths();
 
 // src/sync/plugins.ts
+function deviceKindOf(id) {
+  const s2 = String(id || "").toLowerCase();
+  if (s2.includes("android") || s2.includes("phone") || s2.includes("mobile") || s2.includes("ios")) return "mobile";
+  if (s2.includes("win32") || s2.includes("win64") || s2.includes("darwin") || s2.includes("desktop") || s2.includes("mac")) return "desktop";
+  if (s2.includes("linux") || s2.includes("cli") || s2.includes("acp") || s2.includes("termux")) return "cli";
+  return "unknown";
+}
 function depKind(spec) {
   const s2 = String(spec || "").trim();
   if (!s2) return "other";
@@ -22028,9 +22035,12 @@ var Engine = class {
     } catch {
       names = [];
     }
-    const files = names.filter((n) => n.type === "file" && n.name.endsWith(".json"));
+    const files = names.filter(
+      (n) => n.type === "file" && n.name.endsWith(".json") && n.name !== "_legacy.json"
+    );
     if (files.length === 0) {
-      const legacy = await this.readManifestAt(LEGACY_MANIFEST);
+      const migrated = await this.readManifestAt(MANIFESTS_DIR + "/_legacy.json");
+      const legacy = migrated.length > 0 ? migrated : await this.readManifestAt(LEGACY_MANIFEST);
       if (legacy.length === 0) return [];
       try {
         await this.writeManifestFile(manifestFileOf("_legacy"), legacy);
@@ -22079,6 +22089,33 @@ var Engine = class {
    * 同步完成后写本机声明。明文即可 —— 里面只有目录名和计数，不是敏感数据；
    * 而且明文让 sourceDevices 不用解密就能读，面板刷新更快。
    */
+  /**
+   * 本机各 profile 的插件快照：声明名 + 实际安装版本。
+   *
+   * 口径与「插件同步管理」一致 —— 用 profile 的 package.json 声明，不看
+   * node_modules 目录（hoisted 布局下那里躺着几百个传递依赖）。
+   * 版本取 node_modules 里包的真实版本，所以手机与电脑能并排比出「0.82.0 vs 0.81.0」。
+   */
+  localPluginSnapshot() {
+    const out = [];
+    const root = join6(dshHome(), "profiles");
+    let dirs = [];
+    try {
+      dirs = readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => String(d.name));
+    } catch {
+      return out;
+    }
+    for (const p of dirs) {
+      const dir = join6(root, p);
+      const declared = declaredPlugins(dir);
+      if (!declared.length) continue;
+      const installed = readInstalled(join6(dir, "node_modules"));
+      for (const name2 of declared) {
+        out.push({ profile: p, name: name2, version: String(installed[name2] ?? "") });
+      }
+    }
+    return out;
+  }
   async writeDeviceClaim(fresh) {
     const prefixes = {};
     for (const e2 of fresh) {
@@ -22096,10 +22133,12 @@ var Engine = class {
       }
     } catch {
     }
+    const plugins = this.localPluginSnapshot();
     const payload = JSON.stringify({
       device: selfDevice(),
       prefixes,
       workspaces,
+      plugins,
       updatedAt: Date.now()
     });
     await this.deps.transport.putBuffer(
@@ -22194,7 +22233,7 @@ var Engine = class {
       remoteDirs = [];
     }
     for (const d of remoteDirs) {
-      if (d.type !== "directory") continue;
+      if (d.type !== "dir") continue;
       const plain = await this.fetchRemotePlain("/dsh/profiles/" + d.name + "/package.json");
       if (!plain) continue;
       const parsed = parseProfilePackage(new TextDecoder().decode(plain));
@@ -22207,6 +22246,75 @@ var Engine = class {
       // 照抄 `--profile web` 会装进去但永远不会被加载。
       command: g.target ? installCommand(target, g.target) : ""
     }));
+    const byName = (a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    const selfId = selfDevice();
+    const sides = [
+      {
+        id: selfId,
+        kind: deviceKindOf(selfId),
+        source: "self",
+        profiles: target ? [target] : [],
+        updatedAt: null,
+        plugins: (targetLocal?.declared ?? []).map((name2) => ({ name: name2, version: String(installed[name2] ?? "") })).sort(byName)
+      }
+    ];
+    try {
+      const claims = await this.deps.transport.list(DEVICES_REMOTE);
+      for (const f3 of claims) {
+        if (f3.type !== "file" || !f3.name.endsWith(".json")) continue;
+        const id = f3.name.replace(/\.json$/, "");
+        if (id === selfId) continue;
+        let claim = null;
+        try {
+          claim = JSON.parse(
+            new TextDecoder().decode(await this.deps.transport.getBuffer(DEVICES_REMOTE + "/" + f3.name))
+          );
+        } catch {
+          continue;
+        }
+        if (!claim || typeof claim.device !== "string" || claim.device === selfId) continue;
+        const raw = Array.isArray(claim.plugins) ? claim.plugins : [];
+        const plugins = raw.filter((p) => p && typeof p.name === "string" && !String(p.name).startsWith("@deepseek-ai/")).map((p) => ({ name: String(p.name), version: String(p.version ?? "") })).sort(byName);
+        sides.push({
+          id: String(claim.device),
+          kind: deviceKindOf(String(claim.device)),
+          // 声明里还没有 plugins 字段 = 对端跑的是 0.5.3 之前的版本
+          source: plugins.length ? "claim" : "remote",
+          profiles: [...new Set(raw.map((p) => String(p?.profile ?? "")).filter(Boolean))],
+          updatedAt: Number(claim.updatedAt) || null,
+          plugins
+        });
+      }
+    } catch {
+    }
+    for (const side of sides) {
+      if (side.source !== "remote" || side.plugins.length) continue;
+      const near = remote.filter((r2) => deviceClassOfProfile(r2.profile) === side.kind);
+      const merged = /* @__PURE__ */ new Map();
+      for (const r2 of near) {
+        for (const [n, spec] of Object.entries(r2.deps)) {
+          if (n.startsWith("@deepseek-ai/")) continue;
+          merged.set(n, spec);
+        }
+      }
+      side.plugins = [...merged].map(([name2, version]) => ({ name: name2, version })).sort(byName);
+      side.profiles = near.map((r2) => r2.profile);
+    }
+    if (sides.length === 1 && remote.length) {
+      for (const r2 of remote) {
+        if (r2.profile === target) continue;
+        const plugins = Object.entries(r2.deps).filter(([n]) => !n.startsWith("@deepseek-ai/")).map(([name2, version]) => ({ name: name2, version })).sort(byName);
+        if (!plugins.length) continue;
+        sides.push({
+          id: r2.profile,
+          kind: deviceClassOfProfile(r2.profile),
+          source: "remote",
+          profiles: [r2.profile],
+          updatedAt: null,
+          plugins
+        });
+      }
+    }
     return {
       gaps,
       target,
@@ -22217,7 +22325,9 @@ var Engine = class {
       // 计数口径同「本机已装」：用声明的插件数，不用 node_modules 条目数
       // （后者在 hoisted 布局下包含几百个传递依赖，会显示成 web(134) 这种噪声）。
       localProfiles: locals.map((l) => ({ profile: l.profile, count: l.declared.length })),
-      remoteProfiles: remote.map((r2) => r2.profile)
+      remoteProfiles: remote.map((r2) => r2.profile),
+      sides,
+      selfDevice: selfId
     };
   }
   async scan() {
@@ -22406,7 +22516,10 @@ var Engine = class {
       return "skipped";
     }
     const plain = await this.fetchRemotePlain("/dsh/" + rel);
-    if (!plain) throw new Error("\u8FDC\u7AEF\u4E0D\u5B58\u5728: " + rel);
+    if (!plain) {
+      console.warn("[dsh-nas-sync] \u8DF3\u8FC7\uFF1A\u8FDC\u7AEF\u5DF2\u4E0D\u5B58\u5728 " + rel);
+      return "skipped";
+    }
     if (isWorkspaceRegistryRel(rel)) {
       await mergeWorkspaceRegistry(Buffer.from(plain).toString("utf8"));
       return "merged";

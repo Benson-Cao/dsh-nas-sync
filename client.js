@@ -78,7 +78,17 @@ window.__ModuleLoader__.load({
       needRefresh: '页面没有拿到请求令牌，请退出本页重新进入。',
       refresh: '刷新',
       statusSection: '同步状态',
-      pluginSection: '插件对账',
+      pluginSection: '插件同步管理',
+      // 「手机 / 电脑」两侧并排看：两端的插件集本来就不该一样（竖屏适配 vs 桌面布局），
+      // 只报差集的话用户没有参照物。标签按设备类别渲染，不写死成手机。
+      sideMobile: '手机',
+      sideDesktop: '电脑',
+      sideCli: '命令行',
+      sideUnknown: '设备',
+      pluginNoReport: '还没上报插件清单',
+      pluginPeerHint: '对端同步一次后显示',
+      pluginOnlyHere: '对端没有这个插件',
+      pluginDiffTitle: '对端有、本机没有',
       pluginHint: '插件的包体不走同步（只同步装配清单），这里列出「别的设备装了、这台机器没装」的插件。平台专属插件（如手机竖屏适配）按「各自最优」跳过，不算缺失。安装会调用 dsh CLI，装完需重启 DSH。',
       pluginCheck: '对账',
       pluginChecking: '对账中…',
@@ -186,7 +196,15 @@ window.__ModuleLoader__.load({
       needRefresh: 'Page token missing — please leave and reopen this panel.',
       refresh: 'Refresh',
       statusSection: 'Status',
-      pluginSection: 'Plugin audit',
+      pluginSection: 'Plugin sync',
+      sideMobile: 'Phone',
+      sideDesktop: 'Desktop',
+      sideCli: 'CLI',
+      sideUnknown: 'Device',
+      pluginNoReport: 'No plugin list reported yet',
+      pluginPeerHint: 'appears after the other device syncs once',
+      pluginOnlyHere: 'missing on the other device',
+      pluginDiffTitle: 'On the other device, not here',
       pluginHint: 'Plugin packages never sync (only install manifests do). This lists plugins other devices have but this machine does not. Platform-specific plugins (e.g. mobile layout adapters) are skipped as each device keeps its own best set. Installing calls the dsh CLI; restart DSH afterwards.',
       pluginCheck: 'Check',
       pluginChecking: 'Checking…',
@@ -431,6 +449,19 @@ window.__ModuleLoader__.load({
       fileRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 4px', borderBottom: '1px solid var(--dsw-alias-border-l1)', minHeight: '32px' },
       fileName: { fontFamily: 'monospace', fontSize: '12px', wordBreak: 'break-all', flex: 1 },
       badge: { fontSize: '11px', padding: '2px 8px', borderRadius: '999px', border: '1px solid var(--dsw-alias-border-l2)', color: 'var(--dsw-alias-label-secondary)' },
+      // 「插件同步管理」的两侧并排视图。手机上卡片内容宽约 330px，两列各 ~155px，
+      // 够放「包名 版本」这种 20 字符出头的标签（放不下会自动换行到下一行内）。
+      pluginGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
+      pluginCol: { display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0, padding: '10px', borderRadius: '10px', border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-2)' },
+      pluginColHead: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '6px', minWidth: 0 },
+      pluginColTitle: { fontSize: '12px', fontWeight: 600 },
+      badgeWrap: { display: 'flex', flexWrap: 'wrap', gap: '4px' },
+      // 包名普遍很长（dsh-guizang-design），一列只有 ~155px，挤成一行必然折行成两截。
+      // 改成两行胶囊：包名一行、版本一行，长名整体不换行。
+      badgeStack: { display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: '1px', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+      badgeVer: { fontSize: '10px', opacity: 0.75, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' },
+      // 只在单侧出现的插件：描边换成品牌色。比另起一行说明省地方，也不至于像报错。
+      badgeAlone: { borderColor: 'var(--dsw-alias-brand-primary)', color: 'var(--dsw-alias-brand-primary)' },
       scopeList: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '2px' },
       scopeRow: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' },
       scopeHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' },
@@ -904,22 +935,85 @@ window.__ModuleLoader__.load({
               onClick: () => runAudit(audit && audit.target),
             }, auditBusy === 'check' ? t('pluginChecking') : '⟳ ' + t('pluginCheck')),
           ),
-          // r213：删掉说明段落与 profile 选择器（用户要求）——target 由后端默认锁当前档。
-          // 已装清单：只报差集时用户会以为「一个插件都没装」，所以把本机已装的
-          // 第三方插件也列出来（不含 @deepseek-ai 内置，也不含传递依赖）。
-          // 用标签流而不是一整段文字：手机上四五个包名挤成一行很难扫。
-          audit && audit.installedPlugins && audit.installedPlugins.length
-            ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-                h('span', { style: S.hint },
-                  t('pluginInstalled') + '（' + audit.target + '，' + audit.installedPlugins.length + '）'),
-                h('div', { style: S.row },
-                  audit.installedPlugins.map((p) => h('span',
-                    { key: 'ip|' + p.name, style: S.badge },
-                    p.version ? p.name + ' ' + p.version : p.name))))
-            : null,
+          // r214：两侧并排看（手机 / 电脑）。本机侧读磁盘真值，对端侧读它同步时
+          // 上报的插件快照（`dsh/devices/<device>.json` 的 plugins 字段）。
+          // 只报差集时用户没有参照物 —— 两端的插件集本来就不该一样。
+          (() => {
+            if (!audit) return null;
+            const labelOf = (kind) => t(
+              kind === 'mobile' ? 'sideMobile'
+                : kind === 'desktop' ? 'sideDesktop'
+                  : kind === 'cli' ? 'sideCli' : 'sideUnknown',
+            );
+            const sides = Array.isArray(audit.sides) ? audit.sides : [];
+            const self = sides.find((s) => s.source === 'self')
+              || {
+                id: audit.selfDevice || '',
+                kind: 'mobile',
+                profiles: audit.target ? [audit.target] : [],
+                plugins: audit.installedPlugins || [],
+              };
+            const peers = sides.filter((s) => s !== self);
+            // 对端的版本号可能是一整条 git URL（`git+https://github.com/...`）或
+            // `link:/data/user/0/...`，直接铺出来会把一列撑变形。这里只保留「来源类型」：
+            // 真正的完整 spec 在下方差集列表里，那里是整行、能换行。
+            const fmtVer = (v) => {
+              const s = String(v || '');
+              if (s.startsWith('git+') || s.startsWith('github:') || s.startsWith('git@')) return 'git';
+              if (s.startsWith('link:')) return 'link';
+              if (s.startsWith('file:')) return 'file';
+              if (s.startsWith('workspace:')) return 'workspace';
+              return s;
+            };
+            // 同一列里同一个包名只显示一次：对端可能同时跑 desktop 与 acp 两个档
+            const dedupe = (list) => {
+              const m = new Map();
+              for (const p of list || []) if (!m.has(p.name)) m.set(p.name, p);
+              return Array.from(m.values());
+            };
+            const selfList = dedupe(self.plugins);
+            const peerList = [];
+            for (const p of peers) for (const it of p.plugins || []) peerList.push(it);
+            const peerUnique = dedupe(peerList);
+            const selfNames = new Set(selfList.map((p) => p.name));
+            const peerNames = new Set(peerUnique.map((p) => p.name));
+            const col = (title, sub, list, otherNames, key) => h('div', { style: S.pluginCol },
+              h('div', { style: S.pluginColHead },
+                h('span', { style: S.pluginColTitle }, title),
+                h('span', { style: S.hint }, sub),
+              ),
+              list.length
+                ? h('div', { style: S.badgeWrap }, list.map((p) => h('span', {
+                    key: key + '|' + p.name,
+                    style: Object.assign({}, S.badge, S.badgeStack, otherNames.has(p.name) ? null : S.badgeAlone),
+                    title: otherNames.has(p.name) ? p.name : p.name + ' — ' + t('pluginOnlyHere'),
+                  },
+                  h('span', null, p.name),
+                  p.version ? h('span', { style: S.badgeVer }, fmtVer(p.version)) : null)))
+                : h('span', { style: S.hint }, t('pluginNoReport')),
+            );
+            const subOf = (side, n) => {
+              const pf = (side && side.profiles) || [];
+              return (pf.length ? pf.join('/') + ' · ' : '') + n;
+            };
+            const peerTitle = peers.length
+              ? peers.map((s) => labelOf(s.kind)).filter((v, i, a) => a.indexOf(v) === i).join(' / ')
+              : t('sideDesktop');
+            return h('div', { style: S.pluginGrid },
+              col(labelOf(self.kind), subOf(self, selfList.length), selfList, peerNames, 'self'),
+              // 对端不止一台时（电脑 + 命令行）合成一列：手机上放不下三列，
+              // 而且用户关心的是「另一端装了什么」，不是每台的细节。
+              peers.length
+                ? col(peerTitle, subOf(peers.length === 1 ? peers[0] : null, peerUnique.length), peerUnique, selfNames, 'peer')
+                : h('div', { style: S.pluginCol },
+                    h('div', { style: S.pluginColHead }, h('span', { style: S.pluginColTitle }, t('sideDesktop'))),
+                    h('span', { style: S.hint }, t('pluginPeerHint'))),
+            );
+          })(),
           audit
             ? (audit.gaps && audit.gaps.length
               ? h('div', { style: S.scopeList },
+                  h('span', { style: S.hint }, t('pluginDiffTitle') + '（' + audit.gaps.length + '）'),
                   audit.gaps.map((g) => h('div', { key: g.profile + '|' + g.name, style: S.fileRow },
                     h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 } },
                       h('span', { style: S.fileName }, g.name + '@' + g.spec),

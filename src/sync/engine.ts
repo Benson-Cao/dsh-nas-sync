@@ -28,10 +28,13 @@ import { isMergeable } from './merger.js';
 import { localOf, dshHome } from '../paths.js';
 import {
   declaredPluginNames,
+  deviceClassOfProfile,
+  deviceKindOf,
   diffPlugins,
   installCommand,
   parseProfilePackage,
   type PluginGap,
+  type PluginSide,
   type RemoteProfile,
 } from './plugins.js';
 import {
@@ -415,10 +418,19 @@ export class Engine {
     } catch {
       names = []; // 目录还不存在 = 全新 NAS
     }
-    const files = names.filter((n) => n.type === 'file' && n.name.endsWith('.json'));
+    // `_legacy.json` 只是「按设备拆分清单」之前那版**整份快照**，用途是迁移。
+    // 一旦有了各设备自己的清单，它就是**永久过期**的：某台机器上一轮扫描到、
+    // 之后删掉/改名的工作区会烂在里面，别的设备每轮都把它当「远端有、本地没有」
+    // 去下载 → NAS 上 404 → 记一次错误 → 下一轮照旧，永远清不掉。
+    // （手机端实测：23 条幽灵待同步全来自这份文件的 `workspaces/胎教Agent/`。）
+    const files = names.filter(
+      (n) => n.type === 'file' && n.name.endsWith('.json') && n.name !== '_legacy.json',
+    );
 
     if (files.length === 0) {
-      const legacy = await this.readManifestAt(LEGACY_MANIFEST);
+      // 一个设备清单都没有才回退到旧格式：先看已迁移的 _legacy.json，再看老路径。
+      const migrated = await this.readManifestAt(MANIFESTS_DIR + '/_legacy.json');
+      const legacy = migrated.length > 0 ? migrated : await this.readManifestAt(LEGACY_MANIFEST);
       if (legacy.length === 0) return [];
       try {
         await this.writeManifestFile(manifestFileOf('_legacy'), legacy);
@@ -473,6 +485,36 @@ export class Engine {
    * 同步完成后写本机声明。明文即可 —— 里面只有目录名和计数，不是敏感数据；
    * 而且明文让 sourceDevices 不用解密就能读，面板刷新更快。
    */
+  /**
+   * 本机各 profile 的插件快照：声明名 + 实际安装版本。
+   *
+   * 口径与「插件同步管理」一致 —— 用 profile 的 package.json 声明，不看
+   * node_modules 目录（hoisted 布局下那里躺着几百个传递依赖）。
+   * 版本取 node_modules 里包的真实版本，所以手机与电脑能并排比出「0.82.0 vs 0.81.0」。
+   */
+  private localPluginSnapshot(): Array<{ profile: string; name: string; version: string }> {
+    const out: Array<{ profile: string; name: string; version: string }> = [];
+    const root = join(dshHome(), 'profiles');
+    let dirs: string[] = [];
+    try {
+      dirs = readdirSync(root, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => String(d.name));
+    } catch {
+      return out;
+    }
+    for (const p of dirs) {
+      const dir = join(root, p);
+      const declared = declaredPlugins(dir);
+      if (!declared.length) continue;
+      const installed = readInstalled(join(dir, 'node_modules'));
+      for (const name of declared) {
+        out.push({ profile: p, name, version: String(installed[name] ?? '') });
+      }
+    }
+    return out;
+  }
+
   private async writeDeviceClaim(fresh: ManifestEntry[]): Promise<void> {
     const prefixes: Record<string, number> = {};
     for (const e of fresh) {
@@ -495,10 +537,16 @@ export class Engine {
       /* 注册表读不到就只报目录级来源，不影响同步 */
     }
 
+    // 插件快照：包体不过 NAS，对端只能从这份声明里知道「这台机器装了哪些插件」。
+    // 手机与电脑的插件集不同（竖屏适配 vs 桌面布局），面板要并排显示两侧，
+    // 光靠 `/dsh/profiles/<档>/package.json` 拿不到版本精度，也分不清是哪台机器写的。
+    const plugins = this.localPluginSnapshot();
+
     const payload = JSON.stringify({
       device: selfDevice(),
       prefixes,
       workspaces,
+      plugins,
       updatedAt: Date.now(),
     });
     await this.deps.transport.putBuffer(
@@ -566,6 +614,9 @@ export class Engine {
     installedPlugins: Array<{ name: string; version: string }>;
     localProfiles: Array<{ profile: string; count: number }>;
     remoteProfiles: string[];
+    /** 两侧对比：本机（手机）+ 各对端（电脑）。手机与电脑的插件集不同，要并排看 */
+    sides: PluginSide[];
+    selfDevice: string;
   }> {
     this.checkReady();
     const root = join(dshHome(), 'profiles');
@@ -607,7 +658,7 @@ export class Engine {
         .profile;
     }
     const targetLocal = locals.find((l) => l.profile === target);
-    const installed = (targetLocal || { installed: {} }).installed;
+    const installed: Record<string, string> = (targetLocal || { installed: {} }).installed;
 
     const remote: RemoteProfile[] = [];
     let remoteDirs: NasEntry[] = [];
@@ -617,7 +668,11 @@ export class Engine {
       remoteDirs = [];
     }
     for (const d of remoteDirs) {
-      if (d.type !== 'directory') continue;
+      // ⚠️ `NasEntry.type` 的取值是 'file' | 'dir'（见 transport.ts），不是 WebDAV 的
+      // 'directory'。这里原来写 `!== 'directory'` 恒为真 → 每次都 continue → remote
+      // 永远是空数组 → 差集恒为空 → 面板一直显示「所有插件已对齐」。
+      // 也就是说 0.4.0 起插件对账其实一次都没真正比对过。
+      if (d.type !== 'dir') continue;
       const plain = await this.fetchRemotePlain('/dsh/profiles/' + d.name + '/package.json');
       if (!plain) continue;
       const parsed = parseProfilePackage(new TextDecoder().decode(plain));
@@ -634,6 +689,97 @@ export class Engine {
       command: g.target ? installCommand(target, g.target) : '',
     }));
 
+    // ---- 两侧视图（手机 / 电脑）----
+    // 对账只报差集，用户看不到「两端各装了什么」，于是差集也没有参照物。
+    // 这里补齐两侧：本机读磁盘（真值），对端读它同步时留下的插件快照。
+    const byName = (a: { name: string }, b: { name: string }) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    const selfId = selfDevice();
+    const sides: PluginSide[] = [
+      {
+        id: selfId,
+        kind: deviceKindOf(selfId),
+        source: 'self',
+        profiles: target ? [target] : [],
+        updatedAt: null,
+        plugins: (targetLocal?.declared ?? [])
+          .map((name) => ({ name, version: String(installed[name] ?? '') }))
+          .sort(byName),
+      },
+    ];
+
+    // 对端侧：设备声明（明文 JSON，`dsh/devices/<device>.json`）里的 plugins 快照。
+    // 有版本、有归属，是唯一能分清「这是电脑的插件还是手机的」的来源。
+    try {
+      const claims = await this.deps.transport.list(DEVICES_REMOTE);
+      for (const f of claims) {
+        if (f.type !== 'file' || !f.name.endsWith('.json')) continue;
+        const id = f.name.replace(/\.json$/, '');
+        if (id === selfId) continue;
+        let claim: any = null;
+        try {
+          claim = JSON.parse(
+            new TextDecoder().decode(await this.deps.transport.getBuffer(DEVICES_REMOTE + '/' + f.name)),
+          );
+        } catch {
+          continue; // 单个声明坏了不该让整张卡打不开
+        }
+        if (!claim || typeof claim.device !== 'string' || claim.device === selfId) continue;
+        const raw = Array.isArray(claim.plugins) ? claim.plugins : [];
+        const plugins = raw
+          .filter((p: any) => p && typeof p.name === 'string' && !String(p.name).startsWith('@deepseek-ai/'))
+          .map((p: any) => ({ name: String(p.name), version: String(p.version ?? '') }))
+          .sort(byName);
+        sides.push({
+          id: String(claim.device),
+          kind: deviceKindOf(String(claim.device)),
+          // 声明里还没有 plugins 字段 = 对端跑的是 0.5.3 之前的版本
+          source: plugins.length ? 'claim' : 'remote',
+          profiles: [...new Set(raw.map((p: any) => String(p?.profile ?? '')).filter(Boolean))] as string[],
+          updatedAt: Number(claim.updatedAt) || null,
+          plugins,
+        });
+      }
+    } catch {
+      /* 远端不可达：只显示本机侧，差集仍然有效 */
+    }
+
+    // 退路①：对端是旧版本（声明里没 plugins）→ 拿远端 profile 声明按设备类别补。
+    // 版本是 spec 而不是实际安装版本，但至少能并排看出「它装了哪几个」。
+    for (const side of sides) {
+      if (side.source !== 'remote' || side.plugins.length) continue;
+      const near = remote.filter((r) => deviceClassOfProfile(r.profile) === side.kind);
+      const merged = new Map<string, string>();
+      for (const r of near) {
+        for (const [n, spec] of Object.entries(r.deps)) {
+          if (n.startsWith('@deepseek-ai/')) continue;
+          merged.set(n, spec);
+        }
+      }
+      side.plugins = [...merged].map(([name, version]) => ({ name, version })).sort(byName);
+      side.profiles = near.map((r) => r.profile);
+    }
+
+    // 退路②：连设备声明都没有 → 按远端 profile 各开一侧（本机那一档跳过，否则会自己跟自己比）
+    if (sides.length === 1 && remote.length) {
+      for (const r of remote) {
+        if (r.profile === target) continue;
+        const plugins = Object.entries(r.deps)
+          .filter(([n]) => !n.startsWith('@deepseek-ai/'))
+          .map(([name, version]) => ({ name, version }))
+          .sort(byName);
+        if (!plugins.length) continue;
+        sides.push({
+          id: r.profile,
+          kind: deviceClassOfProfile(r.profile),
+          source: 'remote',
+          profiles: [r.profile],
+          updatedAt: null,
+          plugins,
+        });
+      }
+    }
+
     return {
       gaps,
       target,
@@ -647,6 +793,8 @@ export class Engine {
       // （后者在 hoisted 布局下包含几百个传递依赖，会显示成 web(134) 这种噪声）。
       localProfiles: locals.map((l) => ({ profile: l.profile, count: l.declared.length })),
       remoteProfiles: remote.map((r) => r.profile),
+      sides,
+      selfDevice: selfId,
     };
   }
 
@@ -929,7 +1077,13 @@ export class Engine {
     }
 
     const plain = await this.fetchRemotePlain('/dsh/' + rel);
-    if (!plain) throw new Error('远端不存在: ' + rel);
+    if (!plain) {
+      // 清单里有、NAS 上已经没有了（对端删除/改名，或清单残影）。**不能记成错误**：
+      // 每轮都会重来一次，errors 会永远停在某个数字上，「同步失败」变成常驻噪音。
+      // 跳过并计数，下一轮扫描时清单若已收敛，这条自然消失。
+      console.warn('[dsh-nas-sync] 跳过：远端已不存在 ' + rel);
+      return 'skipped';
+    }
 
     // ① 工作区注册表：直接覆盖会把本机的工作区整片抹掉（本地 default-workspace 也没了），
     //    所以这里**只合并不覆盖**，并把远端绝对路径映射成本机真实目录。
