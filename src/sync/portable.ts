@@ -982,6 +982,7 @@ export function registryCovers(remoteText: string, localText: string): boolean {
 export async function mergeWorkspaceRegistry(
   remoteText: string,
   home: string = dshHome(),
+  dropSessionIds?: ReadonlySet<string>,
 ): Promise<RegistryMergeResult> {
   let remote: unknown;
   try {
@@ -1016,6 +1017,34 @@ export async function mergeWorkspaceRegistry(
   let added = 0;
   let remapped = 0;
 
+  /**
+   * 「本机原本就带着、现在要清掉」的屏蔽条目数（0.5.8）。
+   *
+   * 只数**合并远端之前**本机已有的：远端每轮都会把那些 id 再并回来、随即被过滤掉，
+   * 那是净零变化，不该让 `workspace.json` 每 5 分钟被重写一次（dsh 的文件监听会被
+   * 反复惊动，侧栏跟着抖）。所以过滤动作本身不计数，只有本机真的少了一条才算变化。
+   */
+  let pruned = 0;
+  if (dropSessionIds && dropSessionIds.size > 0) {
+    for (const w of Object.values<any>(workspaces)) {
+      if (!w || !Array.isArray(w['sessionIds'])) continue;
+      for (const s of w['sessionIds']) if (dropSessionIds.has(String(s))) pruned += 1;
+    }
+  }
+
+  /**
+   * 过滤本机屏蔽的会话（0.5.8）。
+   *
+   * 必须卡在**合并这一步**，不能事后单独清：合并每轮都会把对端注册表里的
+   * `sessionIds` 并进来，屏蔽掉的 id 于是又被加回来 —— 侧栏里就出现一条
+   * 「文件早没了、点开报错」的幽灵会话，而且是每轮都复活一次。
+   */
+  const keep = (arr: unknown): string[] => {
+    const src = Array.isArray(arr) ? arr.map(String) : [];
+    if (!dropSessionIds || dropSessionIds.size === 0) return src;
+    return src.filter((s) => !dropSessionIds.has(s));
+  };
+
   for (const [id, raw] of Object.entries(remoteWorkspaces)) {
     const rw = (raw ?? {}) as Record<string, any>;
     const existing = workspaces[id] as Record<string, any> | undefined;
@@ -1024,7 +1053,7 @@ export async function mergeWorkspaceRegistry(
       // 已存在：只并会话归属
       const set = new Set<string>(Array.isArray(existing['sessionIds']) ? existing['sessionIds'] : []);
       for (const s of Array.isArray(rw['sessionIds']) ? rw['sessionIds'] : []) set.add(String(s));
-      existing['sessionIds'] = [...set];
+      existing['sessionIds'] = keep([...set]);
 
       // 本地条目路径在本机不存在 → 修成映射路径
       const currentPath = existing['path'];
@@ -1043,10 +1072,17 @@ export async function mergeWorkspaceRegistry(
     workspaces[id] = {
       ...rw,
       path: m.local,
-      sessionIds: Array.isArray(rw['sessionIds']) ? [...rw['sessionIds']] : [],
+      sessionIds: keep(rw['sessionIds']),
     };
     if (!globals['workspaceIds'].includes(id)) globals['workspaceIds'].push(id);
     added += 1;
+  }
+
+  // 远端没有、本机有的工作区也要过一遍（屏蔽是「本机不要」，与远端无关）
+  if (dropSessionIds && dropSessionIds.size > 0) {
+    for (const w of Object.values<any>(workspaces)) {
+      if (w && Array.isArray(w['sessionIds'])) w['sessionIds'] = keep(w['sessionIds']);
+    }
   }
 
   globals['initialized'] ??= true;
@@ -1068,7 +1104,7 @@ export async function mergeWorkspaceRegistry(
    * 重写 `workspace.json`：内容一模一样也会刷新 mtime，dsh 的工作区监听被反复惊动，
    * 侧栏会跟着抖，用户还会以为「同步一直在改我的工作区」。
    */
-  if (added === 0 && remapped === 0 && deduped === 0 && norm.orderFixed === 0) {
+  if (added === 0 && remapped === 0 && deduped === 0 && norm.orderFixed === 0 && pruned === 0) {
     return { added: 0, remapped: 0, total: Object.keys(workspaces).length, deduped: 0 };
   }
 

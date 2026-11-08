@@ -282,6 +282,11 @@ registerNasSyncUi(ctx, HostBridge(scope))
 > 按 **sessionId** 而不是路径记 —— 同一条会话在 NAS 上可能有两份 rel（手机原文
 > `sessions/--data-user-…` 和本机镜像曾被传上去的 `sessions/--C-Users-…`），
 > 按路径记会漏掉另一半，会话照样被拉回来。
+>
+> 过滤同时卡在**注册表合并**里（`mergeWorkspaceRegistry` 的第三参）：否则远端注册表
+> 每轮都会把这些 id 并回 `sessionIds`，侧栏留下一排「文件没了、点开报错」的幽灵条目。
+> 只有「本机原本真的少了一条」才算变化并写盘 —— 远端并进来又立刻被挡掉属于净零变化，
+> 不能让 `workspace.json` 每 5 分钟被重写一次。
 
 > **为什么映射到 `~/.dsh/nassyncworkspaces/`**：它仍在 `$DSH_HOME` 之内，于是
 > 「工作区文件」可以当成 rel 前缀 `workspaces/` 的普通分类来同步；同时手机上的

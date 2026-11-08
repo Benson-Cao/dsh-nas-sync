@@ -1511,6 +1511,9 @@ export class Engine {
    */
   private async pullWorkspaceRegistry(): Promise<void> {
     this.registryNeedsPush = false;
+    // 合并注册表要用屏蔽清单，而 sync() 里这一步排在 scan() 之前 ——
+    // 不能等 scan() 去加载，否则这一轮合并又把屏蔽掉的 id 并回来了。
+    this.loadIgnoredFile();
     const localAbs = join(dshHome(), WORKSPACE_REGISTRY_REL);
     let plain: Uint8Array | null = null;
     try {
@@ -1530,7 +1533,7 @@ export class Engine {
     // Array.prototype.toString 拼成 "123,34,…" 的逗号串，JSON.parse 必失败。
     const remoteText = Buffer.from(plain).toString('utf8');
     try {
-      const r = await mergeWorkspaceRegistry(remoteText);
+      const r = await mergeWorkspaceRegistry(remoteText, undefined, this.ignoredFromFile);
       if (r.added > 0 || r.remapped > 0 || r.deduped > 0) {
         console.warn(
           '[dsh-nas-sync] 工作区注册表已合并：新增 ' + r.added +
@@ -1587,7 +1590,7 @@ export class Engine {
     //    得到 "123,34,..." 这样的逗号串（encoding 参数被忽略），JSON.parse 必失败，
     //    整个合并就成了静默 no-op。必须显式经过 Buffer。
     if (isWorkspaceRegistryRel(rel)) {
-      await mergeWorkspaceRegistry(Buffer.from(plain).toString('utf8'));
+      await mergeWorkspaceRegistry(Buffer.from(plain).toString('utf8'), undefined, this.ignoredFromFile);
       return 'merged';
     }
 

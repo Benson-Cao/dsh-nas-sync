@@ -21065,7 +21065,7 @@ function registryCovers(remoteText, localText) {
   }
   return true;
 }
-async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
+async function mergeWorkspaceRegistry(remoteText, home = dshHome(), dropSessionIds) {
   let remote;
   try {
     remote = JSON.parse(remoteText);
@@ -21093,13 +21093,25 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
   const remoteWorkspaces = remote?.["tables"]?.["workspaces"] ?? {};
   let added = 0;
   let remapped = 0;
+  let pruned = 0;
+  if (dropSessionIds && dropSessionIds.size > 0) {
+    for (const w of Object.values(workspaces)) {
+      if (!w || !Array.isArray(w["sessionIds"])) continue;
+      for (const s2 of w["sessionIds"]) if (dropSessionIds.has(String(s2))) pruned += 1;
+    }
+  }
+  const keep = (arr) => {
+    const src = Array.isArray(arr) ? arr.map(String) : [];
+    if (!dropSessionIds || dropSessionIds.size === 0) return src;
+    return src.filter((s2) => !dropSessionIds.has(s2));
+  };
   for (const [id, raw] of Object.entries(remoteWorkspaces)) {
     const rw = raw ?? {};
     const existing = workspaces[id];
     if (existing !== void 0) {
       const set = new Set(Array.isArray(existing["sessionIds"]) ? existing["sessionIds"] : []);
       for (const s2 of Array.isArray(rw["sessionIds"]) ? rw["sessionIds"] : []) set.add(String(s2));
-      existing["sessionIds"] = [...set];
+      existing["sessionIds"] = keep([...set]);
       const currentPath = existing["path"];
       const badPath = typeof currentPath !== "string" || currentPath.length === 0 || !existsSync2(currentPath);
       if (badPath) {
@@ -21114,10 +21126,15 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
     workspaces[id] = {
       ...rw,
       path: m2.local,
-      sessionIds: Array.isArray(rw["sessionIds"]) ? [...rw["sessionIds"]] : []
+      sessionIds: keep(rw["sessionIds"])
     };
     if (!globals["workspaceIds"].includes(id)) globals["workspaceIds"].push(id);
     added += 1;
+  }
+  if (dropSessionIds && dropSessionIds.size > 0) {
+    for (const w of Object.values(workspaces)) {
+      if (w && Array.isArray(w["sessionIds"])) w["sessionIds"] = keep(w["sessionIds"]);
+    }
   }
   globals["initialized"] ??= true;
   if (!globals["defaultWorkspaceId"] && globals["workspaceIds"].length > 0) {
@@ -21125,7 +21142,7 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome()) {
   }
   const norm = normalizeWorkspaceRegistry(local);
   const deduped = norm.removed + norm.merged;
-  if (added === 0 && remapped === 0 && deduped === 0 && norm.orderFixed === 0) {
+  if (added === 0 && remapped === 0 && deduped === 0 && norm.orderFixed === 0 && pruned === 0) {
     return { added: 0, remapped: 0, total: Object.keys(workspaces).length, deduped: 0 };
   }
   await mkdir2(join4(home, "storages"), { recursive: true });
@@ -23027,6 +23044,7 @@ var Engine = class {
    */
   async pullWorkspaceRegistry() {
     this.registryNeedsPush = false;
+    this.loadIgnoredFile();
     const localAbs = join6(dshHome(), WORKSPACE_REGISTRY_REL);
     let plain = null;
     try {
@@ -23041,7 +23059,7 @@ var Engine = class {
     }
     const remoteText = Buffer.from(plain).toString("utf8");
     try {
-      const r2 = await mergeWorkspaceRegistry(remoteText);
+      const r2 = await mergeWorkspaceRegistry(remoteText, void 0, this.ignoredFromFile);
       if (r2.added > 0 || r2.remapped > 0 || r2.deduped > 0) {
         console.warn(
           "[dsh-nas-sync] \u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\u5DF2\u5408\u5E76\uFF1A\u65B0\u589E " + r2.added + "\u3001\u4FEE\u6B63\u8DEF\u5F84 " + r2.remapped + "\u3001\u53BB\u91CD " + r2.deduped
@@ -23076,7 +23094,7 @@ var Engine = class {
       return "skipped";
     }
     if (isWorkspaceRegistryRel(rel)) {
-      await mergeWorkspaceRegistry(Buffer.from(plain).toString("utf8"));
+      await mergeWorkspaceRegistry(Buffer.from(plain).toString("utf8"), void 0, this.ignoredFromFile);
       return "merged";
     }
     const localAbs = this.resolveLocal(rel);

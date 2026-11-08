@@ -329,6 +329,22 @@ test('mergeWorkspaceRegistry：内容没变化时不写盘（不刷 mtime）', a
   assert.equal(statSync(p).mtimeMs, before, '无变化不该重写注册表');
 });
 
+test('mergeWorkspaceRegistry：本机屏蔽的会话在合并时被过滤（0.5.8）', async () => {
+  const { h } = homeWithSyncedWorkspaces();
+  // 远端的鲸鱼宠物带着 s9/s10，本机明确不要 s10
+  await mergeWorkspaceRegistry(REMOTE_REGISTRY, h, new Set(['s10']));
+  const p = join(h, 'storages', 'workspace.json');
+  const reg = JSON.parse(readFileSync(p, 'utf8'));
+  assert.deepEqual(reg.tables.workspaces['id-whale'].sessionIds, ['s9']);
+
+  // 下一轮远端又把 s10 并回来，仍应被挡在门外，且不重复刷盘
+  const before = statSync(p).mtimeMs;
+  await mergeWorkspaceRegistry(REMOTE_REGISTRY, h, new Set(['s10']));
+  const after = JSON.parse(readFileSync(p, 'utf8'));
+  assert.deepEqual(after.tables.workspaces['id-whale'].sessionIds, ['s9']);
+  assert.equal(statSync(p).mtimeMs, before, '过滤后内容没变就不该重写');
+});
+
 test('registryCovers：远端已覆盖本机 → 不发布；本机有远端缺的 → 发布', () => {
   const local = JSON.stringify({
     tables: { workspaces: { a: { title: 'wstest', sessionIds: ['s1'] } } },
