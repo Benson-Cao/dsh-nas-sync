@@ -17181,6 +17181,37 @@ var init_node = __esm({
 });
 
 // src/nas/webdav.ts
+function fileTimeoutMs(bytes) {
+  const naive = Math.ceil((bytes || 0) / WORST_BPS) * 1e3 + 3e4;
+  return Math.max(FILE_TIMEOUT_FLOOR_MS, naive);
+}
+function timeoutSignal(ms) {
+  const anyAbort = AbortSignal;
+  if (typeof AbortSignal !== "undefined" && typeof anyAbort?.timeout === "function") {
+    return anyAbort.timeout(ms);
+  }
+  const ac = new AbortController();
+  const t2 = setTimeout(() => ac.abort(), ms);
+  t2.unref?.();
+  return ac.signal;
+}
+function isAbortError(e2) {
+  const name2 = String(e2?.name || "");
+  const code = String(e2?.code || "");
+  return name2 === "AbortError" || name2 === "TimeoutError" || code === "ABORT_ERR" || code === "UND_ERR_ABORTED";
+}
+async function guarded(op, ms, run) {
+  try {
+    return await run(timeoutSignal(ms));
+  } catch (e2) {
+    if (isAbortError(e2)) {
+      throw new Error(
+        op + " \u8D85\u65F6\uFF08" + Math.round(ms / 1e3) + " \u79D2\u65E0\u54CD\u5E94\uFF09\uFF1ANAS \u53EF\u80FD\u5DF2\u65AD\u5F00\u3001\u88AB\u9632\u706B\u5899\u6390\u65AD\uFF0C\u6216\u624B\u673A\u5728\u540E\u53F0\u88AB\u7CFB\u7EDF\u51BB\u7ED3\u3002\u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5\u3002"
+      );
+    }
+    throw e2;
+  }
+}
 function toBuffer(data) {
   if (typeof data === "string") return Buffer.from(data, "utf8");
   if (Buffer.isBuffer(data)) return data;
@@ -17190,7 +17221,7 @@ function toBuffer(data) {
 }
 async function upload(client, target, data) {
   const buf = toBuffer(data);
-  await client.putFileContents(target, buf, { overwrite: true, contentLength: buf.byteLength });
+  await guarded("\u4E0A\u4F20 " + target, fileTimeoutMs(buf.byteLength), (signal) => client.putFileContents(target, buf, { overwrite: true, contentLength: buf.byteLength, signal }));
 }
 function createWebdavTransport(opts) {
   const client = createClient(opts.url, {
@@ -17211,7 +17242,7 @@ function createWebdavTransport(opts) {
     for (const seg of segs) {
       acc += "/" + seg;
       try {
-        await client.createDirectory(acc);
+        await guarded("\u5EFA\u76EE\u5F55 " + acc, META_TIMEOUT_MS, (signal) => client.createDirectory(acc, { signal }));
       } catch {
       }
     }
@@ -17219,7 +17250,7 @@ function createWebdavTransport(opts) {
   return {
     async test() {
       try {
-        await client.getDirectoryContents(baseDir);
+        await guarded("\u63A2\u6D4B " + baseDir, META_TIMEOUT_MS, (signal) => client.getDirectoryContents(baseDir, { signal }));
         return true;
       } catch (e2) {
         const parts = [];
@@ -17233,7 +17264,8 @@ function createWebdavTransport(opts) {
       }
     },
     async list(path4) {
-      const raw = await client.getDirectoryContents(p(path4));
+      const target = p(path4);
+      const raw = await guarded("\u5217\u76EE\u5F55 " + target, META_TIMEOUT_MS, (signal) => client.getDirectoryContents(target, { signal }));
       const items = Array.isArray(raw) ? raw : [raw];
       return items.map((i2) => ({
         name: String(i2.basename),
@@ -17254,42 +17286,51 @@ function createWebdavTransport(opts) {
       await upload(client, target, data);
     },
     async get(remote, local) {
-      const buf = await client.getFileContents(p(remote));
-      const { writeFileSync: writeFileSync3, mkdirSync: mkdirSync2, dirname: dirname4 } = await import("node:fs");
+      const target = p(remote);
+      const buf = await guarded("\u4E0B\u8F7D " + target, FILE_TIMEOUT_FLOOR_MS, (signal) => client.getFileContents(target, { signal }));
+      const { writeFileSync: writeFileSync3, mkdirSync: mkdirSync2 } = await import("node:fs");
       const path4 = await import("node:path");
       mkdirSync2(path4.dirname(local), { recursive: true });
       writeFileSync3(local, buf);
     },
     async getBuffer(remote) {
-      const buf = await client.getFileContents(p(remote));
+      const target = p(remote);
+      const buf = await guarded("\u4E0B\u8F7D " + target, FILE_TIMEOUT_FLOOR_MS, (signal) => client.getFileContents(target, { signal }));
       return buf;
     },
     async stat(remote) {
+      const target = p(remote);
       try {
-        const s2 = await client.stat(p(remote));
+        const s2 = await guarded("stat " + target, META_TIMEOUT_MS, (signal) => client.stat(target, { signal }));
         return { mtime: new Date(s2.lastmod).getTime(), size: Number(s2.size) };
       } catch {
         return null;
       }
     },
     async delete(remote) {
+      const target = p(remote);
       try {
-        await client.deleteFile(p(remote));
+        await guarded("\u5220\u9664 " + target, META_TIMEOUT_MS, (signal) => client.deleteFile(target, { signal }));
       } catch {
       }
     },
     async mkdir(remote) {
+      const target = p(remote);
       try {
-        await client.createDirectory(p(remote));
+        await guarded("\u5EFA\u76EE\u5F55 " + target, META_TIMEOUT_MS, (signal) => client.createDirectory(target, { signal }));
       } catch {
       }
     }
   };
 }
+var META_TIMEOUT_MS, FILE_TIMEOUT_FLOOR_MS, WORST_BPS;
 var init_webdav = __esm({
   "src/nas/webdav.ts"() {
     "use strict";
     init_node();
+    META_TIMEOUT_MS = 2e4;
+    FILE_TIMEOUT_FLOOR_MS = 12e4;
+    WORST_BPS = 16 * 1024;
   }
 });
 
@@ -21806,6 +21847,12 @@ var Engine = class {
   chunker;
   running = false;
   abort = null;
+  /**
+   * 本轮是否被「无进展看门狗」掐断的（0.5.2）。
+   * 不能只靠 `abort.signal.reason`：用户点「停止」也是 abort，两者必须分开报，
+   * 否则停一次就提示「同步超时」。
+   */
+  stallAbort = false;
   /** scan() 缓存的远端清单（合并视图） */
   remoteManifest = [];
   /** 本轮 push 成功的 rel —— 只有它们才有资格写进「本设备清单」（0.3.6） */
@@ -22233,6 +22280,21 @@ var Engine = class {
     this.deps.store.snapshot.running = true;
     this.deps.store.snapshot.progress = { total: 0, done: 0, errors: 0 };
     this.deps.store.save();
+    const STALL_MS = 5 * 6e4;
+    let lastBeat = Date.now();
+    const beat = () => {
+      lastBeat = Date.now();
+    };
+    this.stallAbort = false;
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastBeat < STALL_MS) return;
+      this.stallAbort = true;
+      try {
+        this.abort?.abort(new Error("stall"));
+      } catch {
+      }
+    }, 3e4);
+    watchdog.unref?.();
     try {
       const { pending } = await this.scan();
       const localMap = new Map((await this.scanner.buildManifest()).map((e2) => [e2.rel, e2]));
@@ -22266,6 +22328,7 @@ var Engine = class {
         } catch {
           this.deps.store.snapshot.progress.errors++;
         }
+        beat();
         this.deps.store.save();
       }
       if (!this.abort.signal.aborted) {
@@ -22305,8 +22368,14 @@ var Engine = class {
         this.deps.store.pendingFiles = [...remaining];
         this.deps.store.snapshot.pendingCount = remaining.size;
       }
+      if (this.stallAbort) {
+        throw new Error(
+          "\u540C\u6B65\u4E2D\u6B62\uFF1A\u8FDE\u7EED 5 \u5206\u949F\u6CA1\u6709\u4EFB\u4F55\u8FDB\u5C55\uFF08NAS \u53EF\u80FD\u6389\u7EBF\uFF0C\u6216\u67D0\u4E2A\u8BF7\u6C42\u88AB\u7F51\u7EDC\u6390\u4F4F\uFF09\u3002\u65AD\u70B9\u5DF2\u4FDD\u7559\uFF0C\u7F51\u7EDC\u6062\u590D\u540E\u91CD\u8BD5\u5373\u53EF\u7EED\u4F20\u3002"
+        );
+      }
       return { pushed, pulled, mergedRegistry, skippedDownload, conflicts: this.deps.store.conflicts.length };
     } finally {
+      clearInterval(watchdog);
       this.running = false;
       this.deps.store.snapshot.running = false;
       this.setPhase("idle");

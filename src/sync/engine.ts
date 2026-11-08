@@ -206,6 +206,12 @@ export class Engine {
   private chunker: Chunker;
   private running = false;
   private abort: AbortController | null = null;
+  /**
+   * 本轮是否被「无进展看门狗」掐断的（0.5.2）。
+   * 不能只靠 `abort.signal.reason`：用户点「停止」也是 abort，两者必须分开报，
+   * 否则停一次就提示「同步超时」。
+   */
+  private stallAbort = false;
   /** scan() 缓存的远端清单（合并视图） */
   private remoteManifest: ManifestEntry[] = [];
 
@@ -731,6 +737,27 @@ export class Engine {
     this.deps.store.snapshot.progress = { total: 0, done: 0, errors: 0 };
     this.deps.store.save();
 
+    /**
+     * 无进展看门狗（0.5.2，第二道闸）。
+     *
+     * 传输层已经给每个 WebDAV 请求加了硬超时，但挂住不一定发生在请求上 ——
+     * 宿主 fs、SAF 桥、scrypt、以及将来任何一处 await 都可能无声卡死。
+     * 这里只认一件事：**还有没有在推进**。项与项之间刷新心跳，超过 5 分钟
+     * 一次都没动就主动 abort，把「静默挂一小时」变成一条明确的中止。
+     */
+    const STALL_MS = 5 * 60_000;
+    let lastBeat = Date.now();
+    /** 每完成一项刷新一次心跳（项内耗时交给传输层超时管） */
+    const beat = (): void => { lastBeat = Date.now(); };
+    this.stallAbort = false;
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastBeat < STALL_MS) return;
+      this.stallAbort = true;
+      try { this.abort?.abort(new Error('stall')); } catch { /* 已中止 */ }
+    }, 30_000);
+    // 别让这个 interval 把进程钉住不退出
+    (watchdog as any).unref?.();
+
     try {
       const { pending } = await this.scan();
       const localMap = new Map((await this.scanner.buildManifest()).map((e) => [e.rel, e]));
@@ -775,6 +802,8 @@ export class Engine {
           this.deps.store.snapshot.progress.errors++;
           // 单项失败不中断整体
         }
+        // 成功或失败都算「还在推进」—— 心跳不关心结果，只关心有没有卡死
+        beat();
         this.deps.store.save();
       }
 
@@ -846,8 +875,18 @@ export class Engine {
         this.deps.store.snapshot.pendingCount = remaining.size;
       }
 
+      // 被看门狗掐断：必须把原因抛出去，面板才会显示「为什么没同步完」。
+      // 不抛的话用户只看到进度停住、没有任何解释 —— 那就是本次故障的原始体验。
+      if (this.stallAbort) {
+        throw new Error(
+          '同步中止：连续 5 分钟没有任何进展（NAS 可能掉线，或某个请求被网络掐住）。' +
+          '断点已保留，网络恢复后重试即可续传。',
+        );
+      }
+
       return { pushed, pulled, mergedRegistry, skippedDownload, conflicts: this.deps.store.conflicts.length };
     } finally {
+      clearInterval(watchdog);
       this.running = false;
       this.deps.store.snapshot.running = false;
       this.setPhase('idle');
