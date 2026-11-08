@@ -270,6 +270,19 @@ registerNasSyncUi(ctx, HostBridge(scope))
   ② 必须**连续两轮**都缺（`missingRounds`）；
   ③ 回收是**移进回收目录**而不是硬删，随时可以捞回来。
 
+> **只想让某条会话「不到这台机器」怎么办**：那是**单侧**需求，不是删除。
+> 编辑 `$DSH_HOME/nas-sync/ignored-sessions.json`，写一个 sessionId 数组即可：
+>
+> ```json
+> ["session-23009990-3a0e-42b1-a5f5-071147fe3dac"]
+> ```
+>
+> 插件每轮扫描开头重读这个文件：命中的会话**不下载、不上传**，本地已有的副本
+> 连同 `sessionIds` 登记一起移进 `nas-sync/removed/`。远端原文不动，手机上的那份照旧。
+> 按 **sessionId** 而不是路径记 —— 同一条会话在 NAS 上可能有两份 rel（手机原文
+> `sessions/--data-user-…` 和本机镜像曾被传上去的 `sessions/--C-Users-…`），
+> 按路径记会漏掉另一半，会话照样被拉回来。
+
 > **为什么映射到 `~/.dsh/nassyncworkspaces/`**：它仍在 `$DSH_HOME` 之内，于是
 > 「工作区文件」可以当成 rel 前缀 `workspaces/` 的普通分类来同步；同时手机上的
 > `/data/.../home/wstest` 与电脑上的 `~/.dsh/nassyncworkspaces/wstest` 在 rel 空间里

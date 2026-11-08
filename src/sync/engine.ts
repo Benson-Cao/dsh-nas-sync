@@ -15,7 +15,7 @@
  */
 
 import { readFile, writeFile, mkdir, rm, cp, rename } from 'node:fs/promises';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { ConflictItem, ManifestEntry, PendingFile, SyncPhase } from '../data/models.js';
@@ -66,6 +66,7 @@ import {
   rewriteSessionCwdTo,
   safeName,
   localIsStaleSnapshot,
+  sessionFrameOffsets,
   unregisterSessionFromRel,
   WORKSPACE_REGISTRY_REL,
 } from './portable.js';
@@ -244,6 +245,12 @@ export class Engine {
    * 两台机器会每轮互相盖回去，变成 5 分钟一次的无用上传。
    */
   private registryNeedsPush = false;
+
+  /**
+   * 本机屏蔽的会话 id（0.5.8），来自 `$DSH_HOME/nas-sync/ignored-sessions.json`。
+   * 每轮扫描开头重读一次 —— 用户可能在我们跑着的时候手改这个文件。
+   */
+  private ignoredFromFile = new Set<string>();
 
   /**
    * 已经提示过「导入被跳过」的 rel（0.5.6）。
@@ -504,6 +511,94 @@ export class Engine {
       this.deps.store.salt(),
     );
     await this.deps.transport.putBuffer(enc, remote, { mkdirs: true });
+  }
+
+  /**
+   * 本机屏蔽一条会话：以后不再下载它，本地已有的副本在下一轮扫描时回收（0.5.8）。
+   *
+   * 与「对端删除 → 本机跟着删」相反：这是**只有本机**不想要。远端原文保留，
+   * 手机上的那份照旧在，只是电脑侧栏里不会出现。
+   *
+   * 落盘位置是 `$DSH_HOME/nas-sync/ignored-sessions.json`，不是 `store.json` ——
+   * store 是运行中的进程整份重写的（每次 save 都覆盖），外部改不了；
+   * 这个清单要让用户/脚本能直接编辑，所以单独一个文件。
+   */
+  async ignoreSession(sid: string): Promise<void> {
+    this.checkReady();
+    const id = String(sid || '').trim();
+    if (!id) return;
+    this.ignoredFromFile.add(id);
+    this.saveIgnoredFile();
+    this.deps.store.pendingFiles = this.deps.store.pendingFiles.filter(
+      (p) => this.sessionIdOfRel(p.rel) !== id,
+    );
+    this.deps.store.snapshot.pendingCount = this.deps.store.pendingFiles.length;
+    this.deps.store.save();
+  }
+
+  /** `$DSH_HOME/nas-sync/ignored-sessions.json` 的路径。 */
+  private ignoredFilePath(): string {
+    return join(dshHome(), 'nas-sync', 'ignored-sessions.json');
+  }
+
+  /** 读屏蔽清单。文件不存在 = 没有额外屏蔽，不是错误。 */
+  private loadIgnoredFile(): void {
+    this.ignoredFromFile = new Set<string>();
+    try {
+      const arr = JSON.parse(readFileSync(this.ignoredFilePath(), 'utf8'));
+      if (Array.isArray(arr)) {
+        for (const s of arr) if (typeof s === 'string' && s.trim()) this.ignoredFromFile.add(s.trim());
+      }
+    } catch {
+      /* 没有这个文件就是空清单 */
+    }
+  }
+
+  private saveIgnoredFile(): void {
+    try {
+      mkdirSync(join(dshHome(), 'nas-sync'), { recursive: true });
+      writeFileSync(
+        this.ignoredFilePath(),
+        JSON.stringify([...this.ignoredFromFile].sort(), null, 2) + '\n',
+        'utf8',
+      );
+    } catch (err) {
+      console.warn('[dsh-nas-sync] 写屏蔽清单失败：' + String(err));
+    }
+  }
+
+  /** rel 形如 `sessions/<cwd编码>/<sessionId>/session.v<N>.jsonl.zstd`。 */
+  private sessionIdOfRel(rel: string): string | null {
+    const parts = String(rel || '').split('/');
+    if (parts.length < 4 || parts[0] !== 'sessions') return null;
+    return parts[parts.length - 2] || null;
+  }
+
+  /**
+   * 这个 rel 是不是被本机屏蔽了（0.5.8）。
+   *
+   * 按**会话 id** 判，不按 rel：同一条会话在 NAS 上可能有两份 rel ——
+   * 手机原文那份（`sessions/--data-user-…`）和本机镜像曾被误传上去的那份
+   * （`sessions/--C-Users-…`）。按 rel 记会漏掉另一半，会话照样被拉回来。
+   */
+  private isImportIgnored(rel: string): boolean {
+    const sid = this.sessionIdOfRel(rel);
+    if (!sid) return false;
+    return this.ignoredFromFile.has(sid);
+  }
+
+  /**
+   * 去掉「导入镜像」条目，这些 rel 不该出现在本机清单里（0.5.8）。
+   *
+   * 镜像的字节和远端原文永远不同（cwd 被改写），却又是本机扫描能扫到的真实文件；
+   * 一旦被写进本机清单，就等于对全世界宣布「我这里还有一份」，对端每轮都会去下
+   * 一个语义上完全等价、只是路径不同的 579 KB，白白来回。
+   */
+  private withoutMirrors(fresh: ManifestEntry[]): ManifestEntry[] {
+    const imports = this.deps.store.sessionImports ?? {};
+    const mirrors = new Set(Object.values(imports).map((r) => r.localRel));
+    if (mirrors.size === 0) return fresh;
+    return fresh.filter((e) => !mirrors.has(e.rel));
   }
 
   /**
@@ -838,6 +933,7 @@ export class Engine {
   async scan(): Promise<{ local: ManifestEntry[]; pending: PendingFile[]; conflicts: ConflictItem[] }> {
     this.checkReady();
     this.loadWorkspaceDirs();
+    this.loadIgnoredFile();
     this.setPhase('scanning');
     const local = await this.scanner.buildManifest();
     const remote = await this.readRemoteManifest();
@@ -912,12 +1008,35 @@ export class Engine {
       importedLocalRel.add(rec.localRel);
     }
 
+    /**
+     * 本机屏蔽的会话：把本地副本一起回收（0.5.8）。
+     *
+     * 放在扫描里而不是靠外部脚本，是因为「删本地文件」这个动作**随时可能被撤销**：
+     * 只要 NAS 上还有一条同 id 的 rel（手机原文、或本机镜像被误传上去的那份），
+     * 下一轮就会把它再下载回来。光删文件不记屏蔽 = 白删。
+     * 反过来，只记屏蔽不删文件 = 侧栏里还留着、而且会被当本机文件上传。
+     * 两个动作绑在一起、每轮幂等执行，才真正收敛。
+     */
+    for (const rel of [...localMap.keys()]) {
+      if (!isSessionRel(rel) || !this.isImportIgnored(rel)) continue;
+      try {
+        await this.retireLocalSession(rel);
+        localMap.delete(rel);
+        const i = local.findIndex((e) => e.rel === rel);
+        if (i >= 0) local.splice(i, 1);
+      } catch (err) {
+        console.warn('[dsh-nas-sync] 回收被屏蔽会话失败（下轮再试）：' + rel + ' · ' + String(err));
+      }
+    }
+
     for (const [rel, le] of localMap) {
       // 注册表不参与差集：它由 pullWorkspaceRegistry() 每轮**合并**，永远不可能
       // 和远端字节一致（合并结果包含本机条目），留在差集里会变成「永远待同步 1 项」。
       if (isWorkspaceRegistryRel(rel)) continue;
       // 跨平台会话的本地改写副本：镜像，不参与上传（回传走 flushSessionImports）
       if (importedLocalRel.has(rel)) continue;
+      // 本机屏蔽的会话不该上传（上面已回收，这里兜住「回收失败」那种情况）
+      if (isSessionRel(rel) && this.isImportIgnored(rel)) continue;
       const re = remoteMap.get(rel);
       if (!re) {
         pending.push({ rel, size: le.size, action: 'upload' });
@@ -947,6 +1066,8 @@ export class Engine {
     // 远端有、本地无 -> 下载
     for (const [rel, re] of remoteMap) {
       if (isWorkspaceRegistryRel(rel)) continue;
+      // 本机明确屏蔽的（0.5.8）：不进待同步，否则面板永远显示「待同步 N 项」
+      if (this.isImportIgnored(rel)) continue;
       // 已经导入过且远端原文没变 → 本地那份就是它（cwd 已改写），不必再下一遍
       const rec = imports[rel];
       if (rec && rec.remoteHash === re.hash) continue;
@@ -1146,7 +1267,7 @@ export class Engine {
         // 0.3.6：只写本设备那份清单，再重读合并视图。
         // 不再「把远端独有的条目补回」—— 每份清单只含确认在远端存在的东西，
         // 补回反而会给对端制造下载不到的幽灵条目。
-        await this.writeOwnManifest(fresh);
+        await this.writeOwnManifest(this.withoutMirrors(fresh));
         this.remoteManifest = await this.readRemoteManifest();
         // 本地基线留着（0.4.x 的删除传播要用）
         this.deps.store.localManifest = fresh;
@@ -1233,6 +1354,37 @@ export class Engine {
   }
 
   /**
+   * 把某个会话的**目录**搬进回收目录，并清掉它在工作区里的登记。
+   * `retireImport()` 与本机屏蔽回收共用这一段。
+   *
+   * @returns 搬去的目标路径
+   */
+  private async retireLocalSession(localRel: string): Promise<string> {
+    const abs = this.resolveLocal(localRel);
+    // 会话文件在 `sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd`，整个目录一起搬
+    const cut = Math.max(abs.lastIndexOf('/'), abs.lastIndexOf('\\'));
+    const sessionDir = abs.slice(0, cut);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const trash = join(dshHome(), 'nas-sync', 'removed', stamp, localRel.replace(/\//g, '__'));
+    await mkdir(join(trash, '..'), { recursive: true });
+
+    if (existsSync(sessionDir)) {
+      try {
+        await rename(sessionDir, trash);
+      } catch {
+        await cp(sessionDir, trash, { recursive: true });
+        await rm(sessionDir, { recursive: true, force: true });
+      }
+    }
+    try {
+      await unregisterSessionFromRel(localRel);
+    } catch {
+      /* 清登记失败不致命：文件已经不在，下一轮不会再有这条 */
+    }
+    return trash;
+  }
+
+  /**
    * 回收一条导入的会话镜像（0.5.8）。
    *
    * 触发条件是「远端原文在对端清单里连续两轮消失」= 对端删了这个会话。
@@ -1246,33 +1398,22 @@ export class Engine {
    */
   private async retireImport(
     remoteRel: string,
-    rec: { localRel: string; originalCwd: string },
+    rec: SessionImportRecord,
   ): Promise<void> {
-    const abs = this.resolveLocal(rec.localRel);
-    // 会话文件本身在 `sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd`，整个目录一起搬
-    const cut = Math.max(abs.lastIndexOf('/'), abs.lastIndexOf('\\'));
-    const sessionDir = abs.slice(0, cut);
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const trash = join(dshHome(), 'nas-sync', 'removed', stamp, rec.localRel.replace(/\//g, '__'));
-    await mkdir(join(trash, '..'), { recursive: true });
-
-    if (existsSync(sessionDir)) {
-      try {
-        await rename(sessionDir, trash);
-      } catch {
-        await cp(sessionDir, trash, { recursive: true });
-        await rm(sessionDir, { recursive: true, force: true });
-      }
+    // `adopted` 的条目：那条会话本来就是本机这个工作区的，只是被对端的等价副本
+    // 记账收下过。对端删了它不代表要删本机的历史 —— 只销账，文件原样留着。
+    if (rec.adopted) {
+      delete this.deps.store.sessionImports[remoteRel];
+      this.deps.store.save();
+      console.log('[dsh-nas-sync] 对端删除了等价副本，本机会话保留不动：' + rec.localRel);
+      return;
     }
+
+    const trash = await this.retireLocalSession(rec.localRel);
 
     delete this.deps.store.sessionImports[remoteRel];
     this.deps.store.save();
 
-    try {
-      await unregisterSessionFromRel(rec.localRel);
-    } catch {
-      /* 清登记失败不影响文件已回收，下一轮不会再有这条记录 */
-    }
     console.log('[dsh-nas-sync] 对端已删除该会话，本机镜像已移入回收目录：' + rec.localRel + ' → ' + trash);
   }
 
@@ -1422,6 +1563,9 @@ export class Engine {
   private async downloadEntry(rel: string): Promise<DownloadOutcome> {
     this.setPhase('downloading');
 
+    // 0.5.8：本机明确屏蔽的远端会话，连取都不取（省一次 580 KB 的下载）
+    if (this.isImportIgnored(rel)) return 'skipped';
+
     // 0.5.5：这里原来有一条 `isWorkspaceRegistryRel(rel) && workspaceRegistryReady()
     // → 'skipped'` 的守卫，导致「本机注册表一可用，远端注册表就再也不合并」。
     // 那个守卫是想防「覆盖」，但真正的覆盖风险早在下面的合并分支里解决了
@@ -1520,15 +1664,33 @@ export class Engine {
       const isOurMirror = priorRecord?.localRel === targetRel;
       if (crossPlatform && targetRel !== rel && !isOurMirror && existsSync(target)) {
         const cur = await readFile(target);
-        const stale = sha256Hex(cur) !== sha256Hex(written) && localIsStaleSnapshot(cur, written);
-        if (stale) {
-          console.log('[dsh-nas-sync] 本机副本是旧快照，用远端最新版覆盖：' + rel);
-        } else if (sha256Hex(cur) !== sha256Hex(written)) {
+        const sameHash = sha256Hex(cur) === sha256Hex(written);
+        if (sameHash) {
+          // 完全一致，正常往下走（幂等覆盖，不会产生新字节）
+        } else if (!localIsStaleSnapshot(cur, written)) {
           if (!this.importSkipWarned.has(rel)) {
             this.importSkipWarned.add(rel);
             console.warn('[dsh-nas-sync] 跳过导入（本机已有同 id 会话，避免互相覆盖）：' + rel);
           }
           return 'skipped';
+        } else if (sessionFrameOffsets(cur).length === sessionFrameOffsets(written).length) {
+          /**
+           * 帧数一样、尾帧逐字节一样 = **内容完全等价，只差第 0 帧的 cwd**
+           * （典型：对端把自己那份镜像按本机路径回过一次，又被本机当成一条新 rel 看到）。
+           * 这种不要去写盘：写了就得重新压第 0 帧，两端的字节又会互相「看起来更新」，
+           * 580 KB 的会话每 5 分钟来回搬一次。只记账、不落盘，下一轮就收敛。
+           */
+          this.deps.store.sessionImports[rel] = {
+            remoteHash: sha256Hex(plain),
+            localRel: targetRel,
+            localHash: sha256Hex(cur),
+            originalCwd,
+            adopted: true,
+          };
+          this.deps.store.save();
+          return 'skipped';
+        } else {
+          console.log('[dsh-nas-sync] 本机副本是旧快照，用远端最新版覆盖：' + rel);
         }
       }
 

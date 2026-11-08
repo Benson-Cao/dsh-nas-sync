@@ -17288,10 +17288,10 @@ function createWebdavTransport(opts) {
     async get(remote, local) {
       const target = p(remote);
       const buf = await guarded("\u4E0B\u8F7D " + target, FILE_TIMEOUT_FLOOR_MS, (signal) => client.getFileContents(target, { signal }));
-      const { writeFileSync: writeFileSync3, mkdirSync: mkdirSync2 } = await import("node:fs");
+      const { writeFileSync: writeFileSync4, mkdirSync: mkdirSync3 } = await import("node:fs");
       const path4 = await import("node:path");
-      mkdirSync2(path4.dirname(local), { recursive: true });
-      writeFileSync3(local, buf);
+      mkdirSync3(path4.dirname(local), { recursive: true });
+      writeFileSync4(local, buf);
     },
     async getBuffer(remote) {
       const target = p(remote);
@@ -20266,7 +20266,7 @@ import { readFile as readFile5, writeFile as writeFile4, mkdir as mkdir4 } from 
 
 // src/sync/engine.ts
 import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3, rm as rm3, cp, rename as rename2 } from "node:fs/promises";
-import { readFileSync as readFileSync3, readdirSync, existsSync as existsSync3 } from "node:fs";
+import { readFileSync as readFileSync3, readdirSync, existsSync as existsSync3, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
 import { stat as stat5 } from "node:fs/promises";
 import { createHash as createHash2 } from "node:crypto";
 
@@ -22058,6 +22058,11 @@ var Engine = class {
    */
   registryNeedsPush = false;
   /**
+   * 本机屏蔽的会话 id（0.5.8），来自 `$DSH_HOME/nas-sync/ignored-sessions.json`。
+   * 每轮扫描开头重读一次 —— 用户可能在我们跑着的时候手改这个文件。
+   */
+  ignoredFromFile = /* @__PURE__ */ new Set();
+  /**
    * 已经提示过「导入被跳过」的 rel（0.5.6）。
    * 这种跳过每轮都会发生（本机有同 id 会话就一直跳过），不记一下就变成每轮刷日志。
    */
@@ -22274,6 +22279,86 @@ var Engine = class {
       this.deps.store.salt()
     );
     await this.deps.transport.putBuffer(enc, remote, { mkdirs: true });
+  }
+  /**
+   * 本机屏蔽一条会话：以后不再下载它，本地已有的副本在下一轮扫描时回收（0.5.8）。
+   *
+   * 与「对端删除 → 本机跟着删」相反：这是**只有本机**不想要。远端原文保留，
+   * 手机上的那份照旧在，只是电脑侧栏里不会出现。
+   *
+   * 落盘位置是 `$DSH_HOME/nas-sync/ignored-sessions.json`，不是 `store.json` ——
+   * store 是运行中的进程整份重写的（每次 save 都覆盖），外部改不了；
+   * 这个清单要让用户/脚本能直接编辑，所以单独一个文件。
+   */
+  async ignoreSession(sid) {
+    this.checkReady();
+    const id = String(sid || "").trim();
+    if (!id) return;
+    this.ignoredFromFile.add(id);
+    this.saveIgnoredFile();
+    this.deps.store.pendingFiles = this.deps.store.pendingFiles.filter(
+      (p) => this.sessionIdOfRel(p.rel) !== id
+    );
+    this.deps.store.snapshot.pendingCount = this.deps.store.pendingFiles.length;
+    this.deps.store.save();
+  }
+  /** `$DSH_HOME/nas-sync/ignored-sessions.json` 的路径。 */
+  ignoredFilePath() {
+    return join6(dshHome(), "nas-sync", "ignored-sessions.json");
+  }
+  /** 读屏蔽清单。文件不存在 = 没有额外屏蔽，不是错误。 */
+  loadIgnoredFile() {
+    this.ignoredFromFile = /* @__PURE__ */ new Set();
+    try {
+      const arr = JSON.parse(readFileSync3(this.ignoredFilePath(), "utf8"));
+      if (Array.isArray(arr)) {
+        for (const s2 of arr) if (typeof s2 === "string" && s2.trim()) this.ignoredFromFile.add(s2.trim());
+      }
+    } catch {
+    }
+  }
+  saveIgnoredFile() {
+    try {
+      mkdirSync2(join6(dshHome(), "nas-sync"), { recursive: true });
+      writeFileSync2(
+        this.ignoredFilePath(),
+        JSON.stringify([...this.ignoredFromFile].sort(), null, 2) + "\n",
+        "utf8"
+      );
+    } catch (err) {
+      console.warn("[dsh-nas-sync] \u5199\u5C4F\u853D\u6E05\u5355\u5931\u8D25\uFF1A" + String(err));
+    }
+  }
+  /** rel 形如 `sessions/<cwd编码>/<sessionId>/session.v<N>.jsonl.zstd`。 */
+  sessionIdOfRel(rel) {
+    const parts = String(rel || "").split("/");
+    if (parts.length < 4 || parts[0] !== "sessions") return null;
+    return parts[parts.length - 2] || null;
+  }
+  /**
+   * 这个 rel 是不是被本机屏蔽了（0.5.8）。
+   *
+   * 按**会话 id** 判，不按 rel：同一条会话在 NAS 上可能有两份 rel ——
+   * 手机原文那份（`sessions/--data-user-…`）和本机镜像曾被误传上去的那份
+   * （`sessions/--C-Users-…`）。按 rel 记会漏掉另一半，会话照样被拉回来。
+   */
+  isImportIgnored(rel) {
+    const sid = this.sessionIdOfRel(rel);
+    if (!sid) return false;
+    return this.ignoredFromFile.has(sid);
+  }
+  /**
+   * 去掉「导入镜像」条目，这些 rel 不该出现在本机清单里（0.5.8）。
+   *
+   * 镜像的字节和远端原文永远不同（cwd 被改写），却又是本机扫描能扫到的真实文件；
+   * 一旦被写进本机清单，就等于对全世界宣布「我这里还有一份」，对端每轮都会去下
+   * 一个语义上完全等价、只是路径不同的 579 KB，白白来回。
+   */
+  withoutMirrors(fresh) {
+    const imports = this.deps.store.sessionImports ?? {};
+    const mirrors = new Set(Object.values(imports).map((r2) => r2.localRel));
+    if (mirrors.size === 0) return fresh;
+    return fresh.filter((e2) => !mirrors.has(e2.rel));
   }
   /**
    * 只写「本设备那份」清单：确认在远端存在的条目才写
@@ -22534,6 +22619,7 @@ var Engine = class {
   async scan() {
     this.checkReady();
     this.loadWorkspaceDirs();
+    this.loadIgnoredFile();
     this.setPhase("scanning");
     const local = await this.scanner.buildManifest();
     const remote = await this.readRemoteManifest();
@@ -22579,9 +22665,21 @@ var Engine = class {
       rec.missingRounds = 0;
       importedLocalRel.add(rec.localRel);
     }
+    for (const rel of [...localMap.keys()]) {
+      if (!isSessionRel(rel) || !this.isImportIgnored(rel)) continue;
+      try {
+        await this.retireLocalSession(rel);
+        localMap.delete(rel);
+        const i2 = local.findIndex((e2) => e2.rel === rel);
+        if (i2 >= 0) local.splice(i2, 1);
+      } catch (err) {
+        console.warn("[dsh-nas-sync] \u56DE\u6536\u88AB\u5C4F\u853D\u4F1A\u8BDD\u5931\u8D25\uFF08\u4E0B\u8F6E\u518D\u8BD5\uFF09\uFF1A" + rel + " \xB7 " + String(err));
+      }
+    }
     for (const [rel, le] of localMap) {
       if (isWorkspaceRegistryRel(rel)) continue;
       if (importedLocalRel.has(rel)) continue;
+      if (isSessionRel(rel) && this.isImportIgnored(rel)) continue;
       const re = remoteMap.get(rel);
       if (!re) {
         pending.push({ rel, size: le.size, action: "upload" });
@@ -22607,6 +22705,7 @@ var Engine = class {
     }
     for (const [rel, re] of remoteMap) {
       if (isWorkspaceRegistryRel(rel)) continue;
+      if (this.isImportIgnored(rel)) continue;
       const rec = imports[rel];
       if (rec && rec.remoteHash === re.hash) continue;
       if (!localMap.has(rel)) {
@@ -22722,7 +22821,7 @@ var Engine = class {
       }
       if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
-        await this.writeOwnManifest(fresh);
+        await this.writeOwnManifest(this.withoutMirrors(fresh));
         this.remoteManifest = await this.readRemoteManifest();
         this.deps.store.localManifest = fresh;
         try {
@@ -22790,6 +22889,33 @@ var Engine = class {
     if (n > 0) console.log("[dsh-nas-sync] \u5DF2\u8865\u767B\u8BB0 " + n + " \u4E2A\u4F1A\u8BDD\u5230\u4FA7\u680F");
   }
   /**
+   * 把某个会话的**目录**搬进回收目录，并清掉它在工作区里的登记。
+   * `retireImport()` 与本机屏蔽回收共用这一段。
+   *
+   * @returns 搬去的目标路径
+   */
+  async retireLocalSession(localRel) {
+    const abs = this.resolveLocal(localRel);
+    const cut = Math.max(abs.lastIndexOf("/"), abs.lastIndexOf("\\"));
+    const sessionDir = abs.slice(0, cut);
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+    const trash = join6(dshHome(), "nas-sync", "removed", stamp, localRel.replace(/\//g, "__"));
+    await mkdir3(join6(trash, ".."), { recursive: true });
+    if (existsSync3(sessionDir)) {
+      try {
+        await rename2(sessionDir, trash);
+      } catch {
+        await cp(sessionDir, trash, { recursive: true });
+        await rm3(sessionDir, { recursive: true, force: true });
+      }
+    }
+    try {
+      await unregisterSessionFromRel(localRel);
+    } catch {
+    }
+    return trash;
+  }
+  /**
    * 回收一条导入的会话镜像（0.5.8）。
    *
    * 触发条件是「远端原文在对端清单里连续两轮消失」= 对端删了这个会话。
@@ -22802,26 +22928,15 @@ var Engine = class {
    * 真文件，且和 `sessions/` 同卷，`rename` 是原子操作。
    */
   async retireImport(remoteRel, rec) {
-    const abs = this.resolveLocal(rec.localRel);
-    const cut = Math.max(abs.lastIndexOf("/"), abs.lastIndexOf("\\"));
-    const sessionDir = abs.slice(0, cut);
-    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-    const trash = join6(dshHome(), "nas-sync", "removed", stamp, rec.localRel.replace(/\//g, "__"));
-    await mkdir3(join6(trash, ".."), { recursive: true });
-    if (existsSync3(sessionDir)) {
-      try {
-        await rename2(sessionDir, trash);
-      } catch {
-        await cp(sessionDir, trash, { recursive: true });
-        await rm3(sessionDir, { recursive: true, force: true });
-      }
+    if (rec.adopted) {
+      delete this.deps.store.sessionImports[remoteRel];
+      this.deps.store.save();
+      console.log("[dsh-nas-sync] \u5BF9\u7AEF\u5220\u9664\u4E86\u7B49\u4EF7\u526F\u672C\uFF0C\u672C\u673A\u4F1A\u8BDD\u4FDD\u7559\u4E0D\u52A8\uFF1A" + rec.localRel);
+      return;
     }
+    const trash = await this.retireLocalSession(rec.localRel);
     delete this.deps.store.sessionImports[remoteRel];
     this.deps.store.save();
-    try {
-      await unregisterSessionFromRel(rec.localRel);
-    } catch {
-    }
     console.log("[dsh-nas-sync] \u5BF9\u7AEF\u5DF2\u5220\u9664\u8BE5\u4F1A\u8BDD\uFF0C\u672C\u673A\u955C\u50CF\u5DF2\u79FB\u5165\u56DE\u6536\u76EE\u5F55\uFF1A" + rec.localRel + " \u2192 " + trash);
   }
   /**
@@ -22954,6 +23069,7 @@ var Engine = class {
    */
   async downloadEntry(rel) {
     this.setPhase("downloading");
+    if (this.isImportIgnored(rel)) return "skipped";
     const plain = await this.fetchRemotePlain("/dsh/" + rel);
     if (!plain) {
       console.warn("[dsh-nas-sync] \u8DF3\u8FC7\uFF1A\u8FDC\u7AEF\u5DF2\u4E0D\u5B58\u5728 " + rel);
@@ -22996,15 +23112,26 @@ var Engine = class {
       const isOurMirror = priorRecord?.localRel === targetRel;
       if (crossPlatform && targetRel !== rel && !isOurMirror && existsSync3(target)) {
         const cur = await readFile4(target);
-        const stale = sha256Hex(cur) !== sha256Hex(written) && localIsStaleSnapshot(cur, written);
-        if (stale) {
-          console.log("[dsh-nas-sync] \u672C\u673A\u526F\u672C\u662F\u65E7\u5FEB\u7167\uFF0C\u7528\u8FDC\u7AEF\u6700\u65B0\u7248\u8986\u76D6\uFF1A" + rel);
-        } else if (sha256Hex(cur) !== sha256Hex(written)) {
+        const sameHash = sha256Hex(cur) === sha256Hex(written);
+        if (sameHash) {
+        } else if (!localIsStaleSnapshot(cur, written)) {
           if (!this.importSkipWarned.has(rel)) {
             this.importSkipWarned.add(rel);
             console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u5BFC\u5165\uFF08\u672C\u673A\u5DF2\u6709\u540C id \u4F1A\u8BDD\uFF0C\u907F\u514D\u4E92\u76F8\u8986\u76D6\uFF09\uFF1A" + rel);
           }
           return "skipped";
+        } else if (sessionFrameOffsets(cur).length === sessionFrameOffsets(written).length) {
+          this.deps.store.sessionImports[rel] = {
+            remoteHash: sha256Hex(plain),
+            localRel: targetRel,
+            localHash: sha256Hex(cur),
+            originalCwd,
+            adopted: true
+          };
+          this.deps.store.save();
+          return "skipped";
+        } else {
+          console.log("[dsh-nas-sync] \u672C\u673A\u526F\u672C\u662F\u65E7\u5FEB\u7167\uFF0C\u7528\u8FDC\u7AEF\u6700\u65B0\u7248\u8986\u76D6\uFF1A" + rel);
         }
       }
       const cut2 = Math.max(target.lastIndexOf("/"), target.lastIndexOf("\\"));
@@ -23122,7 +23249,7 @@ init_paths();
 
 // src/sync/installer.ts
 import { spawn } from "node:child_process";
-import { existsSync as existsSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname3, join as join7 } from "node:path";
 var LOG_CAP = 16 * 1024;
 function resolveCliScript() {
@@ -23175,7 +23302,7 @@ function registerBundles(profileDir, installed) {
   }
   if (added.length === 0) return [];
   try {
-    writeFileSync2(join7(profileDir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+    writeFileSync3(join7(profileDir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
   } catch {
     return [];
   }
