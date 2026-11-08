@@ -20411,7 +20411,11 @@ var Store = class {
     try {
       if (existsSync(this.storePath)) {
         const data = JSON.parse(readFileSync(this.storePath, "utf-8"));
-        if (data.snapshot) this.snapshot = { ...DEFAULT_SNAPSHOT, ...data.snapshot };
+        if (data.snapshot) {
+          this.snapshot = { ...DEFAULT_SNAPSHOT, ...data.snapshot };
+          this.snapshot.running = false;
+          this.snapshot.phase = "idle";
+        }
         if (Array.isArray(data.pendingFiles)) this.pendingFiles = data.pendingFiles;
         if (Array.isArray(data.conflicts)) this.conflicts = data.conflicts;
         if (Array.isArray(data.localManifest)) this.localManifest = data.localManifest;
@@ -22226,6 +22230,9 @@ var Engine = class {
     this.abort = new AbortController();
     this.pushedOk.clear();
     this.loadWorkspaceDirs();
+    this.deps.store.snapshot.running = true;
+    this.deps.store.snapshot.progress = { total: 0, done: 0, errors: 0 };
+    this.deps.store.save();
     try {
       const { pending } = await this.scan();
       const localMap = new Map((await this.scanner.buildManifest()).map((e2) => [e2.rel, e2]));

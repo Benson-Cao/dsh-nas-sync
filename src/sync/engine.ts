@@ -719,6 +719,17 @@ export class Engine {
     this.abort = new AbortController();
     this.pushedOk.clear();
     this.loadWorkspaceDirs();
+    /**
+     * 先落盘「运行中 + 空进度」，再进 scan（0.5.1）。
+     *
+     * scan 在手机上要跑几十秒到几分钟（全量 sha256 + 读远端分片清单），
+     * 面板这段时间读的是 store.json 快照。原来 progress 只在 scan **之后**
+     * 重置，于是扫描期间面板一直显示上一轮残留的 `scanning (94/145)` ——
+     * 一个既不前进也不归零的假进度，用户只会以为「卡死了」。
+     */
+    this.deps.store.snapshot.running = true;
+    this.deps.store.snapshot.progress = { total: 0, done: 0, errors: 0 };
+    this.deps.store.save();
 
     try {
       const { pending } = await this.scan();

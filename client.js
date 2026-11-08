@@ -104,6 +104,8 @@ window.__ModuleLoader__.load({
       running: '进行中',
       idle: '空闲',
       phase: '阶段',
+      phaseInterrupted: '上次中断于',
+      catchUp: '回到前台，补跑同步',
       syncNow: '立即同步',
       syncing: '同步中…',
       stop: '停止',
@@ -209,6 +211,8 @@ window.__ModuleLoader__.load({
       running: 'Running',
       idle: 'Idle',
       phase: 'Phase',
+      phaseInterrupted: 'interrupted at',
+      catchUp: 'Back in foreground, catching up',
       syncNow: 'Sync now',
       syncing: 'Syncing…',
       stop: 'Stop',
@@ -609,6 +613,46 @@ window.__ModuleLoader__.load({
         return () => clearInterval(timer);
       }, [c]);
 
+      /**
+       * 回前台补跑（0.5.1）。
+       *
+       * 手机上把 App 切到后台，Android 会冻结进程/WebView 定时器，宿主那套
+       * setInterval 自动同步就整段被跳过 —— 用户实测「切后台快一小时，一条都没同步」，
+       * 而且回到前台后还要再等满一个周期才会动，体感就是「它就是不同步」。
+       *
+       * 后台跑不了是系统限制，插件这边改不动；但回到前台的这一瞬间可以补：
+       * 只要距上次成功同步已经超过设定的间隔、当前也没有任务在跑，就立刻补一轮。
+       * 挂载即判定一次 —— 面板本来就是「回到前台」之后才打开的。
+       */
+      useEffect(() => {
+        let lastAttempt = 0;
+        const catchUp = () => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+          if (!c.ready) return;
+          const now = Date.now();
+          if (now - lastAttempt < 60_000) return; // 一分钟内不重复补跑
+          c.call('/status').then((st) => {
+            const s = (st && st.snapshot) || {};
+            const auto = (st && st.config && st.config.autoSync) || null;
+            if (!auto || !auto.enabled) return;
+            if (s.running) return;
+            const intervalMs = (Number(auto.intervalMin) || 30) * 60_000;
+            if (now - (s.lastSyncTime || 0) < intervalMs) return;
+            lastAttempt = now;
+            setMsg({ kind: 'ok', text: t('catchUp') + '…' });
+            return c.call('/sync', { method: 'POST', body: { mode: auto.mode || 'mirror' } })
+              .then((r) => { setMsg({ kind: 'ok', text: t('syncDone', r) }); refreshAll(); });
+          }).catch(() => {});
+        };
+        document.addEventListener('visibilitychange', catchUp);
+        window.addEventListener('focus', catchUp);
+        catchUp();
+        return () => {
+          document.removeEventListener('visibilitychange', catchUp);
+          window.removeEventListener('focus', catchUp);
+        };
+      }, [c, refreshAll]);
+
       if (!c.ready) {
         return h('div', { ref: rootRef, style: S.root }, h('div', { style: S.card, role: 'alert' }, t('needRefresh')));
       }
@@ -829,7 +873,15 @@ window.__ModuleLoader__.load({
                 ),
                 h('div', { style: S.statItem },
                   h('span', { style: S.statNum }, running ? t('running') : t('idle')),
-                  h('span', { style: S.statLabel }, t('phase') + '：' + phaseText + (snap.progress && snap.progress.total ? ' (' + snap.progress.done + '/' + snap.progress.total + ')' : '')),
+                  // 只有真在跑时才把 done/total 当实时进度。非运行时那个数字是上一条
+                  // 命留下的（App 切后台被系统冻结，finally 没机会执行），直接显示会
+                  // 变成一个永远不动的 94/145，比不显示更容易误导。
+                  h('span', { style: S.statLabel }, t('phase') + '：' + phaseText + (() => {
+                    const p = snap.progress;
+                    if (!p || !p.total) return '';
+                    if (running) return ' (' + p.done + '/' + p.total + ')';
+                    return p.done > 0 ? ' (' + t('phaseInterrupted') + ' ' + p.done + '/' + p.total + ')' : '';
+                  })()),
                 ),
               )
             : h('div', null, '…'),
@@ -852,19 +904,7 @@ window.__ModuleLoader__.load({
               onClick: () => runAudit(audit && audit.target),
             }, auditBusy === 'check' ? t('pluginChecking') : '⟳ ' + t('pluginCheck')),
           ),
-          h('p', { style: S.hint }, t('pluginHint')),
-          audit && audit.localProfiles && audit.localProfiles.length
-            ? h('div', { style: S.segRow },
-                h('span', { style: S.label }, t('pluginTarget')),
-                audit.localProfiles.map((p) => h('button', {
-                  key: 'tp-' + p.profile,
-                  type: 'button',
-                  style: Object.assign({}, S.seg, audit.target === p.profile ? S.segOn : null),
-                  disabled: Boolean(auditBusy),
-                  onClick: () => runAudit(p.profile),
-                }, p.profile + ' (' + p.count + ')')),
-              )
-            : null,
+          // r213：删掉说明段落与 profile 选择器（用户要求）——target 由后端默认锁当前档。
           // 已装清单：只报差集时用户会以为「一个插件都没装」，所以把本机已装的
           // 第三方插件也列出来（不含 @deepseek-ai 内置，也不含传递依赖）。
           // 用标签流而不是一整段文字：手机上四五个包名挤成一行很难扫。

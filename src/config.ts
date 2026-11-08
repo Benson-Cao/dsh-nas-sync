@@ -278,7 +278,24 @@ export class Store {
     try {
       if (existsSync(this.storePath)) {
         const data = JSON.parse(readFileSync(this.storePath, 'utf-8'));
-        if (data.snapshot) this.snapshot = { ...DEFAULT_SNAPSHOT, ...data.snapshot };
+        if (data.snapshot) {
+          this.snapshot = { ...DEFAULT_SNAPSHOT, ...data.snapshot };
+          /**
+           * 僵尸态清理（0.5.1）：手机上把 App 切后台后系统会冻结/杀掉 node 进程，
+           * `sync()` 的 finally 永远等不到，磁盘里就留下 `running:true` +
+           * `phase:'scanning'` + 半截 `progress`。
+           *
+           * 而 `Store` 只在插件加载（进程启动）时构造一次 —— 这一刻本进程绝不可能
+           * 已经有同步在跑，所以磁盘上的 running 必然是上一具尸体。不复位的话，
+           * 面板会一直显示「进行中」并挂着一个永远不动的 94/145，点「立即同步」
+           * 也看不出区别（用户实测就是这样卡了一小时）。
+           *
+           * progress 故意保留：它代表「上次中断在 N/M」，面板可以据此提示，
+           * 但只有 running 为真时才该当成实时进度。
+           */
+          this.snapshot.running = false;
+          this.snapshot.phase = 'idle';
+        }
         if (Array.isArray(data.pendingFiles)) this.pendingFiles = data.pendingFiles;
         if (Array.isArray(data.conflicts)) this.conflicts = data.conflicts;
         if (Array.isArray(data.localManifest)) this.localManifest = data.localManifest;
