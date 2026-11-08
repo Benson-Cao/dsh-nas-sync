@@ -21135,6 +21135,16 @@ var SYNC_CATEGORIES = [
 ];
 var DEFAULT_RULES = SYNC_CATEGORIES.filter((c) => DEFAULT_SYNC_SCOPE[c.key]).map((c) => ({ key: c.key, localDir: c.localDir, sensitive: c.sensitive }));
 var SENSITIVE_NAMES = [".credentials.yaml", ".credentials", ".env", ".token"];
+var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", "nas-sync", ".plugin-manager", ".cache", ".compile-cache"]);
+function isIgnoredRel(rel) {
+  const parts = String(rel || "").split("/");
+  if (parts.some((p) => SKIP_DIRS.has(p))) return true;
+  const last = parts[parts.length - 1] ?? "";
+  if (!last) return false;
+  if (last.endsWith(".base") || last.endsWith(".chunk-manifest.json")) return true;
+  if (last.endsWith(".lock")) return true;
+  return /\.bak(-|$)|\.nassync-bak$/.test(last);
+}
 async function* walkFiles(dir) {
   let names;
   try {
@@ -21151,11 +21161,10 @@ async function* walkFiles(dir) {
       continue;
     }
     if (st.isDirectory()) {
-      if (name2 === "node_modules" || name2 === "nas-sync") continue;
+      if (SKIP_DIRS.has(name2)) continue;
       yield* walkFiles(full);
     } else {
-      if (name2.endsWith(".base") || name2.endsWith(".chunk-manifest.json")) continue;
-      if (name2.endsWith(".lock")) continue;
+      if (isIgnoredRel(name2)) continue;
       yield full;
     }
   }
@@ -22046,14 +22055,14 @@ var Engine = class {
         await this.writeManifestFile(manifestFileOf("_legacy"), legacy);
       } catch {
       }
-      return legacy;
+      return legacy.filter((e2) => !isIgnoredRel(e2.rel));
     }
     const parts = [];
     for (const f3 of files) {
       const list = await this.readManifestAt(MANIFESTS_DIR + "/" + f3.name);
       if (list.length > 0) parts.push(list);
     }
-    return mergeDeviceManifests(parts);
+    return mergeDeviceManifests(parts).filter((e2) => !isIgnoredRel(e2.rel));
   }
   /** 解密单份清单；文件不存在 / 口令不符都返回空（不抛）。 */
   async readManifestAt(remote) {

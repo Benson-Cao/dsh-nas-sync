@@ -19,7 +19,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { ConflictItem, ManifestEntry, PendingFile, SyncPhase } from '../data/models.js';
-import { Scanner } from './scanner.js';
+import { isIgnoredRel, Scanner } from './scanner.js';
 import { Crypto } from './crypto.js';
 import { Chunker } from './chunker.js';
 import type { NasEntry, NasTransport } from '../nas/transport.js';
@@ -437,7 +437,7 @@ export class Engine {
       } catch {
         /* 迁移失败只是每轮多读一次旧文件，不影响同步 */
       }
-      return legacy;
+      return legacy.filter((e) => !isIgnoredRel(e.rel));
     }
 
     const parts: ManifestEntry[][] = [];
@@ -445,7 +445,10 @@ export class Engine {
       const list = await this.readManifestAt(MANIFESTS_DIR + '/' + f.name);
       if (list.length > 0) parts.push(list);
     }
-    return mergeDeviceManifests(parts);
+    // 远端也过一遍过滤：对端可能还在跑旧版扫描器（它的清单里照样列着
+    // `.plugin-manager/logs/*` 与 `.bak` 副本）。只在本地排除的话，这些条目
+    // 每轮都会被当「远端有、本地没有」重新下载一遍，待同步永远清不完。
+    return mergeDeviceManifests(parts).filter((e) => !isIgnoredRel(e.rel));
   }
 
   /** 解密单份清单；文件不存在 / 口令不符都返回空（不抛）。 */

@@ -75,6 +75,28 @@ export const DEFAULT_RULES: Rule[] = SYNC_CATEGORIES
 
 const SENSITIVE_NAMES = ['.credentials.yaml', '.credentials', '.env', '.token'];
 
+/** 整目录跳过的运行时垃圾（理由见 walkFiles 里的注释）。 */
+const SKIP_DIRS = new Set(['node_modules', 'nas-sync', '.plugin-manager', '.cache', '.compile-cache']);
+
+/**
+ * 这个 rel 是否属于「不该进同步空间」的运行时垃圾。
+ *
+ * 本地扫描（walkFiles）与远端清单（readRemoteManifest）共用同一把尺子：
+ * 光在本地排除不够 —— 只要**对端**的清单里还列着这些文件，本机每轮都会把它们
+ * 当「远端有、本地没有」下载一遍。实测手机端 104 条待同步里有 77 条是
+ * 电脑端 `.plugin-manager/logs/github-connection-XXXX/git.log`（0 字节），
+ * 真正的差异完全被埋住了。
+ */
+export function isIgnoredRel(rel: string): boolean {
+  const parts = String(rel || '').split('/');
+  if (parts.some((p) => SKIP_DIRS.has(p))) return true;
+  const last = parts[parts.length - 1] ?? '';
+  if (!last) return false;
+  if (last.endsWith('.base') || last.endsWith('.chunk-manifest.json')) return true;
+  if (last.endsWith('.lock')) return true;
+  return /\.bak(-|$)|\.nassync-bak$/.test(last);
+}
+
 /** 递归遍历目录下的普通文件（跳过运行时垃圾）。扫描与统计共用同一份过滤规则。 */
 export async function* walkFiles(dir: string): AsyncGenerator<string> {
   let names: string[];
@@ -92,11 +114,17 @@ export async function* walkFiles(dir: string): AsyncGenerator<string> {
       continue;
     }
     if (st.isDirectory()) {
-      if (name === 'node_modules' || name === 'nas-sync') continue;
+      // 目录级垃圾：都不属于「用户内容」，同步它们只会让待同步列表永远清不完。
+      //   · node_modules —— 包体（插件靠清单重装，不搬包）
+      //   · .plugin-manager —— dsh 插件管理器的日志/临时目录：每次连 GitHub 生成一个
+      //     `logs/github-connection-XXXX/git.log`（0 字节），实测一个下午就 77 条，
+      //     把「待同步」撑到三位数，真正的差异被埋在里面
+      //   · .cache / .compile-cache —— 构建与 V8 编译缓存，删了会自动重建
+      //   · nas-sync —— 插件自己的状态目录（store.json/冲突缓存）
+      if (SKIP_DIRS.has(name)) continue;
       yield* walkFiles(full);
     } else {
-      if (name.endsWith('.base') || name.endsWith('.chunk-manifest.json')) continue;
-      if (name.endsWith('.lock')) continue; // 运行时锁文件，不参与同步
+      if (isIgnoredRel(name)) continue;
       yield full;
     }
   }
