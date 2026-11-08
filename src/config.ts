@@ -26,6 +26,15 @@ export interface SessionImportRecord {
   localHash: string;
   /** 远端原文里的 cwd（回传时要改回这条路径，否则对端打不开） */
   originalCwd: string;
+  /**
+   * 远端清单连续几轮都没这份原文了（0.5.8）。
+   *
+   * 对端删掉会话时，它自己的设备清单里那一条会消失 —— 这就是本机唯一能观测到的
+   * 「删除信号」。但清单是 WebDAV 上的一个文件，写入瞬断/读到半截都会让整份清单
+   * 解不出来（`readManifestAt` 吞异常返回空），一次误判就会把镜像连同会话一起删掉。
+   * 所以要求**连续两轮**都观测到缺失才回收，并且回收是「移进回收目录」而不是硬删。
+   */
+  missingRounds?: number;
 }
 
 /**

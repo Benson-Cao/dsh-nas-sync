@@ -553,6 +553,57 @@ export function rewriteSessionCwdTo(buf: Buffer, dir: string): Buffer | null {
   return Buffer.concat([headFrame, buf.subarray(end)]);
 }
 
+/**
+ * 会话文件里每一帧的起始偏移（0.5.8）。
+ *
+ * 会话文件是「多帧 zstd 拼接」的追加式日志：第一帧是表头，后续每帧是一批事件。
+ * 解析到不认识的字节就停止 —— 调用方只把它当**保守**判据用，宁少判不多判。
+ */
+export function sessionFrameOffsets(buf: Buffer): number[] {
+  const out: number[] = [];
+  let p = 0;
+  while (p + 4 <= buf.length && buf.readUInt32LE(p) === ZSTD_MAGIC) {
+    let end: number;
+    try {
+      end = zstdFrameEnd(buf, p);
+    } catch {
+      break;
+    }
+    out.push(p);
+    p = end;
+  }
+  return out;
+}
+
+/**
+ * 判断本地这份是不是「同一条会话的更早快照」（0.5.8）。
+ *
+ * 场景：PC 上先同步过一次手机会话（落地时 cwd 被改写），之后手机继续聊到 57 万字节，
+ * 而 `downloadEntry()` 里那条「本机已有同 id 会话就不覆盖」的守卫按**字节哈希**比较
+ * —— 改写过的旧副本和远端原文永远不相等，于是这条会话被永久判成「冲突」跳过，
+ * 卡在旧快照上（实测 `B站UP主沐白若风` 就是：电脑 562 字节 / 手机 579570 字节）。
+ *
+ * 真正的判据是**追加序**：第 0 帧被改写过 cwd（所以不比），第 1..n 帧逐字节相同
+ * = 本地就是远端某次提交的原样前缀，覆盖它不丢任何东西。
+ * 反过来只要有一帧对不上（用户在本机继续过、历史分叉），就仍然按冲突跳过。
+ */
+export function localIsStaleSnapshot(local: Buffer, remote: Buffer): boolean {
+  const a = sessionFrameOffsets(local);
+  const b = sessionFrameOffsets(remote);
+  if (a.length === 0 || b.length === 0) return false;
+  // 本地帧数比远端多 = 本机跑在前面，不是「旧快照」
+  if (a.length > b.length) return false;
+  for (let i = 1; i < a.length; i++) {
+    const ae = i + 1 < a.length ? a[i + 1] : local.length;
+    const be = i + 1 < b.length ? b[i + 1] : remote.length;
+    const asub = local.subarray(a[i], ae);
+    const bsub = remote.subarray(b[i], be);
+    if (asub.length !== bsub.length || !asub.equals(bsub)) return false;
+  }
+  return true;
+}
+
+
 export interface RegistryMergeResult {
   added: number;
   remapped: number;
@@ -560,6 +611,7 @@ export interface RegistryMergeResult {
   /** 合并后被清掉的跨工作区重复 session 归属数 */
   deduped: number;
 }
+
 
 /**
  * 全局收敛 session 归属：一个 sessionId 只能属于一个工作区。
@@ -792,6 +844,53 @@ export async function registerSessionForRel(
 
   // 收敛一遍再写：同一个 session 不能被两个工作区同时记账，否则 dsh 拒绝激活
   normalizeWorkspaceRegistry(reg);
+  await mkdir(join(home, 'storages'), { recursive: true });
+  const tmp = p + '.nas-sync.tmp';
+  await writeFile(tmp, JSON.stringify(reg, null, 2) + '\n');
+  await rename(tmp, p);
+  return true;
+}
+
+/**
+ * 把某个会话从它所在工作区的 `sessionIds` 里摘掉（0.5.8）。
+ *
+ * 与 `registerSessionForRel()` 互为逆操作。对端删掉会话后，本机镜像要一起回收：
+ * 只删文件不清登记的话，侧栏会留一条「点开就报错」的幽灵会话。
+ *
+ * @returns 是否真的写盘（没登记过 / 目录不是注册工作区 → false）
+ */
+export async function unregisterSessionFromRel(
+  rel: string,
+  home: string = dshHome(),
+): Promise<boolean> {
+  const parts = String(rel || '').split('/');
+  if (parts.length < 4 || parts[0] !== 'sessions') return false;
+  const enc = parts[1];
+  const sid = parts[parts.length - 2];
+  if (!enc || !sid) return false;
+
+  const p = join(home, WORKSPACE_REGISTRY_REL);
+  let reg: Record<string, any>;
+  try {
+    reg = JSON.parse(await readFile(p, 'utf8'));
+  } catch {
+    return false;
+  }
+  const spaces = reg?.['tables']?.['workspaces'];
+  if (!spaces || typeof spaces !== 'object') return false;
+
+  let changed = false;
+  for (const w of Object.values<any>(spaces)) {
+    const d = String(w?.['path'] ?? '');
+    if (!d || encodeCwd(d) !== enc) continue;
+    const ids: string[] = Array.isArray(w['sessionIds']) ? w['sessionIds'].map(String) : [];
+    if (!ids.includes(sid)) continue;
+    w['sessionIds'] = ids.filter((x) => x !== sid);
+    w['updatedAt'] = new Date().toISOString();
+    changed = true;
+  }
+  if (!changed) return false;
+
   await mkdir(join(home, 'storages'), { recursive: true });
   const tmp = p + '.nas-sync.tmp';
   await writeFile(tmp, JSON.stringify(reg, null, 2) + '\n');

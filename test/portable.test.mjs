@@ -23,6 +23,8 @@ import {
   mergeWorkspaceRegistry,
   registryCovers,
   registerSessionForRel,
+  unregisterSessionFromRel,
+  localIsStaleSnapshot,
 } from '../dist-test/portable.mjs';
 
 function home() {
@@ -156,6 +158,51 @@ test('rewriteSessionCwdTo：改回原机器路径，尾帧原样，已是目标�
   assert.equal(JSON.parse(text0.split('\n')[0]).cwd, phoneCwd);
   // 已经是目标值 → 不需要改写
   assert.equal(rewriteSessionCwdTo(back, phoneCwd), null);
+});
+
+test('localIsStaleSnapshot：本机是旧快照 → true，历史分叉 → false', () => {
+  const head = (cwd) => zlib.zstdCompressSync(Buffer.from(JSON.stringify({ type: 'session', id: 's-9', cwd }) + '\n', 'utf8'));
+  const ev = (n) => zlib.zstdCompressSync(Buffer.from('{"seq":' + n + '}\n', 'utf8'));
+
+  // 手机原文：4 帧；本机镜像：同样 3 帧尾 + 改写过的表头（更早的快照）
+  const remote = Buffer.concat([head('/data/user/0/x/wstest'), ev(1), ev(2), ev(3)]);
+  const localStale = Buffer.concat([head('C:\\Users\\x\\wstest'), ev(1), ev(2)]);
+  assert.equal(localIsStaleSnapshot(localStale, remote), true);
+
+  // 只有表头的老快照也算（实测 aa35e064：本机 562B 表头 / 远端 579570B）
+  assert.equal(localIsStaleSnapshot(head('C:\\Users\\x\\wstest'), remote), true);
+
+  // 本机更多帧 = 本机跑在前面，不是旧快照
+  const localAhead = Buffer.concat([head('C:\\Users\\x'), ev(1), ev(2), ev(3), ev(4)]);
+  assert.equal(localIsStaleSnapshot(localAhead, remote), false);
+
+  // 同一位置帧内容不同 = 两端各自继续过，绝不能覆盖
+  const localForked = Buffer.concat([head('C:\\Users\\x'), ev(1), ev(9)]);
+  assert.equal(localIsStaleSnapshot(localForked, remote), false);
+
+  // 表头相同（未改写的同平台副本）也允许，属于幂等覆盖
+  assert.equal(localIsStaleSnapshot(Buffer.concat([head('/data/user/0/x/wstest'), ev(1)]), remote), true);
+});
+
+test('unregisterSessionFromRel：摘掉登记，清单里没有则返回 false', async () => {
+  const h = home();
+  const wsDir = join(h, 'nassyncworkspaces', 'wstest');
+  mkdirSync(wsDir, { recursive: true });
+  mkdirSync(join(h, 'storages'), { recursive: true });
+  const enc = encodeCwd(wsDir);
+  const reg = {
+    unit: { name: 'workspace', version: 2 },
+    global: { initialized: true, defaultWorkspaceId: 'w1', workspaceIds: ['w1'], archivedSessionIds: [], pinnedSessionIds: [] },
+    tables: { workspaces: { w1: { path: wsDir, title: 'wstest', sessionIds: ['keep-me', 'drop-me'], createdAt: '', updatedAt: '' } } },
+  };
+  writeFileSync(join(h, 'storages', 'workspace.json'), JSON.stringify(reg, null, 2));
+
+  const rel = 'sessions/' + enc + '/drop-me/session.v4.jsonl.zstd';
+  assert.equal(await unregisterSessionFromRel(rel, h), true);
+  const after = JSON.parse(readFileSync(join(h, 'storages', 'workspace.json'), 'utf8'));
+  assert.deepEqual(after.tables.workspaces.w1.sessionIds, ['keep-me']);
+  // 幂等：再摘一次没有变化
+  assert.equal(await unregisterSessionFromRel(rel, h), false);
 });
 
 test('dedupeSessionDirs：同一 sid 落在两个 project 目录 → 隔离副本', async () => {

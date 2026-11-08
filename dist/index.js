@@ -11317,11 +11317,11 @@ var init_EntityDecoder = __esm({
        * @param {number} cp  — codepoint
        * @returns {number}   — minimum NCR_LEVEL value, or -1 for no restriction
        */
-      _classifyNCR(cp) {
-        if (cp === 0) return this._ncrNullLevel;
-        if (cp >= 55296 && cp <= 57343) return NCR_LEVEL.remove;
+      _classifyNCR(cp2) {
+        if (cp2 === 0) return this._ncrNullLevel;
+        if (cp2 >= 55296 && cp2 <= 57343) return NCR_LEVEL.remove;
         if (this._ncrXmlVersion === 1) {
-          if (cp >= 1 && cp <= 31 && !XML10_ALLOWED_C0.has(cp)) return NCR_LEVEL.remove;
+          if (cp2 >= 1 && cp2 <= 31 && !XML10_ALLOWED_C0.has(cp2)) return NCR_LEVEL.remove;
         }
         return -1;
       }
@@ -11337,20 +11337,20 @@ var init_EntityDecoder = __esm({
        *   - undefined                 → 'leave' (caller must skip past '&' only)
        *   - throws Error              → 'throw'
        */
-      _applyNCRAction(action, token, cp) {
+      _applyNCRAction(action, token, cp2) {
         switch (action) {
           case NCR_LEVEL.allow:
-            return String.fromCodePoint(cp);
+            return String.fromCodePoint(cp2);
           case NCR_LEVEL.remove:
             return "";
           case NCR_LEVEL.leave:
             return void 0;
           case NCR_LEVEL.throw:
             throw new Error(
-              `[EntityDecoder] Prohibited numeric character reference &${token}; (U+${cp.toString(16).toUpperCase().padStart(4, "0")})`
+              `[EntityDecoder] Prohibited numeric character reference &${token}; (U+${cp2.toString(16).toUpperCase().padStart(4, "0")})`
             );
           default:
-            return String.fromCodePoint(cp);
+            return String.fromCodePoint(cp2);
         }
       }
       /**
@@ -11371,17 +11371,17 @@ var init_EntityDecoder = __esm({
        */
       _resolveNCR(token) {
         const second = token.charCodeAt(1);
-        let cp;
+        let cp2;
         if (second === 120 || second === 88) {
-          cp = parseInt(token.slice(2), 16);
+          cp2 = parseInt(token.slice(2), 16);
         } else {
-          cp = parseInt(token.slice(1), 10);
+          cp2 = parseInt(token.slice(1), 10);
         }
-        if (Number.isNaN(cp) || cp < 0 || cp > 1114111) return void 0;
-        const minimum = this._classifyNCR(cp);
+        if (Number.isNaN(cp2) || cp2 < 0 || cp2 > 1114111) return void 0;
+        const minimum = this._classifyNCR(cp2);
         if (!this._numericAllowed && minimum < NCR_LEVEL.remove) return void 0;
         const effective = minimum === -1 ? this._ncrOnLevel : Math.max(this._ncrOnLevel, minimum);
-        return this._applyNCRAction(effective, token, cp);
+        return this._applyNCRAction(effective, token, cp2);
       }
     };
   }
@@ -12079,11 +12079,11 @@ var init_digitTable = __esm({
     TABLE = new Uint8Array(TABLE_SIZE).fill(NOT_DIGIT);
     for (const zero of SCRIPT_ZEROS) {
       for (let d = 0; d < 10; d++) {
-        const cp = zero + d;
-        if (cp <= LOW_MAX) {
-          TABLE[cp - TABLE_OFFSET] = d;
+        const cp2 = zero + d;
+        if (cp2 <= LOW_MAX) {
+          TABLE[cp2 - TABLE_OFFSET] = d;
         } else {
-          HIGH_MAP.set(cp, d);
+          HIGH_MAP.set(cp2, d);
         }
       }
     }
@@ -12110,8 +12110,8 @@ function anynum(str) {
       if (i2 + 1 < len) {
         const low = str.charCodeAt(i2 + 1);
         if (low >= 56320 && low <= 57343) {
-          const cp = 65536 + (cc - 55296 << 10) + (low - 56320);
-          if (HIGH_MAP.has(cp)) {
+          const cp2 = 65536 + (cc - 55296 << 10) + (low - 56320);
+          if (HIGH_MAP.has(cp2)) {
             firstHit = i2;
             break;
           }
@@ -12141,8 +12141,8 @@ function anynum(str) {
       if (i2 + 1 < len) {
         const low = str.charCodeAt(i2 + 1);
         if (low >= 56320 && low <= 57343) {
-          const cp = 65536 + (cc - 55296 << 10) + (low - 56320);
-          const d2 = HIGH_MAP.get(cp);
+          const cp2 = 65536 + (cc - 55296 << 10) + (low - 56320);
+          const d2 = HIGH_MAP.get(cp2);
           if (d2 !== void 0) {
             chars.push(String.fromCharCode(d2 + 48));
             i2++;
@@ -13916,9 +13916,9 @@ function decodeEntities(input) {
     if (name2 !== void 0) {
       return Object.prototype.hasOwnProperty.call(NAMED, name2) ? NAMED[name2] : match2;
     }
-    const cp = hex !== void 0 ? parseInt(hex, 16) : parseInt(dec, 10);
-    if (!Number.isFinite(cp) || cp > 1114111) return match2;
-    return String.fromCodePoint(cp);
+    const cp2 = hex !== void 0 ? parseInt(hex, 16) : parseInt(dec, 10);
+    if (!Number.isFinite(cp2) || cp2 > 1114111) return match2;
+    return String.fromCodePoint(cp2);
   });
 }
 var NAMED, ENTITY_RE;
@@ -20265,7 +20265,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { readFile as readFile5, writeFile as writeFile4, mkdir as mkdir4 } from "node:fs/promises";
 
 // src/sync/engine.ts
-import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3, rm as rm3 } from "node:fs/promises";
+import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3, rm as rm3, cp, rename as rename2 } from "node:fs/promises";
 import { readFileSync as readFileSync3, readdirSync, existsSync as existsSync3 } from "node:fs";
 import { stat as stat5 } from "node:fs/promises";
 import { createHash as createHash2 } from "node:crypto";
@@ -20789,6 +20789,35 @@ function rewriteSessionCwdTo(buf, dir) {
   const headFrame = zstdCompress(Buffer.from(JSON.stringify(parsed.header) + parsed.rest, "utf8"));
   return Buffer.concat([headFrame, buf.subarray(end)]);
 }
+function sessionFrameOffsets(buf) {
+  const out = [];
+  let p = 0;
+  while (p + 4 <= buf.length && buf.readUInt32LE(p) === ZSTD_MAGIC) {
+    let end;
+    try {
+      end = zstdFrameEnd(buf, p);
+    } catch {
+      break;
+    }
+    out.push(p);
+    p = end;
+  }
+  return out;
+}
+function localIsStaleSnapshot(local, remote) {
+  const a = sessionFrameOffsets(local);
+  const b = sessionFrameOffsets(remote);
+  if (a.length === 0 || b.length === 0) return false;
+  if (a.length > b.length) return false;
+  for (let i2 = 1; i2 < a.length; i2++) {
+    const ae = i2 + 1 < a.length ? a[i2 + 1] : local.length;
+    const be = i2 + 1 < b.length ? b[i2 + 1] : remote.length;
+    const asub = local.subarray(a[i2], ae);
+    const bsub = remote.subarray(b[i2], be);
+    if (asub.length !== bsub.length || !asub.equals(bsub)) return false;
+  }
+  return true;
+}
 function dedupeWorkspaceSessions(local) {
   const tables = local?.["tables"];
   const workspaces = tables?.["workspaces"];
@@ -20944,6 +20973,38 @@ async function registerSessionForRel(rel, home = dshHome()) {
   hit["sessionIds"] = [...ids, sid];
   hit["updatedAt"] = (/* @__PURE__ */ new Date()).toISOString();
   normalizeWorkspaceRegistry(reg);
+  await mkdir2(join4(home, "storages"), { recursive: true });
+  const tmp = p + ".nas-sync.tmp";
+  await writeFile2(tmp, JSON.stringify(reg, null, 2) + "\n");
+  await rename(tmp, p);
+  return true;
+}
+async function unregisterSessionFromRel(rel, home = dshHome()) {
+  const parts = String(rel || "").split("/");
+  if (parts.length < 4 || parts[0] !== "sessions") return false;
+  const enc = parts[1];
+  const sid = parts[parts.length - 2];
+  if (!enc || !sid) return false;
+  const p = join4(home, WORKSPACE_REGISTRY_REL);
+  let reg;
+  try {
+    reg = JSON.parse(await readFile2(p, "utf8"));
+  } catch {
+    return false;
+  }
+  const spaces = reg?.["tables"]?.["workspaces"];
+  if (!spaces || typeof spaces !== "object") return false;
+  let changed = false;
+  for (const w of Object.values(spaces)) {
+    const d = String(w?.["path"] ?? "");
+    if (!d || encodeCwd(d) !== enc) continue;
+    const ids = Array.isArray(w["sessionIds"]) ? w["sessionIds"].map(String) : [];
+    if (!ids.includes(sid)) continue;
+    w["sessionIds"] = ids.filter((x2) => x2 !== sid);
+    w["updatedAt"] = (/* @__PURE__ */ new Date()).toISOString();
+    changed = true;
+  }
+  if (!changed) return false;
   await mkdir2(join4(home, "storages"), { recursive: true });
   const tmp = p + ".nas-sync.tmp";
   await writeFile2(tmp, JSON.stringify(reg, null, 2) + "\n");
@@ -21977,6 +22038,15 @@ var Engine = class {
   stallAbort = false;
   /** scan() 缓存的远端清单（合并视图） */
   remoteManifest = [];
+  /**
+   * 本轮远端清单是否「读到过至少一份非空的设备清单」（0.5.8）。
+   *
+   * 删除传播要靠「对端清单里这条没了」来判断，而清单读失败时
+   * `readManifestAt()` 会吞异常返回 []、`readRemoteManifest()` 又只把非空的塞进
+   * 合并结果 —— 于是「NAS 掉线」「GET 拿回半截」「口令不符」全都长得跟
+   * 「所有会话都被删了」一模一样。所以只有这个标记为 true 时才允许据此回收镜像。
+   */
+  remoteManifestTrusted = false;
   /** 本轮 push 成功的 rel —— 只有它们才有资格写进「本设备清单」（0.3.6） */
   pushedOk = /* @__PURE__ */ new Set();
   /**
@@ -22157,6 +22227,7 @@ var Engine = class {
    * 目录为空时回落到旧版单份 `/dsh/manifest.json`，并顺手迁移成 `_legacy.json`。
    */
   async readRemoteManifest() {
+    this.remoteManifestTrusted = false;
     let names = [];
     try {
       names = await this.deps.transport.list(MANIFESTS_DIR);
@@ -22170,6 +22241,7 @@ var Engine = class {
       const migrated = await this.readManifestAt(MANIFESTS_DIR + "/_legacy.json");
       const legacy = migrated.length > 0 ? migrated : await this.readManifestAt(LEGACY_MANIFEST);
       if (legacy.length === 0) return [];
+      this.remoteManifestTrusted = true;
       try {
         await this.writeManifestFile(manifestFileOf("_legacy"), legacy);
       } catch {
@@ -22181,6 +22253,7 @@ var Engine = class {
       const list = await this.readManifestAt(MANIFESTS_DIR + "/" + f3.name);
       if (list.length > 0) parts.push(list);
     }
+    this.remoteManifestTrusted = parts.length > 0;
     return mergeDeviceManifests(parts).filter((e2) => !isIgnoredRel(e2.rel));
   }
   /** 解密单份清单；文件不存在 / 口令不符都返回空（不抛）。 */
@@ -22479,10 +22552,31 @@ var Engine = class {
       } catch {
         alive = false;
       }
-      if (!alive || !remoteMap.has(remoteRel)) {
+      if (!alive) {
         delete imports[remoteRel];
         continue;
       }
+      if (!remoteMap.has(remoteRel)) {
+        if (!this.remoteManifestTrusted) {
+          importedLocalRel.add(rec.localRel);
+          continue;
+        }
+        const rounds = (rec.missingRounds ?? 0) + 1;
+        if (rounds < 2) {
+          rec.missingRounds = rounds;
+          importedLocalRel.add(rec.localRel);
+          continue;
+        }
+        try {
+          await this.retireImport(remoteRel, rec);
+        } catch (err) {
+          console.warn("[dsh-nas-sync] \u56DE\u6536\u955C\u50CF\u5931\u8D25\uFF08\u4E0B\u8F6E\u518D\u8BD5\uFF09\uFF1A" + remoteRel + " \xB7 " + String(err));
+          rec.missingRounds = 0;
+          importedLocalRel.add(rec.localRel);
+        }
+        continue;
+      }
+      rec.missingRounds = 0;
       importedLocalRel.add(rec.localRel);
     }
     for (const [rel, le] of localMap) {
@@ -22696,6 +22790,41 @@ var Engine = class {
     if (n > 0) console.log("[dsh-nas-sync] \u5DF2\u8865\u767B\u8BB0 " + n + " \u4E2A\u4F1A\u8BDD\u5230\u4FA7\u680F");
   }
   /**
+   * 回收一条导入的会话镜像（0.5.8）。
+   *
+   * 触发条件是「远端原文在对端清单里连续两轮消失」= 对端删了这个会话。
+   * 顺序很关键：**先移文件、再销账、最后清登记** ——
+   *   · 先移：`sessionImports` 一旦少了一条，本地这份就会被当成本机新文件上传，
+   *     所以必须让文件先不存在，否则会给对端送回去（0.5.7 的老毛病）；
+   *   · 后清登记：dsh 侧栏按 `sessionIds` 渲染，文件删了不清登记 = 留一条点不开的幽灵会话。
+   *
+   * 移动而不是删除：目标在 `$DSH_HOME/nas-sync/removed/<时间戳>/`，仍然是可恢复的
+   * 真文件，且和 `sessions/` 同卷，`rename` 是原子操作。
+   */
+  async retireImport(remoteRel, rec) {
+    const abs = this.resolveLocal(rec.localRel);
+    const cut = Math.max(abs.lastIndexOf("/"), abs.lastIndexOf("\\"));
+    const sessionDir = abs.slice(0, cut);
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+    const trash = join6(dshHome(), "nas-sync", "removed", stamp, rec.localRel.replace(/\//g, "__"));
+    await mkdir3(join6(trash, ".."), { recursive: true });
+    if (existsSync3(sessionDir)) {
+      try {
+        await rename2(sessionDir, trash);
+      } catch {
+        await cp(sessionDir, trash, { recursive: true });
+        await rm3(sessionDir, { recursive: true, force: true });
+      }
+    }
+    delete this.deps.store.sessionImports[remoteRel];
+    this.deps.store.save();
+    try {
+      await unregisterSessionFromRel(rec.localRel);
+    } catch {
+    }
+    console.log("[dsh-nas-sync] \u5BF9\u7AEF\u5DF2\u5220\u9664\u8BE5\u4F1A\u8BDD\uFF0C\u672C\u673A\u955C\u50CF\u5DF2\u79FB\u5165\u56DE\u6536\u76EE\u5F55\uFF1A" + rec.localRel + " \u2192 " + trash);
+  }
+  /**
    * 把某个 rel 的新指纹写回**它所属的那份设备清单**（0.5.6）。
    *
    * 为什么必须写：清单是「远端有什么」的唯一真相。跨平台会话回传后如果只把字节
@@ -22867,7 +22996,10 @@ var Engine = class {
       const isOurMirror = priorRecord?.localRel === targetRel;
       if (crossPlatform && targetRel !== rel && !isOurMirror && existsSync3(target)) {
         const cur = await readFile4(target);
-        if (sha256Hex(cur) !== sha256Hex(written)) {
+        const stale = sha256Hex(cur) !== sha256Hex(written) && localIsStaleSnapshot(cur, written);
+        if (stale) {
+          console.log("[dsh-nas-sync] \u672C\u673A\u526F\u672C\u662F\u65E7\u5FEB\u7167\uFF0C\u7528\u8FDC\u7AEF\u6700\u65B0\u7248\u8986\u76D6\uFF1A" + rel);
+        } else if (sha256Hex(cur) !== sha256Hex(written)) {
           if (!this.importSkipWarned.has(rel)) {
             this.importSkipWarned.add(rel);
             console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u5BFC\u5165\uFF08\u672C\u673A\u5DF2\u6709\u540C id \u4F1A\u8BDD\uFF0C\u907F\u514D\u4E92\u76F8\u8986\u76D6\uFF09\uFF1A" + rel);

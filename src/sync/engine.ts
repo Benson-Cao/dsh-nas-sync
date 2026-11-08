@@ -14,7 +14,7 @@
  * 远端路径 = '/dsh/' + rel，本地路径 = localOf(rel)。
  */
 
-import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm, cp, rename } from 'node:fs/promises';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -65,6 +65,8 @@ import {
   rewriteSessionCwd,
   rewriteSessionCwdTo,
   safeName,
+  localIsStaleSnapshot,
+  unregisterSessionFromRel,
   WORKSPACE_REGISTRY_REL,
 } from './portable.js';
 
@@ -220,6 +222,16 @@ export class Engine {
   private stallAbort = false;
   /** scan() 缓存的远端清单（合并视图） */
   private remoteManifest: ManifestEntry[] = [];
+
+  /**
+   * 本轮远端清单是否「读到过至少一份非空的设备清单」（0.5.8）。
+   *
+   * 删除传播要靠「对端清单里这条没了」来判断，而清单读失败时
+   * `readManifestAt()` 会吞异常返回 []、`readRemoteManifest()` 又只把非空的塞进
+   * 合并结果 —— 于是「NAS 掉线」「GET 拿回半截」「口令不符」全都长得跟
+   * 「所有会话都被删了」一模一样。所以只有这个标记为 true 时才允许据此回收镜像。
+   */
+  private remoteManifestTrusted = false;
 
   /** 本轮 push 成功的 rel —— 只有它们才有资格写进「本设备清单」（0.3.6） */
   private pushedOk = new Set<string>();
@@ -430,6 +442,7 @@ export class Engine {
    * 目录为空时回落到旧版单份 `/dsh/manifest.json`，并顺手迁移成 `_legacy.json`。
    */
   private async readRemoteManifest(): Promise<ManifestEntry[]> {
+    this.remoteManifestTrusted = false;
     let names: NasEntry[] = [];
     try {
       names = await this.deps.transport.list(MANIFESTS_DIR);
@@ -450,6 +463,7 @@ export class Engine {
       const migrated = await this.readManifestAt(MANIFESTS_DIR + '/_legacy.json');
       const legacy = migrated.length > 0 ? migrated : await this.readManifestAt(LEGACY_MANIFEST);
       if (legacy.length === 0) return [];
+      this.remoteManifestTrusted = true;
       try {
         await this.writeManifestFile(manifestFileOf('_legacy'), legacy);
       } catch {
@@ -463,6 +477,8 @@ export class Engine {
       const list = await this.readManifestAt(MANIFESTS_DIR + '/' + f.name);
       if (list.length > 0) parts.push(list);
     }
+    // 至少一份读成了才可以拿「清单里没有」当删除信号（见字段注释）
+    this.remoteManifestTrusted = parts.length > 0;
     // 远端也过一遍过滤：对端可能还在跑旧版扫描器（它的清单里照样列着
     // `.plugin-manager/logs/*` 与 `.bak` 副本）。只在本地排除的话，这些条目
     // 每轮都会被当「远端有、本地没有」重新下载一遍，待同步永远清不完。
@@ -853,10 +869,46 @@ export class Engine {
       } catch {
         alive = false;
       }
-      if (!alive || !remoteMap.has(remoteRel)) {
-        delete imports[remoteRel]; // 本地副本被删 / 远端原文没了 → 下次重新导入
+      if (!alive) {
+        delete imports[remoteRel]; // 本地镜像已经没了（用户手删）→ 下次重新导入
         continue;
       }
+
+      if (!remoteMap.has(remoteRel)) {
+        /**
+         * 远端原文不见了 —— 0.5.8 起判成「对端删了这个会话」，本机镜像一起回收。
+         *
+         * 0.5.7 之前这里只是 `delete imports[remoteRel]`，后果正好相反：账一销，
+         * 本地镜像就不再算「导入副本」，于是下一轮被当成**本机新文件上传**，
+         * NAS 上又多回一份 → 对端再下载回来。实测手机上删掉的
+         * 「鲸鱼宠物 / 数据库同步问题」就是这样在电脑上反复复活的。
+         *
+         * 三重保险，避免把「清单读失败」误判成「用户删了」：
+         *   ① `remoteManifestTrusted`：本轮至少有一份设备清单读成了；
+         *   ② 连续两轮都缺（`missingRounds`），单次抖动不算；
+         *   ③ 回收是移进 `$DSH_HOME/nas-sync/removed/<时间戳>/`，不是硬删。
+         */
+        if (!this.remoteManifestTrusted) {
+          importedLocalRel.add(rec.localRel); // 清单不可信：这一轮先当「还活着」，别上传别归零
+          continue;
+        }
+        const rounds = (rec.missingRounds ?? 0) + 1;
+        if (rounds < 2) {
+          rec.missingRounds = rounds;
+          importedLocalRel.add(rec.localRel);
+          continue;
+        }
+        try {
+          await this.retireImport(remoteRel, rec);
+        } catch (err) {
+          console.warn('[dsh-nas-sync] 回收镜像失败（下轮再试）：' + remoteRel + ' · ' + String(err));
+          rec.missingRounds = 0;
+          importedLocalRel.add(rec.localRel);
+        }
+        continue;
+      }
+
+      rec.missingRounds = 0;
       importedLocalRel.add(rec.localRel);
     }
 
@@ -1181,6 +1233,50 @@ export class Engine {
   }
 
   /**
+   * 回收一条导入的会话镜像（0.5.8）。
+   *
+   * 触发条件是「远端原文在对端清单里连续两轮消失」= 对端删了这个会话。
+   * 顺序很关键：**先移文件、再销账、最后清登记** ——
+   *   · 先移：`sessionImports` 一旦少了一条，本地这份就会被当成本机新文件上传，
+   *     所以必须让文件先不存在，否则会给对端送回去（0.5.7 的老毛病）；
+   *   · 后清登记：dsh 侧栏按 `sessionIds` 渲染，文件删了不清登记 = 留一条点不开的幽灵会话。
+   *
+   * 移动而不是删除：目标在 `$DSH_HOME/nas-sync/removed/<时间戳>/`，仍然是可恢复的
+   * 真文件，且和 `sessions/` 同卷，`rename` 是原子操作。
+   */
+  private async retireImport(
+    remoteRel: string,
+    rec: { localRel: string; originalCwd: string },
+  ): Promise<void> {
+    const abs = this.resolveLocal(rec.localRel);
+    // 会话文件本身在 `sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd`，整个目录一起搬
+    const cut = Math.max(abs.lastIndexOf('/'), abs.lastIndexOf('\\'));
+    const sessionDir = abs.slice(0, cut);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const trash = join(dshHome(), 'nas-sync', 'removed', stamp, rec.localRel.replace(/\//g, '__'));
+    await mkdir(join(trash, '..'), { recursive: true });
+
+    if (existsSync(sessionDir)) {
+      try {
+        await rename(sessionDir, trash);
+      } catch {
+        await cp(sessionDir, trash, { recursive: true });
+        await rm(sessionDir, { recursive: true, force: true });
+      }
+    }
+
+    delete this.deps.store.sessionImports[remoteRel];
+    this.deps.store.save();
+
+    try {
+      await unregisterSessionFromRel(rec.localRel);
+    } catch {
+      /* 清登记失败不影响文件已回收，下一轮不会再有这条记录 */
+    }
+    console.log('[dsh-nas-sync] 对端已删除该会话，本机镜像已移入回收目录：' + rec.localRel + ' → ' + trash);
+  }
+
+  /**
    * 把某个 rel 的新指纹写回**它所属的那份设备清单**（0.5.6）。
    *
    * 为什么必须写：清单是「远端有什么」的唯一真相。跨平台会话回传后如果只把字节
@@ -1413,12 +1509,21 @@ export class Engine {
        * 同一个 sessionId 在两端各继续过一段 = 两条独立历史，谁盖谁都是丢数据
        * （典型：手机上开过、电脑上也开过的同一个会话）。
        * 例外：target 就是**上次给这条 rel 建的镜像**（记录里对得上）—— 那是正常更新。
+       *
+       * 0.5.8 补充第二个例外 `localIsStaleSnapshot()`：本机那份只是**同一条会话的
+       * 更早快照**时也不再挡。按字节哈希比较挡不住这种情况 —— 镜像的 cwd 被改写过，
+       * 和远端原文永远不相等，于是它被永久判成冲突：远端聊到 57 万字节，本机一直停在
+       * 562 字节的表头快照上，侧栏里就是「这条会话没同步过来」
+       * （实测 `B站UP主沐白若风`，aa35e064）。追加序前缀相同 = 覆盖不丢历史。
        */
       const priorRecord = this.deps.store.sessionImports[rel];
       const isOurMirror = priorRecord?.localRel === targetRel;
       if (crossPlatform && targetRel !== rel && !isOurMirror && existsSync(target)) {
         const cur = await readFile(target);
-        if (sha256Hex(cur) !== sha256Hex(written)) {
+        const stale = sha256Hex(cur) !== sha256Hex(written) && localIsStaleSnapshot(cur, written);
+        if (stale) {
+          console.log('[dsh-nas-sync] 本机副本是旧快照，用远端最新版覆盖：' + rel);
+        } else if (sha256Hex(cur) !== sha256Hex(written)) {
           if (!this.importSkipWarned.has(rel)) {
             this.importSkipWarned.add(rel);
             console.warn('[dsh-nas-sync] 跳过导入（本机已有同 id 会话，避免互相覆盖）：' + rel);
