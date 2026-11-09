@@ -106,6 +106,37 @@ export const NasSyncSchema = z.object({
   chunkSize: z.number().min(1024).default(50 * 1024 * 1024),
   /** 上传并发数 */
   concurrency: z.number().min(1).max(16).default(4),
+  /**
+   * 删除后回收副本保留天数（0.6.0 / P1）。
+   * 0 = 永久保留；到期后由 gcRemoteObjects() 真删远端对象与分块残块。
+   * 默认 30 天，与 README 对外承诺一致。
+   */
+  retentionDays: z.number().min(0).max(3650).default(30),
+  /**
+   * 会话 rel 空间（0.6.0 / 收尾①）。
+   *   legacy    = 0.5.9 行为：`sessions/<cwd编码>/<sid>/...`（默认，升级不改数据）
+   *   shadow    = 主链仍是 legacy，但额外把会话双写到 canonical 空间
+   *   canonical = 主链切到 `sessions/by-id/<sid>/vN/...`（须先执行迁移并写 marker）
+   * 读侧永远双空间归并，所以三种模式可以混跑、可回滚。
+   */
+  sessionRelMode: z.union(['legacy', 'shadow', 'canonical']).default('legacy'),
+  /**
+   * 上传密文的信封版本（0.6.0 / 收尾②）。1 = NSS1（0.5.9 兼容），2 = NSS2
+   * （带版本字段与 AAD 绑定）。解密永远双读，改这个数字不会让 NAS 上的历史密文失效。
+   */
+  envelopeVersion: z.number().min(1).max(2).default(1),
+  /** 增量扫描缓存（0.6.0 / 收尾③）：命中时跳过 readFile + sha256。 */
+  scanCacheEnabled: z.boolean().default(true),
+  /** 缓存条目最长可复用时长（小时）；到期强制重算，防 mtime 被保持的静默改写。 */
+  scanCacheTtlHours: z.number().min(1).max(720).default(24),
+  /**
+   * 工作区 / 自定义文件夹的单文件扫描上限（字节，0.6.0 / P3）。
+   *
+   * 0.5.9 里这是 portable.ts 里写死的 64 MiB，配置改不动，而且 `walkWorkspaceFiles`
+   * 两处调用都漏传参数 —— 用户在面板上调大也没用。现在配置化并由引擎贯穿到扫描器。
+   * 超大文件建议放 attachments 分类（那条链路走分块上传）。
+   */
+  maxFileBytes: z.number().min(1024).default(64 * 1024 * 1024),
   /** 已选分类**内部**是否连凭据文件（.credentials 等）一起同步，默认 false */
   includeSensitive: z.boolean().default(false),
   /** r3：按分类勾选同步内容（未列出的键走 DEFAULT_SYNC_SCOPE） */
@@ -377,6 +408,22 @@ export class Store {
    */
   sessionImports: Record<string, SessionImportRecord> = {};
 
+  /**
+   * 0.6.0 / P1：本机对每台设备事件日志的处理位点。
+   * 不存就会在每次重启后重放历史 delete 事件（虽然本地回收是幂等的，但会刷日志、
+   * 也会让「本机继续编辑过的会话」被重复搬动）。
+   */
+  deviceCursors: Record<string, number> = {};
+
+  /**
+   * 0.6.0 / P1：待发布的屏蔽意图。
+   *
+   * `ignoreSession()` / `unignoreSession()` 是面板同步调用，不该在点击瞬间去写
+   * NAS（网络一断就把用户操作弄丢）。先记成意图，下一轮 sync 再转成正式事件发布，
+   * 对端消费后同样写进它自己的屏蔽清单 —— 这就是「屏蔽清单全局事件化」。
+   */
+  pendingIntents: Array<{ op: 'ignore' | 'unignore'; sid: string }> = [];
+
   constructor() {
     // ① 状态文件：区分「不存在」与「损坏」。损坏时留备份并大声报错，
     //    绝不因为一个坏字段就把 snapshot / pending / conflicts 整份重置。
@@ -426,6 +473,18 @@ export class Store {
       if (data.sessionImports && typeof data.sessionImports === 'object') {
         this.sessionImports = data.sessionImports as Record<string, SessionImportRecord>;
       }
+      if (data.deviceCursors && typeof data.deviceCursors === 'object') {
+        const out: Record<string, number> = {};
+        for (const [k, v] of Object.entries(data.deviceCursors)) {
+          if (Number.isFinite(v) && (v as number) >= 0) out[k] = Math.floor(v as number);
+        }
+        this.deviceCursors = out;
+      }
+      if (Array.isArray(data.pendingIntents)) {
+        this.pendingIntents = data.pendingIntents.filter(
+          (x: any) => x && (x.op === 'ignore' || x.op === 'unignore') && typeof x.sid === 'string' && x.sid,
+        ).slice(0, 200);
+      }
     }
 
     // ④ 凭据：优先独立文件；老版本从 store.json 迁移（下次 save 写成新格式）。
@@ -457,6 +516,8 @@ export class Store {
         localManifest: this.localManifest,
         userConfig: publicPart,
         sessionImports: this.sessionImports,
+        deviceCursors: this.deviceCursors,
+        pendingIntents: this.pendingIntents,
       });
       const credJson = JSON.stringify(secrets);
       if (credJson !== this.lastCredentialsJson) {

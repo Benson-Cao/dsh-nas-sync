@@ -51,8 +51,15 @@ function ok(res: any, value: unknown): void {
   sendJson(res, 200, { ok: true, value });
 }
 
-function fail(res: any, code: string, message: string): void {
-  sendJson(res, 200, { ok: false, error: { code, message } });
+/**
+ * 0.6.0：新增 `status` 参数，让新端点能用真实 HTTP 状态码。
+ *
+ * 默认仍是 200 —— 已部署的 client.js 只按响应体 `{ok:false,error}` 判错、不看
+ * res.ok，但宿主 webServer / 中间代理对非 2xx 可能有额外处理。保持旧端点不变，
+ * 避免为了「语义更标准」把线上正在跑的面板弄成「HTTP 400」这种没有信息量的报错。
+ */
+function fail(res: any, code: string, message: string, status = 200): void {
+  sendJson(res, status, { ok: false, error: { code, message } });
 }
 
 function tokenMatches(actual: unknown, expected: string): boolean {
@@ -97,6 +104,17 @@ export function publicConfig(cfg: NasSyncConfig): Record<string, unknown> {
     chunkThreshold: cfg.chunkThreshold,
     chunkSize: cfg.chunkSize,
     concurrency: cfg.concurrency,
+    /** 0.6.0 / P1：删除后回收副本保留天数（0 = 永久） */
+    retentionDays: cfg.retentionDays ?? 30,
+    /** 0.6.0 / P3：工作区/自定义文件夹单文件扫描上限 */
+    maxFileBytes: cfg.maxFileBytes ?? 64 * 1024 * 1024,
+    /** 0.6.0 / 收尾①：会话 rel 空间（默认 legacy，升级不改数据） */
+    sessionRelMode: cfg.sessionRelMode ?? 'legacy',
+    /** 0.6.0 / 收尾②：上传信封版本（1=NSS1 兼容，2=NSS2 带 AAD） */
+    envelopeVersion: cfg.envelopeVersion ?? 1,
+    /** 0.6.0 / 收尾③：增量扫描缓存开关与 TTL */
+    scanCacheEnabled: cfg.scanCacheEnabled ?? true,
+    scanCacheTtlHours: cfg.scanCacheTtlHours ?? 24,
   };
 }
 
@@ -112,7 +130,11 @@ export interface BridgeDeps {
 export function createBridge(ctx: any, deps: BridgeDeps): void {
   const token = randomBytes(24).toString('base64url');
   // 插件安装任务：一次只允许跑一个 pnpm，避免两个进程抢 profile 的锁。
-  const installer = new Installer(() => join(dshHome(), 'profiles'));
+  // 0.6.0 / 收尾④：手机端没有宿主 CLI 时，Installer 会用这个对象源从 CAS 解包。
+  const installer = new Installer(() => join(dshHome(), 'profiles'), {
+    getObject: (hash) => deps.getEngine().pluginObject(hash),
+    assemblies: () => deps.getEngine().pluginAssemblies(),
+  });
 
   // 通道 1（主路）：结构化 index-inject。桌面端 boot payload 只认这个。
   // 官方用法见 @deepseek-ai/dsh-client-ui-theme：ctx.on('webserver/index-inject', …)。
@@ -193,6 +215,50 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
           safety: engine.safetyStatus(),
           storeError: deps.store.lastError,
         });
+      }
+
+      // ---- 0.6.0 / P1：事件流回放 / 位点 / 手动确认删除 ----
+      if (sub === '/events' && method === 'GET') {
+        const raw = Number(url.searchParams.get('limit') ?? 100);
+        const limit = Math.max(1, Math.min(1000, Number.isFinite(raw) ? raw : 100));
+        try {
+          return ok(res, await engine.listEvents(limit));
+        } catch (e) {
+          // 远端不可达不该让面板报错：明确标成不可信空流，而不是假装没有事件
+          return ok(res, {
+            events: [], trusted: false, tombstones: [], cursors: {},
+            error: (e as Error).message,
+          });
+        }
+      }
+      if (sub === '/events/status' && method === 'GET') {
+        return ok(res, {
+          safety: engine.safetyStatus(),
+          cursors: { ...deps.store.deviceCursors },
+          retentionDays: deps.getConfig().retentionDays ?? 30,
+        });
+      }
+      if (sub === '/events/delete' && method === 'POST') {
+        const body = await readBody();
+        const rel = String(body?.rel ?? '').trim();
+        if (!rel) return fail(res, 'bad-request', '缺少 rel（要删除的相对路径）', 400);
+        const r = await engine.confirmDelete(rel);
+        // 事件流不可信时是**业务阻断**，不是请求格式错：用 409 让调用方一眼看出
+        if (!r.published) return fail(res, 'blocked', r.reason, 409);
+        return ok(res, { rel, published: true });
+      }
+
+      // ---- 0.6.0 / 收尾①：会话 rel 空间迁移（两阶段，默认只读预演） ----
+      if (sub === '/rel-migration' && method === 'GET') {
+        return ok(res, await engine.sessionRelPlan());
+      }
+      if (sub === '/rel-migration' && method === 'POST') {
+        const body = await readBody();
+        // 必须显式 true 才写；字符串 / 数字 / 缺字段一律当作预演，防误触。
+        const confirm = body?.confirm === true;
+        const r = await engine.migrateSessionRels({ confirm });
+        if (!r.ok) return fail(res, 'migration-blocked', r.hint, 409);
+        return ok(res, r);
       }
 
       // ---- 技能列表（面板渲染「每个技能一个勾选框」用） ----
@@ -314,9 +380,12 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
       if (sub === '/plugins' && method === 'GET') {
         const want = url.searchParams.get('target') || undefined;
         const audit = await deps.getEngine().auditPlugins(want);
+        const assemblies = await deps.getEngine().pluginAssemblies();
         return ok(res, {
           ...audit,
-          canInstall: resolveCliScript() !== null,
+          // 没有 CLI 也未必不能装：只要 CAS 里有本平台的对象就能解包安装
+          canInstall: resolveCliScript() !== null || assemblies.length > 0,
+          casAssemblies: assemblies.length,
           running: installer.running(),
         });
       }
@@ -330,6 +399,20 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
           .map((i: any) => ({ name: i.name, target: i.target }));
         const job = installer.start(profile, clean);
         return ok(res, job);
+      }
+      if (sub === '/plugins/publish' && method === 'POST') {
+        const body = await readBody();
+        const name = String(body?.name || '').trim();
+        const version = String(body?.version || '').trim();
+        const tgzPath = String(body?.tgzPath || '').trim();
+        if (!name || !tgzPath) {
+          return fail(res, 'bad_request', '需要 name 与 tgzPath（本机 .tgz 路径）', 400);
+        }
+        try {
+          return ok(res, await deps.getEngine().publishPluginObject({ name, version, tgzPath }));
+        } catch (e) {
+          return fail(res, 'publish_failed', (e as Error).message, 409);
+        }
       }
       if (sub === '/plugins/install' && method === 'GET') {
         const id = url.searchParams.get('id') || '';

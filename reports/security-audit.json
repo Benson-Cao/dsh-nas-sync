@@ -1,0 +1,20 @@
+{
+  "at": "2026-11-09T07:25:28.549Z",
+  "coverage": "静态规则（5 类）+ npm audit --omit=dev；不含 DAST / 运行时渗透 / 人工评审",
+  "scannedFiles": 39,
+  "rules": [
+    "dynamic-code",
+    "hardcoded-secret",
+    "command-interpolation",
+    "inner-html",
+    "plain-http"
+  ],
+  "high": 0,
+  "medium": 0,
+  "sca": {
+    "status": "ok",
+    "reason": "",
+    "vulnerabilities": {}
+  },
+  "findings": []
+}

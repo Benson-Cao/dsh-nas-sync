@@ -98,3 +98,128 @@ export function advanceMissingRounds(input: MissingRoundInput): number {
 export function shouldRetire(rounds: number | undefined): boolean {
   return (rounds ?? 0) >= RETIRE_AFTER_MISSING_ROUNDS;
 }
+
+// ---------------------------------------------------------------------------
+// 0.6.0 / P1：事件驱动删除的 fail-closed 判据
+// ---------------------------------------------------------------------------
+
+/**
+ * 事件流是否允许本轮执行删除动作。
+ *
+ * 事件日志是删除传播的**唯一证据**。只要有一片没读成、一条签名不对、或某台设备
+ * 的 seq 有缺口，就不能排除「那条证据恰好在没读到的部分里」，必须整轮禁止回收。
+ * 这与 0.5.9 的 `evaluateManifestTrust()` 是同一条纪律，换成事件流口径。
+ */
+export interface EventTrustInput {
+  trusted: boolean;
+  failed: ReadonlyArray<string>;
+  gaps: ReadonlyArray<{ device: string; from: number; to: number }>;
+}
+
+export function eventStreamAllowsDeletes(t: EventTrustInput | null): { allowed: boolean; reason: string | null } {
+  if (!t) return { allowed: false, reason: '本轮尚未读取事件流' };
+  if (!t.trusted) {
+    const bits: string[] = [];
+    if (t.failed.length) bits.push('读失败/签名异常 ' + t.failed.length + ' 处');
+    if (t.gaps.length) bits.push('序号缺口 ' + t.gaps.length + ' 段');
+    return { allowed: false, reason: '事件流不完整（' + (bits.join('、') || '未知原因') + '）' };
+  }
+  return { allowed: true, reason: null };
+}
+
+export interface DeleteCandidateInput {
+  /** 上一轮本地清单（删除判定的基线） */
+  baseline: ReadonlyArray<{ rel: string }>;
+  /** 本轮本地清单 */
+  fresh: ReadonlyArray<{ rel: string }>;
+  /**
+   * 本轮**启用分类**的 rel 前缀。
+   *
+   * 这是防「关掉一个分类勾选 = 把对端该分类全删光」的主闸：关掉的分类不在列表里，
+   * 它下面的文件从清单消失就不再被当成删除。
+   */
+  enabledPrefixes: ReadonlyArray<string>;
+  eventTrusted: boolean;
+  manifestTrusted: boolean;
+  /** 不参与判定的 rel（跨平台镜像 / 本机屏蔽 / 工作区注册表等） */
+  excluded?: ReadonlySet<string>;
+  /** 运行时垃圾判定（由调用方注入 isIgnoredRel，保持本模块零宿主依赖） */
+  isIgnorable?: (rel: string) => boolean;
+  /** 单轮最多允许删除多少条，超过整批拒绝 */
+  maxDeletes?: number;
+  /** 删除数占基线的比例上限，超过整批拒绝 */
+  maxRatio?: number;
+}
+
+export interface DeleteDecision {
+  rels: string[];
+  blocked: boolean;
+  reason: string | null;
+  /** 被各类闸排除掉的条数，用于日志解释「为什么这轮没删」 */
+  excludedCount: number;
+}
+
+/**
+ * 从「上一轮有、这一轮没有」里挑出**可以确认为用户主动删除**的条目。
+ *
+ * 逐道闸门（任何一道不过都整批拒，不做部分删除 —— 部分删除最难排查）：
+ *   ① 事件流可信；② 远端清单可信；③ 本地基线非空（首轮不产生删除）；
+ *   ④ rel 安全、不是运行时垃圾、不在排除集合、且落在启用分类内；
+ *   ⑤ 条数不超过上限；⑥ 占基线比例不超过上限。
+ *
+ * 第 ④ 条最关键：远端清单读失败、扫描器临时读不到某个工作区目录、用户关掉分类勾选，
+ * 三种情况在「本轮少了 N 条」上长得一模一样，只有按启用分类 + 比例上限才能挡住。
+ */
+export function computeLocalDeletes(input: DeleteCandidateInput): DeleteDecision {
+  const empty: DeleteDecision = { rels: [], blocked: false, reason: null, excludedCount: 0 };
+  if (!input.eventTrusted) return { ...empty, blocked: true, reason: '事件流不可信' };
+  if (!input.manifestTrusted) return { ...empty, blocked: true, reason: '远端清单不可信' };
+  if (input.baseline.length === 0) return { ...empty, blocked: true, reason: '本地基线为空（首轮不产生删除）' };
+
+  const present = new Set(input.fresh.map((e) => e.rel));
+  const prefixes = input.enabledPrefixes.filter(Boolean);
+  const excluded = input.excluded ?? new Set<string>();
+  const ignorable = input.isIgnorable ?? (() => false);
+  const inScope = (rel: string): boolean =>
+    prefixes.some((p) => rel === p || rel.startsWith(p + '/'));
+
+  const candidates: string[] = [];
+  let excludedCount = 0;
+  for (const e of input.baseline) {
+    const rel = e.rel;
+    if (present.has(rel)) continue;
+    if (
+      !isSafeRel(rel) || ignorable(rel) || excluded.has(rel) ||
+      !inScope(rel)
+    ) {
+      excludedCount++;
+      continue;
+    }
+    candidates.push(rel);
+  }
+  if (candidates.length === 0) return { ...empty, excludedCount };
+
+  const maxDeletes = input.maxDeletes ?? 50;
+  if (candidates.length > maxDeletes) {
+    return {
+      ...empty, blocked: true, excludedCount,
+      reason: '单轮消失 ' + candidates.length + ' 条，超过上限 ' + maxDeletes + '（疑似配置/路径变更）',
+    };
+  }
+  const maxRatio = input.maxRatio ?? 0.5;
+  if (candidates.length / input.baseline.length > maxRatio) {
+    return {
+      ...empty, blocked: true, excludedCount,
+      reason: '单轮消失比例 ' + (candidates.length / input.baseline.length).toFixed(2) +
+        ' 超过上限 ' + maxRatio + '（疑似扫描范围变更）',
+    };
+  }
+  return { rels: candidates.sort(), blocked: false, reason: null, excludedCount };
+}
+
+/** 回收保留天数归一：非法值一律回默认 30 天，0 = 永久保留。 */
+export function normalizeRetentionDays(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 30;
+  return Math.min(3650, Math.floor(n));
+}

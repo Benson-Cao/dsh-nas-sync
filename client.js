@@ -187,6 +187,28 @@ window.__ModuleLoader__.load({
       loadFail: '加载失败',
       // r172：配置首帧为空时的占位文案（见 PanelView 里的 !cfg 守卫）
       loadingCfg: '正在读取 NAS 配置…',
+      // ---- 0.5.9：回收站与本机屏蔽（面板入口，之前只有工具 / HTTP 端点）----
+      recoverySection: '回收站与本机屏蔽',
+      recoveryHint: '被对端删除、或本机屏蔽的会话不会硬删，而是移到本机回收目录。这里可以恢复、撤销屏蔽，或按会话 ID 新增屏蔽（只影响本机，远端原文保留）。',
+      recoverySafetyBlocked: '⚠ 屏蔽清单异常，本轮已禁用全部删除传播与回收动作：',
+      recoveryTrustFailed: '⚠ 有设备清单未能读取，本轮未做删除传播：',
+      recoveryRemovedTitle: '回收记录',
+      recoveryEmpty: '回收目录是空的。',
+      recoveryRestorable: '可恢复',
+      recoveryLegacy: '仅手工（无元数据）',
+      recoveryRestore: '恢复',
+      recoveryConfirmRestore: '再点一次确认',
+      recoveryRestoring: '恢复中…',
+      recoveryRestored: '已恢复并重新登记侧栏',
+      recoveryIgnoredTitle: '本机屏蔽',
+      recoveryIgnoredEmpty: '没有屏蔽的会话。',
+      recoveryUnignore: '撤销',
+      recoveryIgnorePlaceholder: '会话 ID（session-…）',
+      recoveryIgnoreAdd: '添加屏蔽',
+      recoveryIgnoreAdded: '已加入本机屏蔽',
+      recoveryIgnoreRemoved: '已撤销屏蔽',
+      recoveryLoadFail: '回收信息读取失败',
+      recoveryNeedId: '请先填写会话 ID',
     };
 
     const en = {
@@ -301,6 +323,28 @@ window.__ModuleLoader__.load({
       passwordKeep: 'Set (leave empty to keep)',
       loadFail: 'Load failed',
       loadingCfg: 'Loading NAS config…',
+      // 0.5.9: recycling bin / local ignore list (previously tools + HTTP only)
+      recoverySection: 'Removed & local ignores',
+      recoveryHint: 'Sessions deleted on the other device or ignored here are moved to a local recycling folder instead of being deleted. Restore them, revoke an ignore, or add one by session ID (this device only; the remote copy is kept).',
+      recoverySafetyBlocked: '⚠ Ignore list is unhealthy — all deletion propagation and recycling were disabled this round:',
+      recoveryTrustFailed: '⚠ Some device manifests could not be read — deletion propagation was skipped this round:',
+      recoveryRemovedTitle: 'Recycled sessions',
+      recoveryEmpty: 'The recycling folder is empty.',
+      recoveryRestorable: 'restorable',
+      recoveryLegacy: 'manual only (no metadata)',
+      recoveryRestore: 'Restore',
+      recoveryConfirmRestore: 'Click again to confirm',
+      recoveryRestoring: 'Restoring…',
+      recoveryRestored: 'Restored and re-registered in the sidebar',
+      recoveryIgnoredTitle: 'Locally ignored',
+      recoveryIgnoredEmpty: 'No ignored sessions.',
+      recoveryUnignore: 'Revoke',
+      recoveryIgnorePlaceholder: 'Session ID (session-…)',
+      recoveryIgnoreAdd: 'Add ignore',
+      recoveryIgnoreAdded: 'Added to local ignores',
+      recoveryIgnoreRemoved: 'Ignore revoked',
+      recoveryLoadFail: 'Could not load recycling info',
+      recoveryNeedId: 'Enter a session ID first',
     };
 
     function makeT(dict) {
@@ -485,6 +529,14 @@ window.__ModuleLoader__.load({
       badgeErr: { color: 'var(--dsw-alias-state-error-primary)', borderColor: 'var(--dsw-alias-state-error-primary)' },
       msgErr: { color: 'var(--dsw-alias-state-error-primary)', fontSize: '12px' },
       msgOk: { color: 'var(--dsw-alias-state-success-primary)', fontSize: '12px' },
+      // ---- 0.5.9：回收站 / 本机屏蔽 ----
+      recoveryRow: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', padding: '7px 4px', borderBottom: '1px solid var(--dsw-alias-border-l1)' },
+      recoveryInfo: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, flex: '1 1 180px' },
+      recoveryMeta: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)', wordBreak: 'break-all' },
+      recoveryInput: { height: '28px', padding: '0 8px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', boxSizing: 'border-box', flex: '1 1 auto', minWidth: 0 },
+      recoveryAddRow: { display: 'flex', gap: '6px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' },
+      recoveryWarn: { fontSize: '12px', color: 'var(--dsw-alias-state-error-primary)', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-state-error-primary)', borderRadius: '8px', padding: '8px 10px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' },
+      recoverySubHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '4px' },
     };
 
     function formatBytes(n) {
@@ -535,6 +587,15 @@ window.__ModuleLoader__.load({
       // 数据来自远端清单记录的「最后上传者」，所以首次同步前是 null —— 此时不显示任何标记，
       // 而不是显示一个"未知设备"的占位，免得用户以为同步坏了。
       const [devices, setDevices] = useState(null);
+      // ---- 回收站 / 本机屏蔽（0.5.9）----
+      // null = 还没读到（或旧版 host 没这两个端点），要和「读到了但为空」分开。
+      const [removed, setRemoved] = useState(null);
+      const [ignored, setIgnored] = useState(null);
+      // /status 里的 safety：解释「本轮为什么没做删除传播」。0.5.8 没有这个字段。
+      const [safety, setSafety] = useState(null);
+      const [ignoreDraft, setIgnoreDraft] = useState('');
+      // 恢复会移动文件并撤销屏蔽，第一次点击只把按钮切成「再点一次确认」。
+      const [restoreArm, setRestoreArm] = useState(null);
 
       const refreshAll = useCallback(async () => {
         if (!c.ready) return;
@@ -543,6 +604,8 @@ window.__ModuleLoader__.load({
           setSnap(st.snapshot);
           setCfg(st.config);
           setPassSet(Boolean(st.config.passphraseSet));
+          // 0.5.9：把「本轮为什么没做删除传播」带到面板上，旧版 host 没有这个字段。
+          setSafety(st.safety || null);
           const pd = await c.call('/pending?page=1&pageSize=100');
           setPending(pd);
           const cf = await c.call('/conflicts');
@@ -564,6 +627,16 @@ window.__ModuleLoader__.load({
             setSkills(Array.isArray(sk && sk.skills) ? sk.skills : []);
           } catch (_) {
             setSkills([]);
+          }
+          // 回收站 / 本机屏蔽（0.5.9）。旧版 host 没有这两个端点，
+          // 所以单独 try 且失败只留 null —— 面板其它部分必须照常可用。
+          try {
+            const [rm, ig] = await Promise.all([c.call('/removed'), c.call('/ignored')]);
+            setRemoved(rm && Array.isArray(rm.items) ? rm : null);
+            setIgnored(ig && Array.isArray(ig.ids) ? ig : null);
+          } catch (_) {
+            setRemoved(null);
+            setIgnored(null);
           }
         } catch (e) {
           setMsg({ kind: 'err', text: t('loadFail') + '：' + e.message });
@@ -791,6 +864,51 @@ window.__ModuleLoader__.load({
         refreshAll();
       }
 
+      // ---- 回收站 / 本机屏蔽（0.5.9）----
+      // 端点都在 bridge.ts；失败抛到 msg，成功后 refreshAll 重新拉两份列表。
+      async function restoreRemoved(key) {
+        // 两步确认：恢复会搬动会话目录、重新登记侧栏并撤销本机屏蔽，误点代价不低。
+        if (restoreArm !== key) { setRestoreArm(key); return; }
+        setRestoreArm(null);
+        setBusy('restore:' + key);
+        setMsg(null);
+        try {
+          const r = await c.call('/removed/restore', { method: 'POST', body: { key } });
+          setMsg({ kind: 'ok', text: t('recoveryRestored') + '：' + (r.rel || key) });
+        } catch (e) {
+          setMsg({ kind: 'err', text: e.message });
+        }
+        setBusy('');
+        refreshAll();
+      }
+      async function addIgnore() {
+        const sid = ignoreDraft.trim();
+        if (!sid) { setMsg({ kind: 'err', text: t('recoveryNeedId') }); return; }
+        setBusy('ignore:add');
+        setMsg(null);
+        try {
+          await c.call('/ignored', { method: 'POST', body: { action: 'add', sessionId: sid } });
+          setIgnoreDraft('');
+          setMsg({ kind: 'ok', text: t('recoveryIgnoreAdded') + '：' + sid });
+        } catch (e) {
+          setMsg({ kind: 'err', text: e.message });
+        }
+        setBusy('');
+        refreshAll();
+      }
+      async function removeIgnore(sid) {
+        setBusy('ignore:' + sid);
+        setMsg(null);
+        try {
+          await c.call('/ignored', { method: 'POST', body: { action: 'remove', sessionId: sid } });
+          setMsg({ kind: 'ok', text: t('recoveryIgnoreRemoved') + '：' + sid });
+        } catch (e) {
+          setMsg({ kind: 'err', text: e.message });
+        }
+        setBusy('');
+        refreshAll();
+      }
+
       const setCfgField = (path, value) => {
         setCfg((prev) => {
           const next = JSON.parse(JSON.stringify(prev));
@@ -921,7 +1039,14 @@ window.__ModuleLoader__.load({
             running ? h('button', { style: Object.assign({}, S.btn, S.btnDanger), onClick: () => doStop() }, t('stop')) : null,
             h('button', { style: Object.assign({}, S.btn, busy === 'test' ? S.btnDisabled : {}), disabled: busy === 'test', onClick: () => doTest() }, busy === 'test' ? t('testing') : t('testConnection')),
           ),
-          msg ? h('div', { role: 'alert', style: Object.assign({ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }, msg.kind === 'ok' ? S.msgOk : S.msgErr) }, msg.text) : null,
+          // 0.6.0 / a11y：成功用 status（不打断读屏），失败才用 alert；
+          // 两者都进 live region，异步同步结果才能被读屏软件播报出来。
+          msg ? h('div', {
+            role: msg.kind === 'err' ? 'alert' : 'status',
+            'aria-live': msg.kind === 'err' ? 'assertive' : 'polite',
+            'data-nas-msg': msg.kind,
+            style: Object.assign({ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }, msg.kind === 'ok' ? S.msgOk : S.msgErr),
+          }, msg.text) : null,
         ),
 
         // 插件对账卡（0.4.0）：插件的包体不走同步，只同步装配清单，
@@ -1065,21 +1190,23 @@ window.__ModuleLoader__.load({
                 }, label)),
               ),
             ),
+            // 0.6.0 / a11y：这里的 <label> 只是视觉文字，没有 htmlFor/id 关联。
+            // 给每个输入框补 aria-label，读屏才能报出「这是什么框」。
             cfg.type === 'webdav'
               ? h('div', { style: S.field },
                   h('label', { style: S.label }, t('cfgUrl')),
-                  h('input', { style: S.input, value: cfg.webdav.url || '', placeholder: 'https://nas.local:5006/dav', onChange: (e) => setCfgField('webdav.url', e.target.value) }),
+                  h('input', { style: S.input, 'aria-label': t('cfgUrl'), value: cfg.webdav.url || '', placeholder: 'https://nas.local:5006/dav', onChange: (e) => setCfgField('webdav.url', e.target.value) }),
                 )
               : h('div', { style: S.field },
                   h('label', { style: S.label }, t('cfgMount')),
-                  h('input', { style: S.input, value: cfg.mountRoot || '', onChange: (e) => setCfgField('mountRoot', e.target.value) }),
+                  h('input', { style: S.input, 'aria-label': t('cfgMount'), value: cfg.mountRoot || '', onChange: (e) => setCfgField('mountRoot', e.target.value) }),
                 ),
           ),
           cfg.type === 'webdav'
             ? h('div', { style: S.row },
                 h('div', { style: S.field },
                   h('label', { style: S.label }, t('cfgRemote')),
-                  h('input', { style: S.input, value: cfg.webdav.remotePath || '', placeholder: '/dsh-sync', onChange: (e) => setCfgField('webdav.remotePath', e.target.value) }),
+                  h('input', { style: S.input, 'aria-label': t('cfgRemote'), value: cfg.webdav.remotePath || '', placeholder: '/dsh-sync', onChange: (e) => setCfgField('webdav.remotePath', e.target.value) }),
                   h('span', { style: S.hint }, t('cfgRemoteHint')),
                 ),
               )
@@ -1088,7 +1215,7 @@ window.__ModuleLoader__.load({
             ? h('div', { style: S.row },
                 h('div', { style: S.field },
                   h('label', { style: S.label }, t('cfgUser')),
-                  h('input', { style: S.input, value: cfg.webdav.username || '', onChange: (e) => setCfgField('webdav.username', e.target.value) }),
+                  h('input', { style: S.input, 'aria-label': t('cfgUser'), value: cfg.webdav.username || '', onChange: (e) => setCfgField('webdav.username', e.target.value) }),
                 ),
                 h('div', { style: S.field },
                   h('label', { style: S.label }, t('cfgPass') + (cfg.webdav.passwordSet ? '（' + t('passwordKeep') + '）' : '')),
@@ -1096,14 +1223,14 @@ window.__ModuleLoader__.load({
                   //   钉死 value 的受控框每敲一个字符就被 React 重置成空，
                   //   结果只剩**最后一个字符**进了 _pass —— 用户存进去的密码是残缺的，
                   //   表现就是「密码明明没输错却 401」。
-                  h('input', { style: S.input, type: 'password', defaultValue: '', onChange: (e) => setCfgField('webdav._pass', e.target.value) }),
+                  h('input', { style: S.input, type: 'password', 'aria-label': t('cfgPass'), defaultValue: '', onChange: (e) => setCfgField('webdav._pass', e.target.value) }),
                 ),
               )
             : null,
           h('div', { style: S.row },
             h('div', { style: S.field },
               h('label', { style: S.label }, t('cfgPassphrase') + (passSet ? '（' + t('passwordKeep') + '）' : '')),
-              h('input', { style: S.input, type: 'password', value: passDraft, onChange: (e) => setPassDraft(e.target.value), placeholder: passSet ? '' : 'required' }),
+              h('input', { style: S.input, type: 'password', 'aria-label': t('cfgPassphrase'), value: passDraft, onChange: (e) => setPassDraft(e.target.value), placeholder: passSet ? '' : 'required' }),
               h('span', { style: S.hint }, t('cfgPassphraseHint')),
             ),
           ),
@@ -1180,6 +1307,7 @@ window.__ModuleLoader__.load({
                       h('input', {
                         style: S.cfName,
                         type: 'text',
+                        'aria-label': t('cfgCustomFolderName'),
                         placeholder: t('cfgCustomFolderName'),
                         value: f.name || '',
                         onChange: (e) => updateCustomFolder(i, 'name', e.target.value),
@@ -1187,6 +1315,7 @@ window.__ModuleLoader__.load({
                       h('input', {
                         style: S.cfPath,
                         type: 'text',
+                        'aria-label': t('cfgCustomFolderPath'),
                         placeholder: t('cfgCustomFolderPath'),
                         value: f.path || '',
                         onChange: (e) => updateCustomFolder(i, 'path', e.target.value),
@@ -1298,6 +1427,108 @@ window.__ModuleLoader__.load({
                 ),
               )),
         ) : null,
+
+        // 回收站与本机屏蔽（0.5.9）：把 /removed、/ignored、/removed/restore
+        // 做成真正点得到的入口，并把 /status 的 safety 解释出来。
+        (() => {
+          // 0.5.8 及更早没有这三个能力，整张卡片直接隐藏，
+          // 免得旧 host 上出现一个永远读不出内容的空壳。
+          if (!removed && !ignored && !safety) return null;
+          const rmItems = (removed && removed.items) || [];
+          const igIds = (ignored && ignored.ids) || [];
+          const trustFailed = (safety && Array.isArray(safety.manifestTrustFailed))
+            ? safety.manifestTrustFailed : [];
+          return h('div', { style: S.card },
+            h('div', { style: S.recoverySubHead },
+              h('h3', { style: S.section }, t('recoverySection')),
+              h('button', { style: S.btn, onClick: () => refreshAll() }, '↻ ' + t('refresh')),
+            ),
+            h('span', { style: S.hint }, t('recoveryHint')),
+            // 0.5.9 fail-closed：屏蔽清单坏了 / 清单没读全时，明确告诉用户
+            // 本轮为什么不搬文件，而不是让「同步成功」看起来一切正常。
+            (safety && safety.destructiveBlocked && safety.ignoredFileError)
+              ? h('div', { style: S.recoveryWarn, role: 'alert' }, t('recoverySafetyBlocked') + '\n' + safety.ignoredFileError)
+              : null,
+            trustFailed.length
+              ? h('div', { style: S.recoveryWarn, role: 'alert' }, t('recoveryTrustFailed') + '\n' + trustFailed.join('\n'))
+              : null,
+            (ignored && ignored.error)
+              ? h('div', { style: S.recoveryWarn, role: 'alert' }, t('recoverySafetyBlocked') + '\n' + ignored.error)
+              : null,
+
+            h('div', { style: S.recoverySubHead },
+              h('span', { style: S.section }, t('recoveryRemovedTitle') + '（' + (removed ? rmItems.length : '…') + '）'),
+            ),
+            removed
+              ? (rmItems.length === 0
+                  ? h('span', { style: S.hint }, t('recoveryEmpty'))
+                  : h('div', null, rmItems.map((e) =>
+                      h('div', { key: e.id, style: S.recoveryRow },
+                        h('div', { style: S.recoveryInfo },
+                          h('span', { style: S.fileName }, e.rel || e.id),
+                          h('span', { style: S.recoveryMeta },
+                            [e.sessionId ? 'ID ' + e.sessionId : null,
+                              e.retiredAt ? String(e.retiredAt) : null,
+                              e.reason || null].filter(Boolean).join('　')),
+                        ),
+                        h('div', { style: S.row },
+                          h('span', {
+                            style: Object.assign({}, S.badge, e.restorable ? S.badgeOk : null),
+                          }, e.restorable ? t('recoveryRestorable') : t('recoveryLegacy')),
+                          e.restorable
+                            ? h('button', {
+                                // 0.6.0 / a11y：两步确认的状态必须让读屏也知道，
+                                // 不能只靠按钮文字变化（视觉用户看得见，读屏用户未必）。
+                                type: 'button',
+                                'aria-label': (restoreArm === e.id ? t('recoveryConfirmRestore') : t('recoveryRestore'))
+                                  + '：' + (e.rel || e.id),
+                                'aria-pressed': restoreArm === e.id,
+                                style: Object.assign({}, S.btn, busy === 'restore:' + e.id ? S.btnDisabled : {}),
+                                disabled: Boolean(busy),
+                                onClick: () => restoreRemoved(e.id),
+                              }, restoreArm === e.id ? t('recoveryConfirmRestore')
+                                : busy === 'restore:' + e.id ? t('recoveryRestoring') : t('recoveryRestore'))
+                            : null,
+                        ),
+                      ),
+                    )))
+              : h('span', { style: S.hint }, t('recoveryLoadFail')),
+
+            h('div', { style: S.recoverySubHead },
+              h('span', { style: S.section }, t('recoveryIgnoredTitle') + '（' + (ignored ? igIds.length : '…') + '）'),
+            ),
+            ignored
+              ? (igIds.length === 0
+                  ? h('span', { style: S.hint }, t('recoveryIgnoredEmpty'))
+                  : h('div', null, igIds.map((sid) =>
+                      h('div', { key: sid, style: S.recoveryRow },
+                        h('span', { style: S.fileName }, sid),
+                        h('button', {
+                          style: Object.assign({}, S.btn, busy === 'ignore:' + sid ? S.btnDisabled : {}),
+                          disabled: Boolean(busy),
+                          onClick: () => removeIgnore(sid),
+                        }, t('recoveryUnignore')),
+                      ),
+                    )))
+              : h('span', { style: S.hint }, t('recoveryLoadFail')),
+            h('div', { style: S.recoveryAddRow },
+              h('input', {
+                style: S.recoveryInput,
+                type: 'text',
+                'aria-label': t('recoveryIgnorePlaceholder'),
+                'data-recovery-sid': '1',
+                placeholder: t('recoveryIgnorePlaceholder'),
+                value: ignoreDraft,
+                onChange: (e) => setIgnoreDraft(e.target.value),
+              }),
+              h('button', {
+                style: Object.assign({}, S.btn, busy === 'ignore:add' ? S.btnDisabled : {}),
+                disabled: busy === 'ignore:add',
+                onClick: () => addIgnore(),
+              }, t('recoveryIgnoreAdd')),
+            ),
+          );
+        })(),
       );
     }
 

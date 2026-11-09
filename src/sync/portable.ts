@@ -30,6 +30,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import * as os from 'node:os';
 import { dshHome } from '../paths.js';
+import { isSkippedDirName, isIgnoredFileName } from './exclusions.js';
 
 /**
  * zstd 同步 API 是 Node 22+ 才补齐的，而本包锁定的一些 `@types/node` 版本里
@@ -297,16 +298,6 @@ export async function collectWorkspaceDirs(home: string = dshHome()): Promise<Wo
   return out;
 }
 
-/** 工作区文件里不该进同步的东西：包管理缓存与版本库元数据，体积大且跨机无意义。 */
-const WORKSPACE_SKIP_DIRS = new Set([
-  'node_modules', '.git', '.svn', '.hg', '__pycache__', '.venv', 'venv',
-  '.next', '.nuxt', '.turbo', '.cache', 'nas-sync',
-  // 0.3.7：插件自己的安装目录。手机上的工作区里就有 `dsh-nas-sync/`
-  // （含 vendor/pnpm-*.tgz 约 1 MB），同步它等于把插件搬来搬去，
-  // 而两端插件版本/平台本就不同，搬过去只会把对面弄坏。
-  'dsh-nas-sync',
-]);
-
 /**
  * 单文件大小上限（默认 64 MiB）。超过就跳过，不再尝试读进来。
  *
@@ -315,7 +306,10 @@ const WORKSPACE_SKIP_DIRS = new Set([
  *   · Electron 对**任何路径里带 `.asar` 的文件**都会当成归档去解析，一个 116 MB 的
  *     `app.patched.asar`（asar 打包产物，常见于构建目录）会让 `Failed to parse
  *     header` 刷满 debug.log，而且每次 stat/read 都触发一次。
- * 真要同步大文件，用户可以把它放进 attachments 分类（那条链路走分块上传）。
+ *
+ * 0.6.0 / P3：这不再是**写死的硬跳过** —— 引擎会把配置里的 `maxFileBytes` 传进来
+ * （见 engine 构造 Scanner / scanner 的 walkWorkspaceFiles 调用），用户可以按需调大。
+ * 真要同步超大文件，仍建议放进 attachments 分类走分块上传。
  */
 export const DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
 
@@ -357,14 +351,14 @@ async function* walkInto(
       continue;
     }
     if (st.isDirectory()) {
-      if (WORKSPACE_SKIP_DIRS.has(name)) continue;
+      if (isSkippedDirName(name)) continue;
       yield* walkInto(full, `${relBase}/${name}`, depth + 1, maxBytes);
       continue;
     }
     if (!st.isFile()) continue; // 跳过 socket / fifo
     if (isElectronAsarPath(full)) continue;
     if (st.size > maxBytes) continue;
-    if (name.endsWith('.base') || name.endsWith('.chunk-manifest.json') || name.endsWith('.lock')) continue;
+    if (isIgnoredFileName(name)) continue;
     yield { rel: `${relBase}/${name}`, file: full };
   }
 }

@@ -1,0 +1,1509 @@
+TAP version 13
+# Subtest: 面板 bundle 语法合法（改动 client.js 后不能只靠肉眼）
+ok 1 - 面板 bundle 语法合法（改动 client.js 后不能只靠肉眼）
+  ---
+  duration_ms: 1.5656
+  type: 'test'
+  ...
+# Subtest: 异步结果进入 live region：成功 status / 失败 alert，且带 aria-live
+ok 2 - 异步结果进入 live region：成功 status / 失败 alert，且带 aria-live
+  ---
+  duration_ms: 0.8117
+  type: 'test'
+  ...
+# Subtest: 所有配置类输入框都有 aria-label，不只靠 placeholder
+ok 3 - 所有配置类输入框都有 aria-label，不只靠 placeholder
+  ---
+  duration_ms: 0.2601
+  type: 'test'
+  ...
+# Subtest: 破坏性操作：恢复按钮两步确认的状态对读屏可见
+ok 4 - 破坏性操作：恢复按钮两步确认的状态对读屏可见
+  ---
+  duration_ms: 0.1659
+  type: 'test'
+  ...
+# Subtest: 分类 / 技能复选框由 label 包裹（隐式关联），仍有 data-* 供 E2E 定位
+ok 5 - 分类 / 技能复选框由 label 包裹（隐式关联），仍有 data-* 供 E2E 定位
+  ---
+  duration_ms: 0.1351
+  type: 'test'
+  ...
+# Subtest: 不引入常见反模式：正 tabIndex、把 onClick 挂在 div 上
+ok 6 - 不引入常见反模式：正 tabIndex、把 onClick 挂在 div 上
+  ---
+  duration_ms: 0.1541
+  type: 'test'
+  ...
+# Subtest: 中英文案都覆盖回收站 / 屏蔽入口，避免一半语言缺文案
+ok 7 - 中英文案都覆盖回收站 / 屏蔽入口，避免一半语言缺文案
+  ---
+  duration_ms: 0.2751
+  type: 'test'
+  ...
+# Subtest: 工具注册数：代码、注释、README 三处口径一致
+ok 8 - 工具注册数：代码、注释、README 三处口径一致
+  ---
+  duration_ms: 1.0794
+  type: 'test'
+  ...
+# Subtest: HTTP 桥端点矩阵：关键端点与方法齐全，新增端点也在 README 有交代
+ok 9 - HTTP 桥端点矩阵：关键端点与方法齐全，新增端点也在 README 有交代
+  ---
+  duration_ms: 0.5653
+  type: 'test'
+  ...
+# Subtest: 错误契约：fail() 支持 HTTP 状态码，新端点的 4xx/409 不被写成 200
+ok 10 - 错误契约：fail() 支持 HTTP 状态码，新端点的 4xx/409 不被写成 200
+  ---
+  duration_ms: 0.3773
+  type: 'test'
+  ...
+# Subtest: 安全契约：配置视图只回 passthrough 布尔量，不回显口令
+ok 11 - 安全契约：配置视图只回 passthrough 布尔量，不回显口令
+  ---
+  duration_ms: 1.9584
+  type: 'test'
+  ...
+# Subtest: 工具参数 schema：可选参数只能省略 required，不能写 false
+ok 12 - 工具参数 schema：可选参数只能省略 required，不能写 false
+  ---
+  duration_ms: 15.897
+  type: 'test'
+  ...
+# Subtest: 迁移契约：apply 必须显式 confirm，默认只读预演
+ok 13 - 迁移契约：apply 必须显式 confirm，默认只读预演
+  ---
+  duration_ms: 2.0363
+  type: 'test'
+  ...
+# Subtest: upload 写入 chunkHashes，download 逐块校验后可完整还原密文
+ok 14 - upload 写入 chunkHashes，download 逐块校验后可完整还原密文
+  ---
+  duration_ms: 6.1539
+  type: 'test'
+  ...
+# Subtest: 某块被换掉但大小不变 → download 明确报「第 N 块损坏」，不再只说解密失败
+ok 15 - 某块被换掉但大小不变 → download 明确报「第 N 块损坏」，不再只说解密失败
+  ---
+  duration_ms: 1.2318
+  type: 'test'
+  ...
+# Subtest: 旧版清单没有 chunkHashes → 仍可下载（升级不把历史分块判成损坏）
+ok 16 - 旧版清单没有 chunkHashes → 仍可下载（升级不把历史分块判成损坏）
+  ---
+  duration_ms: 0.5769
+  type: 'test'
+  ...
+# Subtest: 内容变小（块数减少）→ 上一版多出来的残块被清理
+ok 17 - 内容变小（块数减少）→ 上一版多出来的残块被清理
+  ---
+  duration_ms: 0.5838
+  type: 'test'
+  ...
+# Subtest: 断点续传：内容 hash 与块 hash 全一致时不再重传，并给旧清单补上块 hash
+ok 18 - 断点续传：内容 hash 与块 hash 全一致时不再重传，并给旧清单补上块 hash
+  ---
+  duration_ms: 0.4124
+  type: 'test'
+  ...
+# Subtest: 内容变了但每块大小不变 → 强制覆盖，清单 hash 与实际字节一致
+ok 19 - 内容变了但每块大小不变 → 强制覆盖，清单 hash 与实际字节一致
+  ---
+  duration_ms: 0.4853
+  type: 'test'
+  ...
+# Subtest: cleanup() 删掉全部残块与清单，返回删除数
+ok 20 - cleanup() 删掉全部残块与清单，返回删除数
+  ---
+  duration_ms: 0.3844
+  type: 'test'
+  ...
+# [dsh-nas-sync] 状态文件损坏，已备份到 C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-store-riHJ0S\\nas-sync\\store.json.corrupt-2026-11-09T07-24-58-887Z
+# Subtest: 0.5.9 老格式迁移：口令拆走、salt 独立、其它字段一个不丢
+ok 21 - 0.5.9 老格式迁移：口令拆走、salt 独立、其它字段一个不丢
+  ---
+  duration_ms: 54.0024
+  type: 'test'
+  ...
+# Subtest: 0.5.9 store.json 损坏：salt 仍可恢复、凭据不丢、留证且显式报错
+ok 22 - 0.5.9 store.json 损坏：salt 仍可恢复、凭据不丢、留证且显式报错
+  ---
+  duration_ms: 45.8343
+  type: 'test'
+  ...
+# Subtest: 0.5.9 单个字段类型不对不牵连其它字段（不再整份重置）
+ok 23 - 0.5.9 单个字段类型不对不牵连其它字段（不再整份重置）
+  ---
+  duration_ms: 25.1065
+  type: 'test'
+  ...
+# Subtest: 0.5.9 save() 反复调用不产生临时文件、凭据文件不反复重写
+ok 24 - 0.5.9 save() 反复调用不产生临时文件、凭据文件不反复重写
+  ---
+  duration_ms: 201.8941
+  type: 'test'
+  ...
+# Subtest: NSS1 仍是默认写入格式，且与 0.5.9 的双读兼容
+ok 25 - NSS1 仍是默认写入格式，且与 0.5.9 的双读兼容
+  ---
+  duration_ms: 1944.8936
+  type: 'test'
+  ...
+# Subtest: NSS2 往返，头部可读出版本与 AAD
+ok 26 - NSS2 往返，头部可读出版本与 AAD
+  ---
+  duration_ms: 0.6896
+  type: 'test'
+  ...
+# Subtest: 双读：同一个口令下 NSS1 与 NSS2 密文都能解开
+ok 27 - 双读：同一个口令下 NSS1 与 NSS2 密文都能解开
+  ---
+  duration_ms: 1584.9702
+  type: 'test'
+  ...
+# Subtest: AAD 参与密钥分离：同明文不同 AAD 密文不同，篡改 AAD 必失败
+ok 28 - AAD 参与密钥分离：同明文不同 AAD 密文不同，篡改 AAD 必失败
+  ---
+  duration_ms: 0.9957
+  type: 'test'
+  ...
+# Subtest: 口令错误 / 密文损坏 / 非法头部都给出可读错误
+ok 29 - 口令错误 / 密文损坏 / 非法头部都给出可读错误
+  ---
+  duration_ms: 1593.6423
+  type: 'test'
+  ...
+# Subtest: sealStream/openStream 多块往返，顺序与内容完全一致
+ok 30 - sealStream/openStream 多块往返，顺序与内容完全一致
+  ---
+  duration_ms: 1.3449
+  type: 'test'
+  ...
+# Subtest: 重排 / 截断 / 多余帧 / 篡改任意一帧都会被拒绝
+ok 31 - 重排 / 截断 / 多余帧 / 篡改任意一帧都会被拒绝
+  ---
+  duration_ms: 1.0499
+  type: 'test'
+  ...
+# Subtest: 空输入不产生帧，openStream 也不报错
+ok 32 - 空输入不产生帧，openStream 也不报错
+  ---
+  duration_ms: 0.1105
+  type: 'test'
+  ...
+# Subtest: 流式帧的 AAD 绑定 baseAad：改帧内 AAD 会导致 MAC 失败
+ok 33 - 流式帧的 AAD 绑定 baseAad：改帧内 AAD 会导致 MAC 失败
+  ---
+  duration_ms: 0.277
+  type: 'test'
+  ...
+# [dsh-nas-sync] 事件流不完整，本轮禁用事件驱动删除：事件流不完整（读失败/签名异常 1 处）
+# [dsh-nas-sync] 跳过事件删除消费：事件流不完整（读失败/签名异常 1 处）
+# [dsh-nas-sync] 事件流不完整，本轮禁用事件驱动删除：事件流不完整（序号缺口 1 段）
+# [dsh-nas-sync] 跳过事件删除消费：事件流不完整（序号缺口 1 段）
+# [dsh-nas-sync] 按对端删除事件回收 1 个本地文件（可从回收站恢复）
+# Subtest: 一端发 delete 事件，另一端 scan() 把文件移进回收站并写 meta（不硬删）
+ok 34 - 一端发 delete 事件，另一端 scan() 把文件移进回收站并写 meta（不硬删）
+  ---
+  duration_ms: 226.9523
+  type: 'test'
+  ...
+# Subtest: 事件流有一行坏 JSON → 整轮不可信，一个文件都不许动（fail-closed）
+ok 35 - 事件流有一行坏 JSON → 整轮不可信，一个文件都不许动（fail-closed）
+  ---
+  duration_ms: 97.0161
+  type: 'test'
+  ...
+# Subtest: 事件 seq 有缺口 → 同样禁用删除，避免「缺的那条恰好是删除证据」
+ok 36 - 事件 seq 有缺口 → 同样禁用删除，避免「缺的那条恰好是删除证据」
+  ---
+  duration_ms: 170.6203
+  type: 'test'
+  ...
+# Subtest: ignore 事件会同步到对端的屏蔽清单（屏蔽清单全局事件化）
+ok 37 - ignore 事件会同步到对端的屏蔽清单（屏蔽清单全局事件化）
+  ---
+  duration_ms: 185.5453
+  type: 'test'
+  ...
+# Subtest: 本机 confirmDelete 发布事件后，日志 / 墓碑 / 位点都落盘，且可被 listEvents 读回
+ok 38 - 本机 confirmDelete 发布事件后，日志 / 墓碑 / 位点都落盘，且可被 listEvents 读回
+  ---
+  duration_ms: 76.9009
+  type: 'test'
+  ...
+# [dsh-nas-sync] 按对端删除事件回收 1 个本地文件（可从回收站恢复）
+# Subtest: 位点推进后，同一条 delete 事件不会被重复回放
+ok 39 - 位点推进后，同一条 delete 事件不会被重复回放
+  ---
+  duration_ms: 147.5917
+  type: 'test'
+  ...
+# Subtest: computeLocalDeletes：可信 + 在启用分类内 → 正常产出删除候选
+ok 40 - computeLocalDeletes：可信 + 在启用分类内 → 正常产出删除候选
+  ---
+  duration_ms: 2.2552
+  type: 'test'
+  ...
+# Subtest: computeLocalDeletes：事件流 / 清单不可信、首轮无基线 → 整批拒绝
+ok 41 - computeLocalDeletes：事件流 / 清单不可信、首轮无基线 → 整批拒绝
+  ---
+  duration_ms: 0.2978
+  type: 'test'
+  ...
+# Subtest: computeLocalDeletes：关掉分类勾选不能变成「把对端该分类全删光」
+ok 42 - computeLocalDeletes：关掉分类勾选不能变成「把对端该分类全删光」
+  ---
+  duration_ms: 0.3048
+  type: 'test'
+  ...
+# Subtest: computeLocalDeletes：批量消失（条数 / 比例超阈）整批拒绝
+ok 43 - computeLocalDeletes：批量消失（条数 / 比例超阈）整批拒绝
+  ---
+  duration_ms: 0.8169
+  type: 'test'
+  ...
+# Subtest: computeLocalDeletes：排除集合 / 运行时垃圾 / 不安全 rel 都不进候选
+ok 44 - computeLocalDeletes：排除集合 / 运行时垃圾 / 不安全 rel 都不进候选
+  ---
+  duration_ms: 0.3128
+  type: 'test'
+  ...
+# Subtest: eventStreamAllowsDeletes / normalizeRetentionDays：口径稳定
+ok 45 - eventStreamAllowsDeletes / normalizeRetentionDays：口径稳定
+  ---
+  duration_ms: 0.4037
+  type: 'test'
+  ...
+# [dsh-nas-sync] 本轮 1/3 份设备清单读取失败，禁用删除传播：android_localhost.json
+# [dsh-nas-sync] 本轮 1/3 份设备清单读取失败，禁用删除传播：android_localhost.json
+# [dsh-nas-sync] 本轮 1/3 份设备清单读取失败，禁用删除传播：android_localhost.json
+# [dsh-nas-sync] 本轮 1/3 份设备清单读取失败，禁用删除传播：android_localhost.json
+# Subtest: Q02/Q01 实测：3 份清单坏 1 份时，跑 4 轮也不许搬走本机会话
+ok 46 - Q02/Q01 实测：3 份清单坏 1 份时，跑 4 轮也不许搬走本机会话
+  ---
+  duration_ms: 3866.707
+  type: 'test'
+  ...
+# [dsh-nas-sync] 对端已删除该会话，本机镜像已移入回收目录：sessions/--C-Users-wstest--/session-aa35e064/session.v4.jsonl.zstd → C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-engine-1iZqD2\\nas-sync\\removed\\2026-11-09T07-25-05-858Z\\sessions__--C-Users-wstest--__session-aa35e064__session.v4.jsonl.zstd
+# Subtest: Q02 实测：清单全部读成时，第一轮不搬、第二轮才搬进回收目录
+ok 47 - Q02 实测：清单全部读成时，第一轮不搬、第二轮才搬进回收目录
+  ---
+  duration_ms: 3104.9584
+  type: 'test'
+  ...
+# [dsh-nas-sync] 本轮 1/2 份设备清单读取失败，禁用删除传播：android_localhost.json
+# Subtest: Q02 实测：中间夹一轮清单不可信，连续计数必须归零重来
+ok 48 - Q02 实测：中间夹一轮清单不可信，连续计数必须归零重来
+  ---
+  duration_ms: 2957.677
+  type: 'test'
+  ...
+# [dsh-nas-sync] 对端已删除该会话，本机镜像已移入回收目录：sessions/--C-Users-wstest--/session-aa35e064/session.v4.jsonl.zstd → C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-engine-ZEDM3C\\nas-sync\\removed\\2026-11-09T07-25-11-799Z\\sessions__--C-Users-wstest--__session-aa35e064__session.v4.jsonl.zstd
+# Subtest: Q03 实测：回收 → 枚举 → 恢复，文件回到原处且可再次扫描
+ok 49 - Q03 实测：回收 → 枚举 → 恢复，文件回到原处且可再次扫描
+  ---
+  duration_ms: 2904.979
+  type: 'test'
+  ...
+# [dsh-nas-sync] 屏蔽清单损坏且无可用备份，本轮已禁用删除传播：C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-engine-FThFJb\\nas-sync\\ignored-sessions.json.corrupt-2026-11-09T07-25-13-286Z
+# [dsh-nas-sync] 本轮跳过全部回收动作：屏蔽清单损坏且无可用备份，本轮已禁用删除传播：C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-engine-FThFJb\\nas-sync\\ignored-sessions.json.corrupt-2026-11-09T07-25-13-286Z
+# [dsh-nas-sync] 屏蔽清单损坏且无可用备份，本轮已禁用删除传播：C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-engine-FThFJb\\nas-sync\\ignored-sessions.json.corrupt-2026-11-09T07-25-13-286Z
+# [dsh-nas-sync] 本轮跳过全部回收动作：屏蔽清单损坏且无可用备份，本轮已禁用删除传播：C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-engine-FThFJb\\nas-sync\\ignored-sessions.json.corrupt-2026-11-09T07-25-13-286Z
+# Subtest: Q05 实测：屏蔽清单写坏时 fail-closed，本轮不做任何回收
+ok 50 - Q05 实测：屏蔽清单写坏时 fail-closed，本轮不做任何回收
+  ---
+  duration_ms: 2911.9683
+  type: 'test'
+  ...
+# Subtest: Q04 实测：远端清单里的 ../ 与绝对 rel 被过滤，不会落盘到家目录之外
+ok 51 - Q04 实测：远端清单里的 ../ 与绝对 rel 被过滤，不会落盘到家目录之外
+  ---
+  duration_ms: 2969.0225
+  type: 'test'
+  ...
+# Subtest: 回归实测：_legacy.json 读成空清单时仍回落到旧单份 /dsh/manifest.json
+ok 52 - 回归实测：_legacy.json 读成空清单时仍回落到旧单份 /dsh/manifest.json
+  ---
+  duration_ms: 2929.5676
+  type: 'test'
+  ...
+# Subtest: Q04 实测：目录列举里伪造的 ../ 清单名被过滤，不参与远端读取
+ok 53 - Q04 实测：目录列举里伪造的 ../ 清单名被过滤，不参与远端读取
+  ---
+  duration_ms: 1478.0225
+  type: 'test'
+  ...
+# [dsh-nas-sync] 发布工作区注册表失败：ENOENT: no such file or directory, open 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-envelope-SZVunV\\storages\\workspace.json'
+# [dsh-nas-sync] 本轮不产生删除事件：本地基线为空（首轮不产生删除）
+# Subtest: envelopeVersion=2：上传的文件与清单都是 NSS2，AAD 绑定稳定主键
+ok 54 - envelopeVersion=2：上传的文件与清单都是 NSS2，AAD 绑定稳定主键
+  ---
+  duration_ms: 3945.7428
+  type: 'test'
+  ...
+# [dsh-nas-sync] 发布工作区注册表失败：ENOENT: no such file or directory, open 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-envelope-WwTGP9\\storages\\workspace.json'
+# [dsh-nas-sync] 本轮不产生删除事件：本地基线为空（首轮不产生删除）
+# Subtest: envelopeVersion 缺省 / =1：写出 NSS1，与 0.5.9 逐字节兼容
+ok 55 - envelopeVersion 缺省 / =1：写出 NSS1，与 0.5.9 逐字节兼容
+  ---
+  duration_ms: 3005.3503
+  type: 'test'
+  ...
+# Subtest: 事件协议路径：分片 / 位点 / CAS 对象 / 回收副本都落在各自命名空间
+ok 56 - 事件协议路径：分片 / 位点 / CAS 对象 / 回收副本都落在各自命名空间
+  ---
+  duration_ms: 2.1829
+  type: 'test'
+  ...
+# Subtest: eventShardOf：按分片大小切，第 1 条在第 0 片，边界不越界
+ok 57 - eventShardOf：按分片大小切，第 1 条在第 0 片，边界不越界
+  ---
+  duration_ms: 0.1781
+  type: 'test'
+  ...
+# Subtest: objectPathOf：只接受 sha256 hex，拒绝路径注入
+ok 58 - objectPathOf：只接受 sha256 hex，拒绝路径注入
+  ---
+  duration_ms: 0.3895
+  type: 'test'
+  ...
+# Subtest: trashPathOf：按日期分桶且带时间戳，同名删除不互相覆盖
+ok 59 - trashPathOf：按日期分桶且带时间戳，同名删除不互相覆盖
+  ---
+  duration_ms: 1.2478
+  type: 'test'
+  ...
+# Subtest: stableKeyOf：同一会话在两端 rel 不同，但主键必须相同
+ok 60 - stableKeyOf：同一会话在两端 rel 不同，但主键必须相同
+  ---
+  duration_ms: 0.1483
+  type: 'test'
+  ...
+# Subtest: stableKeyOf：插件按平台/ABI 分包，不同平台是不同的 key
+ok 61 - stableKeyOf：插件按平台/ABI 分包，不同平台是不同的 key
+  ---
+  duration_ms: 0.1104
+  type: 'test'
+  ...
+# Subtest: canonicalSessionRel / sessionIdFromRel：canonical rel 与旧 rel 都能抽到 sid
+ok 62 - canonicalSessionRel / sessionIdFromRel：canonical rel 与旧 rel 都能抽到 sid
+  ---
+  duration_ms: 0.0969
+  type: 'test'
+  ...
+# Subtest: makeEvent 产出的事件能通过 verifyEvent，JSON 往返后依然有效
+ok 63 - makeEvent 产出的事件能通过 verifyEvent，JSON 往返后依然有效
+  ---
+  duration_ms: 1.3344
+  type: 'test'
+  ...
+# Subtest: verifyEvent：改内容 / 改版本 / 缺签名 / 非法 op 一律拒绝
+ok 64 - verifyEvent：改内容 / 改版本 / 缺签名 / 非法 op 一律拒绝
+  ---
+  duration_ms: 0.3543
+  type: 'test'
+  ...
+# Subtest: eventSignature 与属性插入顺序无关（JSON.parse 回来字段顺序变了也能校验）
+ok 65 - eventSignature 与属性插入顺序无关（JSON.parse 回来字段顺序变了也能校验）
+  ---
+  duration_ms: 0.2332
+  type: 'test'
+  ...
+# Subtest: eventId 是 (device, seq)，两台设备同 seq 不冲突
+ok 66 - eventId 是 (device, seq)，两台设备同 seq 不冲突
+  ---
+  duration_ms: 0.1259
+  type: 'test'
+  ...
+# Subtest: compareEvents：ts 大者胜；同一毫秒 delete 优先于 upsert
+ok 67 - compareEvents：ts 大者胜；同一毫秒 delete 优先于 upsert
+  ---
+  duration_ms: 0.2132
+  type: 'test'
+  ...
+# Subtest: mergeEventLogs：去重 + 全局排序，与读入顺序无关
+ok 68 - mergeEventLogs：去重 + 全局排序，与读入顺序无关
+  ---
+  duration_ms: 1.1937
+  type: 'test'
+  ...
+# Subtest: nextLocalSeq：只数自己设备的事件
+ok 69 - nextLocalSeq：只数自己设备的事件
+  ---
+  duration_ms: 0.1418
+  type: 'test'
+  ...
+# Subtest: validateEventStream：全部读成、签名有效、seq 连续 → 可信
+ok 70 - validateEventStream：全部读成、签名有效、seq 连续 → 可信
+  ---
+  duration_ms: 11.3646
+  type: 'test'
+  ...
+# Subtest: validateEventStream：读失败 / 坏签名 / seq 缺口 任一出现都不可信
+ok 71 - validateEventStream：读失败 / 坏签名 / seq 缺口 任一出现都不可信
+  ---
+  duration_ms: 1.0859
+  type: 'test'
+  ...
+# Subtest: validateEventStream：空日志分片算「读成」，不是失败
+ok 72 - validateEventStream：空日志分片算「读成」，不是失败
+  ---
+  duration_ms: 0.211
+  type: 'test'
+  ...
+# Subtest: buildTombstones：delete 生成墓碑，默认保留 30 天，带回收副本路径
+ok 73 - buildTombstones：delete 生成墓碑，默认保留 30 天，带回收副本路径
+  ---
+  duration_ms: 0.571
+  type: 'test'
+  ...
+# Subtest: buildTombstones：更晚的 upsert 能复活；同毫秒的 upsert 不能覆盖删除
+ok 74 - buildTombstones：更晚的 upsert 能复活；同毫秒的 upsert 不能覆盖删除
+  ---
+  duration_ms: 0.3072
+  type: 'test'
+  ...
+# Subtest: buildTombstones：retentionDays=0 表示永久保留
+ok 75 - buildTombstones：retentionDays=0 表示永久保留
+  ---
+  duration_ms: 0.2814
+  type: 'test'
+  ...
+# Subtest: mergeTombstones：后写胜且与合并顺序无关
+ok 76 - mergeTombstones：后写胜且与合并顺序无关
+  ---
+  duration_ms: 0.4058
+  type: 'test'
+  ...
+# Subtest: tombstoneTargets：key 与 rel 不一致时只按 key 语义删，绝不误删无关文件
+ok 77 - tombstoneTargets：key 与 rel 不一致时只按 key 语义删，绝不误删无关文件
+  ---
+  duration_ms: 1.0742
+  type: 'test'
+  ...
+# Subtest: isDeleted / collectGc：过期墓碑不再阻挡，并被 GC 挑出来
+ok 78 - isDeleted / collectGc：过期墓碑不再阻挡，并被 GC 挑出来
+  ---
+  duration_ms: 0.3469
+  type: 'test'
+  ...
+# Subtest: advanceCursor / eventsSince：位点只推进自己见过的位置，增量不重复回放
+ok 79 - advanceCursor / eventsSince：位点只推进自己见过的位置，增量不重复回放
+  ---
+  duration_ms: 0.5531
+  type: 'test'
+  ...
+# Subtest: applyEventsToManifest：会话墓碑按 sid 删，两端不同 rel 都命中
+ok 80 - applyEventsToManifest：会话墓碑按 sid 删，两端不同 rel 都命中
+  ---
+  duration_ms: 0.4111
+  type: 'test'
+  ...
+# Subtest: applyEventsToManifest：被墓碑挡住的 upsert 不补回，未挡住的补回
+ok 81 - applyEventsToManifest：被墓碑挡住的 upsert 不补回，未挡住的补回
+  ---
+  duration_ms: 0.4248
+  type: 'test'
+  ...
+# Subtest: migrateV1ToEvents：只补 upsert 基线，绝不凭空产生 delete
+ok 82 - migrateV1ToEvents：只补 upsert 基线，绝不凭空产生 delete
+  ---
+  duration_ms: 0.6358
+  type: 'test'
+  ...
+# Subtest: parseEventLog：坏行计数并报 corrupted，不静默当空日志
+ok 83 - parseEventLog：坏行计数并报 corrupted，不静默当空日志
+  ---
+  duration_ms: 0.67
+  type: 'test'
+  ...
+# Subtest: parseEventLog：签名不对的行也计入坏行
+ok 84 - parseEventLog：签名不对的行也计入坏行
+  ---
+  duration_ms: 0.2484
+  type: 'test'
+  ...
+# Subtest: manifestEntryKey：会话条目按 sid 归键
+ok 85 - manifestEntryKey：会话条目按 sid 归键
+  ---
+  duration_ms: 0.2538
+  type: 'test'
+  ...
+# Subtest: mergeV2Manifests：软删除条目优先，v1 条目不会盖掉 v2 条目
+ok 86 - mergeV2Manifests：软删除条目优先，v1 条目不会盖掉 v2 条目
+  ---
+  duration_ms: 0.423
+  type: 'test'
+  ...
+# Subtest: stripDeletedEntries：会话墓碑过滤掉两端不同 rel 的同 sid 条目
+ok 87 - stripDeletedEntries：会话墓碑过滤掉两端不同 rel 的同 sid 条目
+  ---
+  duration_ms: 0.3804
+  type: 'test'
+  ...
+# Subtest: stripDeletedEntries：墓碑过期后不再过滤（可恢复/复活）
+ok 88 - stripDeletedEntries：墓碑过期后不再过滤（可恢复/复活）
+  ---
+  duration_ms: 0.2385
+  type: 'test'
+  ...
+# Subtest: toV2Manifest：补齐 version / device / cas，且不丢原字段
+ok 89 - toV2Manifest：补齐 version / device / cas，且不丢原字段
+  ---
+  duration_ms: 0.2256
+  type: 'test'
+  ...
+# Subtest: mergeBidMaps：同 sid 取 version 大的，结果稳定可复现
+ok 90 - mergeBidMaps：同 sid 取 version 大的，结果稳定可复现
+  ---
+  duration_ms: 0.1724
+  type: 'test'
+  ...
+# Subtest: 并集覆盖两边原有条目：工作区专属与普通分类专属的目录都在
+ok 91 - 并集覆盖两边原有条目：工作区专属与普通分类专属的目录都在
+  ---
+  duration_ms: 2.7746
+  type: 'test'
+  ...
+# Subtest: scanner 的 isIgnoredRel 与共享规则完全一致
+ok 92 - scanner 的 isIgnoredRel 与共享规则完全一致
+  ---
+  duration_ms: 0.9693
+  type: 'test'
+  ...
+# Subtest: isSkippedDirName / isIgnoredFileName 的边界
+ok 93 - isSkippedDirName / isIgnoredFileName 的边界
+  ---
+  duration_ms: 0.1465
+  type: 'test'
+  ...
+# Subtest: 正常用户内容不被误排除
+ok 94 - 正常用户内容不被误排除
+  ---
+  duration_ms: 0.1446
+  type: 'test'
+  ...
+# [dsh-nas-sync] 事件流不完整，本轮禁用事件驱动删除：事件流不完整（读失败/签名异常 1 处）
+# [dsh-nas-sync] 跳过事件删除消费：事件流不完整（读失败/签名异常 1 处）
+# Subtest: 注入：事件流目录 list 失败 → 不可信，本地文件原地不动
+ok 95 - 注入：事件流目录 list 失败 → 不可信，本地文件原地不动
+  ---
+  duration_ms: 3722.2905
+  type: 'test'
+  ...
+# [dsh-nas-sync] 本轮 1/1 份设备清单读取失败，禁用删除传播：peer.json
+# [dsh-nas-sync] 事件流不完整，本轮禁用事件驱动删除：事件流不完整（读失败/签名异常 1 处）
+# Subtest: 注入：某份设备清单 getBuffer 失败 → 禁止删除传播，不许回收文件
+ok 96 - 注入：某份设备清单 getBuffer 失败 → 禁止删除传播，不许回收文件
+  ---
+  duration_ms: 37.4605
+  type: 'test'
+  ...
+# Subtest: 注入：所有远端写失败 → confirmDelete 不发布、文件不动
+ok 97 - 注入：所有远端写失败 → confirmDelete 不发布、文件不动
+  ---
+  duration_ms: 27.8554
+  type: 'test'
+  ...
+# [dsh-nas-sync] 跳过事件删除消费：事件流不完整（读失败/签名异常 1 处）
+# Subtest: 注入：事件分片读到半截 → 完整性判据报错且一个文件都不删
+ok 98 - 注入：事件分片读到半截 → 完整性判据报错且一个文件都不删
+  ---
+  duration_ms: 38.2868
+  type: 'test'
+  ...
+# Subtest: 注入：装配清单 CAS 持续冲突 → 发布明确失败，但对象已写入可重跑
+ok 99 - 注入：装配清单 CAS 持续冲突 → 发布明确失败，但对象已写入可重跑
+  ---
+  duration_ms: 31.7572
+  type: 'test'
+  ...
+# Subtest: mergeManifestPreserving：对端新增的条目要补回（否则对端数据收不到）
+ok 100 - mergeManifestPreserving：对端新增的条目要补回（否则对端数据收不到）
+  ---
+  duration_ms: 4.0697
+  type: 'test'
+  ...
+# Subtest: mergeManifestPreserving：本机删掉的条目不补回（0.3.4 的复活 bug）
+ok 101 - mergeManifestPreserving：本机删掉的条目不补回（0.3.4 的复活 bug）
+  ---
+  duration_ms: 0.4929
+  type: 'test'
+  ...
+# Subtest: mergeManifestPreserving：本地内容优先于远端旧条目
+ok 102 - mergeManifestPreserving：本地内容优先于远端旧条目
+  ---
+  duration_ms: 0.2284
+  type: 'test'
+  ...
+# Subtest: mergeManifestDevices：内容没变就保留原来源设备
+ok 103 - mergeManifestDevices：内容没变就保留原来源设备
+  ---
+  duration_ms: 0.1417
+  type: 'test'
+  ...
+# Subtest: mergeManifestDevices：内容变了就归给本机
+ok 104 - mergeManifestDevices：内容变了就归给本机
+  ---
+  duration_ms: 0.2654
+  type: 'test'
+  ...
+# Subtest: manifestFileOf：设备名安全化，落在 /dsh/manifests/
+ok 105 - manifestFileOf：设备名安全化，落在 /dsh/manifests/
+  ---
+  duration_ms: 0.5582
+  type: 'test'
+  ...
+# Subtest: mergeDeviceManifests：多份按 rel 合并
+ok 106 - mergeDeviceManifests：多份按 rel 合并
+  ---
+  duration_ms: 0.3714
+  type: 'test'
+  ...
+# Subtest: mergeDeviceManifests：hash 不同取 mtime 更新的（远端最新版本）
+ok 107 - mergeDeviceManifests：hash 不同取 mtime 更新的（远端最新版本）
+  ---
+  duration_ms: 0.1488
+  type: 'test'
+  ...
+# Subtest: mergeDeviceManifests：hash 相同取 device 字典序更小的（与读入顺序无关）
+ok 108 - mergeDeviceManifests：hash 相同取 device 字典序更小的（与读入顺序无关）
+  ---
+  duration_ms: 0.1264
+  type: 'test'
+  ...
+# Subtest: ownManifestEntries：只写本轮 push 成功 + 之前已确认且哈希未变的
+ok 109 - ownManifestEntries：只写本轮 push 成功 + 之前已确认且哈希未变的
+  ---
+  duration_ms: 0.257
+  type: 'test'
+  ...
+# Subtest: ownManifestEntries：本地改了但没传成功 → 不写（不制造幽灵条目）
+ok 110 - ownManifestEntries：本地改了但没传成功 → 不写（不制造幽灵条目）
+  ---
+  duration_ms: 0.1105
+  type: 'test'
+  ...
+# Subtest: client.js 语法合法
+ok 111 - client.js 语法合法
+  ---
+  duration_ms: 286.9558
+  type: 'test'
+  ...
+# Subtest: 回收站 / 屏蔽面板接上了 0.5.9 的三个端点
+ok 112 - 回收站 / 屏蔽面板接上了 0.5.9 的三个端点
+  ---
+  duration_ms: 0.5182
+  type: 'test'
+  ...
+# Subtest: 中英文案都有回收站条目
+ok 113 - 中英文案都有回收站条目
+  ---
+  duration_ms: 0.1751
+  type: 'test'
+  ...
+# Subtest: 恢复需二次确认，且 legacy / 无元数据记录不给恢复按钮
+ok 114 - 恢复需二次确认，且 legacy / 无元数据记录不给恢复按钮
+  ---
+  duration_ms: 0.3289
+  type: 'test'
+  ...
+# Subtest: /status 的 safety 被呈现，而不是只存在后端
+ok 115 - /status 的 safety 被呈现，而不是只存在后端
+  ---
+  duration_ms: 0.2132
+  type: 'test'
+  ...
+# Subtest: 旧版 host 没有这些端点时整张卡片隐藏
+ok 116 - 旧版 host 没有这些端点时整张卡片隐藏
+  ---
+  duration_ms: 0.1598
+  type: 'test'
+  ...
+#   [perf] mergeDeviceManifests(3×5000): 16.9 ms
+#   [perf] mergeEventLogs(3×1000): 24.2 ms
+#   [perf] buildTombstones(3000): 11.2 ms
+#   [perf] configFingerprint × 1000: 11.1 ms
+#   [perf] unpackTgz(1000 files): 25.8 ms
+# Subtest: 清单合并：3 台设备 × 5000 条仍在毫秒级
+ok 117 - 清单合并：3 台设备 × 5000 条仍在毫秒级
+  ---
+  duration_ms: 19.1161
+  type: 'test'
+  ...
+# Subtest: 事件流合并 / 墓碑构建：3 台设备 × 1000 事件
+ok 118 - 事件流合并 / 墓碑构建：3 台设备 × 1000 事件
+  ---
+  duration_ms: 64.0425
+  type: 'test'
+  ...
+# Subtest: 配置指纹：1000 次计算不随调用次数退化
+ok 119 - 配置指纹：1000 次计算不随调用次数退化
+  ---
+  duration_ms: 11.913
+  type: 'test'
+  ...
+# Subtest: tgz 解包：1000 个小文件的包体不出现二次方退化
+ok 120 - tgz 解包：1000 个小文件的包体不出现二次方退化
+  ---
+  duration_ms: 56.6341
+  type: 'test'
+  ...
+# Subtest: unpackTgz：目录 / 文件 / package 前缀剥离 / mode 都正确
+ok 121 - unpackTgz：目录 / 文件 / package 前缀剥离 / mode 都正确
+  ---
+  duration_ms: 5.3891
+  type: 'test'
+  ...
+# Subtest: safeTarPath：拒绝绝对路径 / 盘符 / .. / 反斜杠 / NUL
+ok 122 - safeTarPath：拒绝绝对路径 / 盘符 / .. / 反斜杠 / NUL
+  ---
+  duration_ms: 0.4905
+  type: 'test'
+  ...
+# Subtest: 解包安全：路径穿越项与符号链接被拒绝，正常文件仍可用
+ok 123 - 解包安全：路径穿越项与符号链接被拒绝，正常文件仍可用
+  ---
+  duration_ms: 2.2741
+  type: 'test'
+  ...
+# Subtest: 坏 gzip / checksum 损坏 / 截断 tar 一律抛错，不返回半份结果
+ok 124 - 坏 gzip / checksum 损坏 / 截断 tar 一律抛错，不返回半份结果
+  ---
+  duration_ms: 12.9921
+  type: 'test'
+  ...
+# Subtest: PAX 扩展头：超长 path 能正确覆盖短头里的截断名
+ok 125 - PAX 扩展头：超长 path 能正确覆盖短头里的截断名
+  ---
+  duration_ms: 1.6606
+  type: 'test'
+  ...
+# Subtest: installFromCas：校验指纹 → 解包 → 原子替换 → 登记 dsh.profile.bundles
+ok 126 - installFromCas：校验指纹 → 解包 → 原子替换 → 登记 dsh.profile.bundles
+  ---
+  duration_ms: 119.3751
+  type: 'test'
+  ...
+# Subtest: installFromCas：对象 hash 不符 / 对象缺失 / 包名越界都跳过且绝不写盘
+ok 127 - installFromCas：对象 hash 不符 / 对象缺失 / 包名越界都跳过且绝不写盘
+  ---
+  duration_ms: 21.3777
+  type: 'test'
+  ...
+# Subtest: 真实引擎全链路：发布 tgz → CAS + 装配清单 → 另一台设备无 CLI 解包安装
+ok 128 - 真实引擎全链路：发布 tgz → CAS + 装配清单 → 另一台设备无 CLI 解包安装
+  ---
+  duration_ms: 150.8085
+  type: 'test'
+  ...
+# Subtest: Installer 在没有宿主 CLI 时自动走 CAS 路径（job.source=cas）
+ok 129 - Installer 在没有宿主 CLI 时自动走 CAS 路径（job.source=cas）
+  ---
+  duration_ms: 63.4745
+  type: 'test'
+  ...
+# Subtest: assemblyKey / currentTarget：主键与目标串格式稳定
+ok 130 - assemblyKey / currentTarget：主键与目标串格式稳定
+  ---
+  duration_ms: 1.2643
+  type: 'test'
+  ...
+# Subtest: isValidObjectHash：只认 sha256 hex，挡住路径注入
+ok 131 - isValidObjectHash：只认 sha256 hex，挡住路径注入
+  ---
+  duration_ms: 0.3375
+  type: 'test'
+  ...
+# Subtest: buildAssemblies：按包名@版本聚合，同一包不同平台各占一个 target
+ok 132 - buildAssemblies：按包名@版本聚合，同一包不同平台各占一个 target
+  ---
+  duration_ms: 11.6502
+  type: 'test'
+  ...
+# Subtest: buildAssemblies：同 target 冲突取 size 更大的，非法指纹丢弃
+ok 133 - buildAssemblies：同 target 冲突取 size 更大的，非法指纹丢弃
+  ---
+  duration_ms: 0.4963
+  type: 'test'
+  ...
+# Subtest: mergeAssemblies：多端合并结果与读入顺序无关
+ok 134 - mergeAssemblies：多端合并结果与读入顺序无关
+  ---
+  duration_ms: 0.753
+  type: 'test'
+  ...
+# Subtest: recordsForTarget / missingTargets：本机只拿自己平台的对象
+ok 135 - recordsForTarget / missingTargets：本机只拿自己平台的对象
+  ---
+  duration_ms: 0.6251
+  type: 'test'
+  ...
+# Subtest: pluginObjectPath：两级散列，非法指纹抛错
+ok 136 - pluginObjectPath：两级散列，非法指纹抛错
+  ---
+  duration_ms: 0.541
+  type: 'test'
+  ...
+# Subtest: unreferencedObjectPaths：只删没有装配清单引用的对象
+ok 137 - unreferencedObjectPaths：只删没有装配清单引用的对象
+  ---
+  duration_ms: 0.3758
+  type: 'test'
+  ...
+# Subtest: depKind：常见 spec 分类
+ok 138 - depKind：常见 spec 分类
+  ---
+  duration_ms: 2.1182
+  type: 'test'
+  ...
+# Subtest: parseProfilePackage：正常 package.json
+ok 139 - parseProfilePackage：正常 package.json
+  ---
+  duration_ms: 1.3291
+  type: 'test'
+  ...
+# Subtest: parseProfilePackage：坏 JSON 不抛，返回 null
+ok 140 - parseProfilePackage：坏 JSON 不抛，返回 null
+  ---
+  duration_ms: 0.1915
+  type: 'test'
+  ...
+# Subtest: installTarget：只有 registry / git 能自动装
+ok 141 - installTarget：只有 registry / git 能自动装
+  ---
+  duration_ms: 0.1269
+  type: 'test'
+  ...
+# Subtest: installCommand：与 dsh CLI 的实际用法一致
+ok 142 - installCommand：与 dsh CLI 的实际用法一致
+  ---
+  duration_ms: 0.0704
+  type: 'test'
+  ...
+# Subtest: diffPlugins：本机没装 → missing，且可安装
+ok 143 - diffPlugins：本机没装 → missing，且可安装
+  ---
+  duration_ms: 0.5949
+  type: 'test'
+  ...
+# Subtest: diffPlugins：装了就对齐，不误报
+ok 144 - diffPlugins：装了就对齐，不误报
+  ---
+  duration_ms: 0.2024
+  type: 'test'
+  ...
+# Subtest: diffPlugins：版本不符 → outdated，仍可安装（升级）
+ok 145 - diffPlugins：版本不符 → outdated，仍可安装（升级）
+  ---
+  duration_ms: 0.6369
+  type: 'test'
+  ...
+# Subtest: diffPlugins：link 依赖已装就不算问题（两端路径本就不同）
+ok 146 - diffPlugins：link 依赖已装就不算问题（两端路径本就不同）
+  ---
+  duration_ms: 0.2246
+  type: 'test'
+  ...
+# Subtest: diffPlugins：link 依赖没装 → missing 但不可安装
+ok 147 - diffPlugins：link 依赖没装 → missing 但不可安装
+  ---
+  duration_ms: 0.1301
+  type: 'test'
+  ...
+# Subtest: diffPlugins：不按 profile 同名比（手机 web → 本机 desktop 也算缺）
+ok 148 - diffPlugins：不按 profile 同名比（手机 web → 本机 desktop 也算缺）
+  ---
+  duration_ms: 0.2281
+  type: 'test'
+  ...
+# Subtest: diffPlugins：多个 profile 列同一依赖只报一次
+ok 149 - diffPlugins：多个 profile 列同一依赖只报一次
+  ---
+  duration_ms: 0.1143
+  type: 'test'
+  ...
+# Subtest: diffPlugins：git 依赖已装即算满足（spec 是来源不是版本）
+ok 150 - diffPlugins：git 依赖已装即算满足（spec 是来源不是版本）
+  ---
+  duration_ms: 0.0981
+  type: 'test'
+  ...
+# Subtest: diffPlugins：内置 @deepseek-ai 包不参与对账
+ok 151 - diffPlugins：内置 @deepseek-ai 包不参与对账
+  ---
+  duration_ms: 0.1748
+  type: 'test'
+  ...
+# Subtest: diffPlugins：missing 排在 outdated 前面，顺序稳定
+ok 152 - diffPlugins：missing 排在 outdated 前面，顺序稳定
+  ---
+  duration_ms: 0.3021
+  type: 'test'
+  ...
+# Subtest: deviceClassOfProfile：档名推断设备类别
+ok 153 - deviceClassOfProfile：档名推断设备类别
+  ---
+  duration_ms: 1.2959
+  type: 'test'
+  ...
+# Subtest: pluginDeviceClass：从包名读平台归属
+ok 154 - pluginDeviceClass：从包名读平台归属
+  ---
+  duration_ms: 0.1886
+  type: 'test'
+  ...
+# Subtest: 各自最优：电脑上不装手机的竖屏适配
+ok 155 - 各自最优：电脑上不装手机的竖屏适配
+  ---
+  duration_ms: 0.1941
+  type: 'test'
+  ...
+# Subtest: 各自最优：手机上照样装竖屏适配
+ok 156 - 各自最优：手机上照样装竖屏适配
+  ---
+  duration_ms: 0.1213
+  type: 'test'
+  ...
+# Subtest: 各自最优：通用插件不受平台过滤影响
+ok 157 - 各自最优：通用插件不受平台过滤影响
+  ---
+  duration_ms: 0.1044
+  type: 'test'
+  ...
+# Subtest: 各自最优：设备类别未知时不过滤（宁多报不漏报）
+ok 158 - 各自最优：设备类别未知时不过滤（宁多报不漏报）
+  ---
+  duration_ms: 0.1042
+  type: 'test'
+  ...
+# Subtest: 各自最优：allowPlatform 可显式放行
+ok 159 - 各自最优：allowPlatform 可显式放行
+  ---
+  duration_ms: 0.1212
+  type: 'test'
+  ...
+# Subtest: minVersionOf：常见范围取下界
+ok 160 - minVersionOf：常见范围取下界
+  ---
+  duration_ms: 0.2797
+  type: 'test'
+  ...
+# Subtest: 各自最优：已装版本满足 ^ 范围 → 不报 outdated（否则会触发降级）
+ok 161 - 各自最优：已装版本满足 ^ 范围 → 不报 outdated（否则会触发降级）
+  ---
+  duration_ms: 0.1057
+  type: 'test'
+  ...
+# Subtest: 各自最优：本机比清单更新 → 保留本机版本，不降级
+ok 162 - 各自最优：本机比清单更新 → 保留本机版本，不降级
+  ---
+  duration_ms: 0.0835
+  type: 'test'
+  ...
+# Subtest: 版本确实落后 → 仍然报 outdated
+ok 163 - 版本确实落后 → 仍然报 outdated
+  ---
+  duration_ms: 0.0957
+  type: 'test'
+  ...
+# Subtest: 预发布版本按三元组比对，不会误报
+ok 164 - 预发布版本按三元组比对，不会误报
+  ---
+  duration_ms: 0.0876
+  type: 'test'
+  ...
+# Subtest: latest 这类 tag 装了就算满足
+ok 165 - latest 这类 tag 装了就算满足
+  ---
+  duration_ms: 0.1269
+  type: 'test'
+  ...
+# Subtest: declaredPluginNames：内置 bundle 不列出来
+ok 166 - declaredPluginNames：内置 bundle 不列出来
+  ---
+  duration_ms: 0.1547
+  type: 'test'
+  ...
+# Subtest: declaredPluginNames：不按名字猜插件，scoped 包照样算
+ok 167 - declaredPluginNames：不按名字猜插件，scoped 包照样算
+  ---
+  duration_ms: 0.1021
+  type: 'test'
+  ...
+# Subtest: declaredPluginNames：空依赖不炸
+ok 168 - declaredPluginNames：空依赖不炸
+  ---
+  duration_ms: 0.0731
+  type: 'test'
+  ...
+# Subtest: toTarballSpec：git+https 转成 archive 地址
+ok 169 - toTarballSpec：git+https 转成 archive 地址
+  ---
+  duration_ms: 0.2825
+  type: 'test'
+  ...
+# Subtest: toTarballSpec：带 .git / 不带 .git / 结尾斜杠都一样处理
+ok 170 - toTarballSpec：带 .git / 不带 .git / 结尾斜杠都一样处理
+  ---
+  duration_ms: 0.1778
+  type: 'test'
+  ...
+# Subtest: toTarballSpec：\#ref 变成对应版本/分支
+ok 171 - toTarballSpec：\#ref 变成对应版本/分支
+  ---
+  duration_ms: 0.0878
+  type: 'test'
+  ...
+# Subtest: toTarballSpec：ssh 形式也认
+ok 172 - toTarballSpec：ssh 形式也认
+  ---
+  duration_ms: 0.1797
+  type: 'test'
+  ...
+# Subtest: toTarballSpec：非 GitHub / 非 git 一律不动
+ok 173 - toTarballSpec：非 GitHub / 非 git 一律不动
+  ---
+  duration_ms: 0.0899
+  type: 'test'
+  ...
+# Subtest: 配到手机档：git 依赖自动改用 tarball
+ok 174 - 配到手机档：git 依赖自动改用 tarball
+  ---
+  duration_ms: 0.1466
+  type: 'test'
+  ...
+# Subtest: 配到电脑档：git 依赖保持原样（能跟踪分支）
+ok 175 - 配到电脑档：git 依赖保持原样（能跟踪分支）
+  ---
+  duration_ms: 0.0934
+  type: 'test'
+  ...
+# Subtest: encodeCwd：包在 -- 里、不含路径分隔符
+ok 176 - encodeCwd：包在 -- 里、不含路径分隔符
+  ---
+  duration_ms: 2.2075
+  type: 'test'
+  ...
+# Subtest: platformMismatch：按本机平台判定原始 cwd
+ok 177 - platformMismatch：按本机平台判定原始 cwd
+  ---
+  duration_ms: 0.7388
+  type: 'test'
+  ...
+# Subtest: workspaceRegistryReady：0.3.5 条件式守卫的判据
+ok 178 - workspaceRegistryReady：0.3.5 条件式守卫的判据
+  ---
+  duration_ms: 17.5402
+  type: 'test'
+  ...
+# Subtest: normalizeWorkspaceRegistry：同名同 path 合并 + session 去重
+ok 179 - normalizeWorkspaceRegistry：同名同 path 合并 + session 去重
+  ---
+  duration_ms: 2.3765
+  type: 'test'
+  ...
+# Subtest: dedupeWorkspaceSessions：同一 session 被两个工作区记账
+ok 180 - dedupeWorkspaceSessions：同一 session 被两个工作区记账
+  ---
+  duration_ms: 0.5539
+  type: 'test'
+  ...
+# Subtest: rewriteSessionCwd：只重写第 0 帧，后续帧逐字节保留
+ok 181 - rewriteSessionCwd：只重写第 0 帧，后续帧逐字节保留
+  ---
+  duration_ms: 3.5817
+  type: 'test'
+  ...
+# Subtest: rewriteSessionCwd：cwd 本机已存在时不动
+ok 182 - rewriteSessionCwd：cwd 本机已存在时不动
+  ---
+  duration_ms: 3.4178
+  type: 'test'
+  ...
+# Subtest: rewriteSessionCwdTo：改回原机器路径，尾帧原样，已是目标值则返回 null
+ok 183 - rewriteSessionCwdTo：改回原机器路径，尾帧原样，已是目标值则返回 null
+  ---
+  duration_ms: 0.6924
+  type: 'test'
+  ...
+# Subtest: localIsStaleSnapshot：本机是旧快照 → true，历史分叉 → false
+ok 184 - localIsStaleSnapshot：本机是旧快照 → true，历史分叉 → false
+  ---
+  duration_ms: 1.1705
+  type: 'test'
+  ...
+# Subtest: 0.5.9 localIsStaleSnapshot：单帧必须核首帧身份，不能无条件判旧快照
+ok 185 - 0.5.9 localIsStaleSnapshot：单帧必须核首帧身份，不能无条件判旧快照
+  ---
+  duration_ms: 0.7338
+  type: 'test'
+  ...
+# Subtest: 0.5.9 sessionHeaderIdentity：忽略 cwd，其余字段与首帧正文逐字比较
+ok 186 - 0.5.9 sessionHeaderIdentity：忽略 cwd，其余字段与首帧正文逐字比较
+  ---
+  duration_ms: 0.4838
+  type: 'test'
+  ...
+# Subtest: unregisterSessionFromRel：摘掉登记，清单里没有则返回 false
+ok 187 - unregisterSessionFromRel：摘掉登记，清单里没有则返回 false
+  ---
+  duration_ms: 33.1232
+  type: 'test'
+  ...
+# Subtest: dedupeSessionDirs：同一 sid 落在两个 project 目录 → 隔离副本
+ok 188 - dedupeSessionDirs：同一 sid 落在两个 project 目录 → 隔离副本
+  ---
+  duration_ms: 40.6526
+  type: 'test'
+  ...
+# Subtest: dedupeSessionDirs：没有 sessions 目录时安全返回
+ok 189 - dedupeSessionDirs：没有 sessions 目录时安全返回
+  ---
+  duration_ms: 4.3539
+  type: 'test'
+  ...
+# Subtest: mergeWorkspaceRegistry：本机已有注册表也合并，新增工作区并搬正旧落点
+ok 190 - mergeWorkspaceRegistry：本机已有注册表也合并，新增工作区并搬正旧落点
+  ---
+  duration_ms: 54.1444
+  type: 'test'
+  ...
+# Subtest: mergeWorkspaceRegistry：内容没变化时不写盘（不刷 mtime）
+ok 191 - mergeWorkspaceRegistry：内容没变化时不写盘（不刷 mtime）
+  ---
+  duration_ms: 50.7463
+  type: 'test'
+  ...
+# Subtest: mergeWorkspaceRegistry：本机屏蔽的会话在合并时被过滤（0.5.8）
+ok 192 - mergeWorkspaceRegistry：本机屏蔽的会话在合并时被过滤（0.5.8）
+  ---
+  duration_ms: 57.5073
+  type: 'test'
+  ...
+# Subtest: registryCovers：远端已覆盖本机 → 不发布；本机有远端缺的 → 发布
+ok 193 - registryCovers：远端已覆盖本机 → 不发布；本机有远端缺的 → 发布
+  ---
+  duration_ms: 1.0707
+  type: 'test'
+  ...
+# Subtest: registerSessionForRel：把会话登记到对应工作区（幂等、散装目录不登记）
+ok 194 - registerSessionForRel：把会话登记到对应工作区（幂等、散装目录不登记）
+  ---
+  duration_ms: 26.3742
+  type: 'test'
+  ...
+# Subtest: 预演：返回可执行计划，但不写标记 / bidmap / canonical 对象
+ok 195 - 预演：返回可执行计划，但不写标记 / bidmap / canonical 对象
+  ---
+  duration_ms: 3523.4454
+  type: 'test'
+  ...
+# Subtest: 确认执行：复制对象 + 写 bidmap 与标记，旧对象保留，重复执行幂等
+ok 196 - 确认执行：复制对象 + 写 bidmap 与标记，旧对象保留，重复执行幂等
+  ---
+  duration_ms: 26.7719
+  type: 'test'
+  ...
+# Subtest: fail-closed：配置写 canonical 但没有迁移标记时自动降级 legacy
+ok 197 - fail-closed：配置写 canonical 但没有迁移标记时自动降级 legacy
+  ---
+  duration_ms: 24.1384
+  type: 'test'
+  ...
+# Subtest: 有标记后 canonical 生效：本机清单里的会话 rel 投影成 by-id 空间
+ok 198 - 有标记后 canonical 生效：本机清单里的会话 rel 投影成 by-id 空间
+  ---
+  duration_ms: 49.8034
+  type: 'test'
+  ...
+# Subtest: 同名不同内容：计划校验失败，confirm 也不写任何东西
+ok 199 - 同名不同内容：计划校验失败，confirm 也不写任何东西
+  ---
+  duration_ms: 26.7873
+  type: 'test'
+  ...
+# Subtest: rel 形态识别：legacy / canonical / 非会话互不混淆
+ok 200 - rel 形态识别：legacy / canonical / 非会话互不混淆
+  ---
+  duration_ms: 2.8157
+  type: 'test'
+  ...
+# Subtest: legacy → canonical 按 sid 归一键，两端不同 cwd 得到同一个目标
+ok 201 - legacy → canonical 按 sid 归一键，两端不同 cwd 得到同一个目标
+  ---
+  duration_ms: 1.034
+  type: 'test'
+  ...
+# Subtest: canonical → 本地落地必须换成本机 cwd 编码，不能照抄远端段
+ok 202 - canonical → 本地落地必须换成本机 cwd 编码，不能照抄远端段
+  ---
+  duration_ms: 0.5891
+  type: 'test'
+  ...
+# Subtest: planRelMigration：两端同 sid 不同 cwd 合并成一条映射，且与输入顺序无关
+ok 203 - planRelMigration：两端同 sid 不同 cwd 合并成一条映射，且与输入顺序无关
+  ---
+  duration_ms: 14.8042
+  type: 'test'
+  ...
+# Subtest: planRelMigration：同名不同内容必须列为冲突，绝不自动挑一份
+ok 204 - planRelMigration：同名不同内容必须列为冲突，绝不自动挑一份
+  ---
+  duration_ms: 1.5807
+  type: 'test'
+  ...
+# Subtest: validateRelPlan：空计划 / 非法 rel / 路径穿越全部挡住
+ok 205 - validateRelPlan：空计划 / 非法 rel / 路径穿越全部挡住
+  ---
+  duration_ms: 0.4357
+  type: 'test'
+  ...
+# Subtest: rewriteManifestForMode：legacy 字节不变，shadow 双写，canonical 只留新空间
+ok 206 - rewriteManifestForMode：legacy 字节不变，shadow 双写，canonical 只留新空间
+  ---
+  duration_ms: 0.57
+  type: 'test'
+  ...
+# Subtest: mergeDualRead：两个空间按 sid 归并，不重复计数，canonical 优先
+ok 207 - mergeDualRead：两个空间按 sid 归并，不重复计数，canonical 优先
+  ---
+  duration_ms: 0.4539
+  type: 'test'
+  ...
+# Subtest: marker 与保留窗口：窗口内禁止删旧对象
+ok 208 - marker 与保留窗口：窗口内禁止删旧对象
+  ---
+  duration_ms: 0.5473
+  type: 'test'
+  ...
+# Subtest: bidMapFromPlan：每条映射给出本机落地 rel 与原始 cwd 溯源
+ok 209 - bidMapFromPlan：每条映射给出本机落地 rel 与原始 cwd 溯源
+  ---
+  duration_ms: 0.405
+  type: 'test'
+  ...
+# Subtest: isSafeRel：正常 rel 放行
+ok 210 - isSafeRel：正常 rel 放行
+  ---
+  duration_ms: 2.2379
+  type: 'test'
+  ...
+# Subtest: isSafeRel：路径穿越 / 绝对路径 / 编码穿越 / 控制字符一律拒绝
+ok 211 - isSafeRel：路径穿越 / 绝对路径 / 编码穿越 / 控制字符一律拒绝
+  ---
+  duration_ms: 0.339
+  type: 'test'
+  ...
+# Subtest: evaluateManifestTrust：必须每一份都读成；空清单算读成
+ok 212 - evaluateManifestTrust：必须每一份都读成；空清单算读成
+  ---
+  duration_ms: 1.5227
+  type: 'test'
+  ...
+# Subtest: advanceMissingRounds：严格连续两轮，任何打断都归零
+ok 213 - advanceMissingRounds：严格连续两轮，任何打断都归零
+  ---
+  duration_ms: 0.4501
+  type: 'test'
+  ...
+# Subtest: Q01 回归：N 份清单坏 1 份时，连续两轮缺失也不允许回收
+ok 214 - Q01 回归：N 份清单坏 1 份时，连续两轮缺失也不允许回收
+  ---
+  duration_ms: 0.1623
+  type: 'test'
+  ...
+# Subtest: Q01 正例：全部读成时，第二轮可信缺失才允许回收
+ok 215 - Q01 正例：全部读成时，第二轮可信缺失才允许回收
+  ---
+  duration_ms: 0.2608
+  type: 'test'
+  ...
+# Subtest: configFingerprint：同一配置稳定，任一影响扫描结果的字段变化都要变
+ok 216 - configFingerprint：同一配置稳定，任一影响扫描结果的字段变化都要变
+  ---
+  duration_ms: 2.5596
+  type: 'test'
+  ...
+# Subtest: shouldReuse：五道判据逐条生效（策略 / 三条 stat / TTL / hash 合法性）
+ok 217 - shouldReuse：五道判据逐条生效（策略 / 三条 stat / TTL / hash 合法性）
+  ---
+  duration_ms: 0.3861
+  type: 'test'
+  ...
+# Subtest: ScanCacheSession：命中 / 重算 / prune / snapshot 与统计一致
+ok 218 - ScanCacheSession：命中 / 重算 / prune / snapshot 与统计一致
+  ---
+  duration_ms: 1.2657
+  type: 'test'
+  ...
+# Subtest: 指纹不匹配 / 版本不对 / 缓存损坏：整表作废并标记 invalidated
+ok 219 - 指纹不匹配 / 版本不对 / 缓存损坏：整表作废并标记 invalidated
+  ---
+  duration_ms: 0.1476
+  type: 'test'
+  ...
+# Subtest: load / save：原子落盘可读回；坏 JSON 明确报 corrupted 而不是静默当空
+ok 220 - load / save：原子落盘可读回；坏 JSON 明确报 corrupted 而不是静默当空
+  ---
+  duration_ms: 24.3116
+  type: 'test'
+  ...
+# [dsh-nas-sync] 扫描缓存损坏，已按全量重算（备份：C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-scanbad-6iLUGx\\nas-sync\\scan-cache.json.corrupt-2026-11-09T07-25-00-194Z）
+# Subtest: 真实引擎：第二轮扫描命中缓存；改文件后该条重算且 hash 更新
+ok 221 - 真实引擎：第二轮扫描命中缓存；改文件后该条重算且 hash 更新
+  ---
+  duration_ms: 129.8737
+  type: 'test'
+  ...
+# Subtest: 缓存损坏时引擎显式告警，但仍能完成扫描（降级为全量重算）
+ok 222 - 缓存损坏时引擎显式告警，但仍能完成扫描（降级为全量重算）
+  ---
+  duration_ms: 43.4547
+  type: 'test'
+  ...
+# Subtest: writeJsonAtomic：内容完整、同目录无临时文件残留
+ok 223 - writeJsonAtomic：内容完整、同目录无临时文件残留
+  ---
+  duration_ms: 70.5945
+  type: 'test'
+  ...
+# Subtest: writeJsonAtomic：文件权限尽力收紧到 0600（POSIX）
+ok 224 - writeJsonAtomic：文件权限尽力收紧到 0600（POSIX）
+  ---
+  duration_ms: 0.1284
+  type: 'test'
+  ...
+# Subtest: readJsonFile：区分「不存在」与「损坏」，损坏时留备份副本
+ok 225 - readJsonFile：区分「不存在」与「损坏」，损坏时留备份副本
+  ---
+  duration_ms: 6.782
+  type: 'test'
+  ...
+# Subtest: fail-closed 恢复链：主文件损坏时以 .bak 为准，主文件缺失时自动回填
+ok 226 - fail-closed 恢复链：主文件损坏时以 .bak 为准，主文件缺失时自动回填
+  ---
+  duration_ms: 23.1573
+  type: 'test'
+  ...
+# Subtest: writeTextAtomic：salt.hex 独立持久化，读回可校验
+ok 227 - writeTextAtomic：salt.hex 独立持久化，读回可校验
+  ---
+  duration_ms: 7.749
+  type: 'test'
+  ...
+# Subtest: 只读校验：本测试不写入真实 $DSH_HOME
+ok 228 - 只读校验：本测试不写入真实 $DSH_HOME
+  ---
+  duration_ms: 1.0763
+  type: 'test'
+  ...
+# [dsh-nas-sync] 按对端删除事件回收 1 个本地文件（可从回收站恢复）
+# [dsh-nas-sync] 事件流不完整，本轮禁用事件驱动删除：事件流不完整（读失败/签名异常 1 处）
+# Subtest: UAT-1｜用户在电脑上删了一个文件，手机上它也该消失（且能恢复）
+ok 229 - UAT-1｜用户在电脑上删了一个文件，手机上它也该消失（且能恢复）
+  ---
+  duration_ms: 91.5049
+  type: 'test'
+  ...
+# [dsh-nas-sync] 跳过事件删除消费：事件流不完整（读失败/签名异常 1 处）
+# Subtest: UAT-2｜NAS 上事件日志被写坏一行时，宁可这轮不同步也不能删用户数据
+ok 230 - UAT-2｜NAS 上事件日志被写坏一行时，宁可这轮不同步也不能删用户数据
+  ---
+  duration_ms: 41.5359
+  type: 'test'
+  ...
+# Subtest: UAT-3｜用户在设置里取消勾选「附件」，不该把对端的附件全删掉
+ok 231 - UAT-3｜用户在设置里取消勾选「附件」，不该把对端的附件全删掉
+  ---
+  duration_ms: 1.0964
+  type: 'test'
+  ...
+# Subtest: UAT-4｜用户点「屏蔽这条会话」时正好断网，操作不能丢
+ok 232 - UAT-4｜用户点「屏蔽这条会话」时正好断网，操作不能丢
+  ---
+  duration_ms: 57.0457
+  type: 'test'
+  ...
+1..232
+# tests 232
+# suites 0
+# pass 232
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 23638.8818
+# start of coverage report
+# -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# file                                   | line % | branch % | funcs % | uncovered lines
+# -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# scripts                                |        |          |         | 
+#  _test-home-paths-stub.mjs             |  23.08 |    20.00 |  100.00 | 1-10
+#  _test-schemastery-stub.mjs            |  38.89 |    50.00 |   44.44 | 1-8 15-16 18
+# src                                    |        |          |         | 
+#  config.ts                             |  40.86 |    87.88 |   66.67 | 1-8 10-15 17 19-46 48-81 83-84 86-198 200-273 275-277 279-280 282-289 291-298 300-304 306-312 320-327 450-452 493-496 528-530
+#  paths.ts                              |  15.38 |    66.67 |   33.33 | 1-7 9 15-39
+#  sync                                  |        |          |         | 
+#   chunker.ts                           |  88.44 |    89.06 |   90.91 | 1-24 139-140
+#   crypto.ts                            |  77.55 |    79.41 |  100.00 | 1-29 31-33 35-42 44-45 47-51 53-57 59 144-148 190 197 230 232-234 236-242 266 311 317-318 329-330
+#   engine.ts                            |  61.22 |    56.84 |   73.88 | 1-15 17-109 111 113-117 119 121-133 139-144 152-190 192-208 210-225 227-241 243 245-249 403-406 414-415 424-430 440-444 503-575 578-579 582-585 594-595 618-622 791-796 805-811 825-827 842-845 897 899-900 926-934 951-955 981-1002 1006-1014 1031-1219 1322-1325 1332 1336-1340 1355 1359-1361 1364-1367 1411-1413 1452 1458-1459 1472-1473 1504-1506 1521-1527 1530-1534 1537-1541 1556-1582 1597-1598 1608-1609 1628-1629 1640-1641 1667 1704-1713 1715-1728 1734-1736 1748 1750-1751 1753-1755 1793-1795 1797-1798 1812-1821 1830-1837 1914-1915 1918-1922 1942-1944 1946-1950 2015-2017 2053-2054 2056-2058 2089-2092 2112-2115 2118-2119 2150-2153 2238-2240 2276-2282 2286-2288 2300-2301 2305-2306 2319-2324 2326-2327 2331-2332 2338-2342 2344-2345 2371-2372 2381-2382 2386-2387 2392-2393 2403-2407 2426-2427 2444 2460-2465 2504-2510 2523-2524 2528-2529 2570-2574 2591-2593 2600-2601 2608 2623-2626 2628-2629 2657-2661 2682-2699 2716-2738 2740-2742 2764-2799 2806-2807 2818-3005 3009-3075 3079-3082 3086-3089 3093-3096
+#   events.ts                            |  93.12 |    77.70 |   93.33 | 1-15 42-54 74-81 202-203 413-414
+#   exclusions.ts                        |  66.00 |    73.08 |   85.71 | 1-14 16 29-30
+#   installer.ts                         |  69.86 |    50.68 |   70.83 | 1-11 79-88 97-98 114-115 132-133 162-164 175-177 183-185 196-198 201-203 213-214 225-227 231-232 234-239 263-264 267-268 285-286 289-331 335-337 340-351 393-394 399-400 408-410
+#   manifest.ts                          |  87.00 |    81.16 |  100.00 | 1-8 10-11 13-20 58-59 61-62 64-65 174-176 178-179
+#   merger.ts                            |  13.95 |   100.00 |  100.00 | 1-6 8 10 12 17-24 26-35 37-52 54-58 60-72 74-76 78-81 83-90 92-94 96-101 103-122 124-129
+#   plugin-objects.ts                    |  66.41 |    75.47 |   84.62 | 1-15 17-18 20-26 29-30 62-79
+#   plugins.ts                           |  83.51 |    85.80 |   73.08 | 1-9 11-12 14-17 19-23 25-29 31-32 34-58 60-66 110 201-203
+#   portable.ts                          |  84.90 |    58.31 |   59.74 | 1-25 116-117 184-185 188-189 194-195 197-199 215-299 375-408 411-416 579-580 952-977 1044-1045 1053-1054 1116-1119 1143-1144 1196-1209 1213-1215
+#   rel-migration.ts                     |  74.77 |    71.31 |   81.25 | 1-22 24-25 27-28 30 32 63-64 70-79 137-140 149-151 187-188 207-216 218 240-242 244-253 276-285
+#   safety.ts                            |  92.89 |    76.74 |  100.00 | 1-15 17
+#   scan-cache.ts                        |  89.73 |    81.69 |   94.74 | 1-23
+#   scanner.ts                           |  69.01 |    63.49 |   71.43 | 1-10 59-63 332-352 363-440 449-484
+#   state-file.ts                        |  85.04 |    62.00 |   90.91 | 1-13 85-88 93-94
+#   tgz.ts                               |  73.21 |    61.67 |   93.33 | 1-19 72-76 101-123 150-151 153-154 156-157 186-188 204-207
+# test                                   |        |          |         | 
+#  _mem-transport.mjs                    |  84.73 |    94.44 |   76.47 | 102-105 108-113 116-121 124-127
+#  a11y.test.mjs                         | 100.00 |    84.62 |  100.00 | 
+#  api-contract.test.mjs                 | 100.00 |    91.30 |  100.00 | 
+#  chunker.test.mjs                      | 100.00 |   100.00 |  100.00 | 
+#  config.test.mjs                       |  99.36 |    94.12 |  100.00 | 52
+#  crypto.test.mjs                       | 100.00 |    93.33 |  100.00 | 
+#  delete-propagation.test.mjs           |  96.56 |    97.87 |   82.50 | 66-68 81-84 86-89
+#  engine.test.mjs                       |  99.62 |    96.67 |   92.00 | 91
+#  envelope-engine.test.mjs              | 100.00 |   100.00 |  100.00 | 
+#  events.test.mjs                       | 100.00 |   100.00 |  100.00 | 
+#  exclusions.test.mjs                   | 100.00 |   100.00 |  100.00 | 
+#  fault-injection.test.mjs              | 100.00 |    95.45 |  100.00 | 
+#  manifest.test.mjs                     | 100.00 |   100.00 |  100.00 | 
+#  panel.test.mjs                        | 100.00 |   100.00 |  100.00 | 
+#  perf.test.mjs                         | 100.00 |   100.00 |  100.00 | 
+#  plugin-cas.test.mjs                   |  98.61 |    89.36 |   88.57 | 72 258-260
+#  plugin-objects.test.mjs               | 100.00 |   100.00 |  100.00 | 
+#  plugins.test.mjs                      | 100.00 |   100.00 |  100.00 | 
+#  portable.test.mjs                     |  99.31 |    88.57 |  100.00 | 50-52
+#  rel-migration-engine.test.mjs         |  97.63 |    91.18 |   80.77 | 71-72 74-76
+#  rel-migration.test.mjs                | 100.00 |   100.00 |  100.00 | 
+#  safety.test.mjs                       | 100.00 |   100.00 |  100.00 | 
+#  scan-cache.test.mjs                   | 100.00 |   100.00 |  100.00 | 
+#  state-file.test.mjs                   |  95.37 |    90.00 |  100.00 | 38-42
+#  uat.test.mjs                          | 100.00 |   100.00 |   93.33 | 
+# ..                                     |        |          |         | 
+#  ..                                    |        |          |         | 
+#   Program Files                        |        |          |         | 
+#    WorkBuddy                           |        |          |         | 
+#     resources                          |        |          |         | 
+#      app.asar.unpacked                 |        |          |         | 
+#       cli                              |        |          |         | 
+#        vendor                          |        |          |         | 
+#         shim                           |        |          |         | 
+#          broker-ipc-client.cjs         |  14.79 |    50.00 |    0.00 | 22-26 28-33 35-40 42-47 49-53 55-61 63-72 74-104 106-115 117-120 122-124 126-132 134-138 140-149 151-207 209-262 264-300 310-311
+#          node-brokered-fs-shim.cjs     |  38.14 |    36.89 |   33.71 | 18-19 25-26 29-30 55-59 129-130 143-172 183-185 187-193 195-211 213-229 231-247 249-260 267-278 280-286 288-299 301-314 316-318 320-331 339-340 344-345 366-373 382-387 405-409 414-415 419-423 426-428 430-440 442-450 452-455 457-474 476-486 488-502 508-511 515-527 534-537 541-553 561-563 569-570 577 583-590 608-616 626-643 645-648 655-665 683-684 692-719 729-741 743-772 774-780 782-785 787-790 794-803 805-812 814-816 818-820 822-824 826-836 838-840 842-847 849-854 856-863 865-867 869-871 873-875 881-882 886-906 910-911 917-918 922-936 940-941 948-949 953-973 975-981 983-989 991-1011 1013-1019 1025-1026 1030-1045 1047-1054 1056-1061 1063-1077 1079-1084 1086-1091 1093-1113 1115-1120 1134-1140 1168-1171 1184-1185
+#          node-language-shim.cjs        |  82.86 |    20.00 |  100.00 | 14-15 18-19 33-34
+#          node-safe-delete-shim.cjs     |  43.39 |    32.91 |   42.86 | 19-20 25-26 29-30 41-42 49-52 55-56 61-63 71-72 80-82 117-119 151-157 159-162 164-170 172-184 186-189 199-215 217-247 258-265 270-302 311-324 370-381 383-393 397-416 427-473 478-489 494-510 524-565 571-584 594-625 649-650 653-654 663-685 698-703 705-707 716-717 720-731 734-735 738-744 750-766 782 789-801 803-807 817-846 877-878
+# -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# all files                              |  73.56 |    71.63 |   79.89 | 
+# -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# end of coverage report

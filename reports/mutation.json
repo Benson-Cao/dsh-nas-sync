@@ -1,0 +1,89 @@
+{
+  "at": "2026-11-09T07:25:27.142Z",
+  "killed": 10,
+  "survived": 0,
+  "skipped": 0,
+  "killRate": 100,
+  "results": [
+    {
+      "name": "事件流：坏行必须判为不完整",
+      "file": "dist-test/events.mjs",
+      "test": "test/events.test.mjs",
+      "from": "corrupted: badLines > 0",
+      "to": "corrupted: false",
+      "status": "killed"
+    },
+    {
+      "name": "删除阈值：连续两轮才可回收",
+      "file": "dist-test/safety.mjs",
+      "test": "test/safety.test.mjs",
+      "from": "return (rounds ?? 0) >= RETIRE_AFTER_MISSING_ROUNDS;",
+      "to": "return false;",
+      "status": "killed"
+    },
+    {
+      "name": "事件流可信判据：不完整时禁止删除",
+      "file": "dist-test/safety.mjs",
+      "test": "test/delete-propagation.test.mjs",
+      "from": "return { allowed: true, reason: null };",
+      "to": "return { allowed: false, reason: null };",
+      "status": "killed"
+    },
+    {
+      "name": "扫描缓存：TTL 到期必须重算",
+      "file": "dist-test/scan-cache.mjs",
+      "test": "test/scan-cache.test.mjs",
+      "from": "return opts.now - prev.at < Math.max(1, opts.ttlMs);",
+      "to": "return true;",
+      "status": "killed"
+    },
+    {
+      "name": "插件装配：非法对象指纹必须丢弃",
+      "file": "dist-test/plugin-objects.mjs",
+      "test": "test/plugin-objects.test.mjs",
+      "from": "if (!r || !r.name || !r.target || !isValidObjectHash(r.objectHash)) continue;",
+      "to": "if (!r || !r.name || !r.target) continue;",
+      "status": "killed"
+    },
+    {
+      "name": "迁移校验：同名冲突必须挡住",
+      "file": "dist-test/rel-migration.mjs",
+      "test": "test/rel-migration.test.mjs",
+      "from": "if (plan.collisions.length > 0) {",
+      "to": "if (false) {",
+      "status": "killed"
+    },
+    {
+      "name": "清单写入：只写确认上传成功的条目",
+      "file": "dist-test/manifest.mjs",
+      "test": "test/manifest.test.mjs",
+      "from": "if (pushedOk.has(e.rel)) return true;",
+      "to": "if (false) return true;",
+      "status": "killed"
+    },
+    {
+      "name": "tgz 解包：路径里的 .. 必须拒绝",
+      "file": "dist-test/tgz.mjs",
+      "test": "test/plugin-cas.test.mjs",
+      "from": "if (parts.some((s) => s === \"..\")) return null;",
+      "to": "if (false) return null;",
+      "status": "killed"
+    },
+    {
+      "name": "NSS1 解密：必须返回明文而不是空",
+      "file": "dist-test/crypto.mjs",
+      "test": "test/crypto.test.mjs",
+      "from": "return plain;",
+      "to": "return new Uint8Array(0);",
+      "status": "killed"
+    },
+    {
+      "name": "排除规则：跳过目录集合必须生效",
+      "file": "dist-test/exclusions.mjs",
+      "test": "test/exclusions.test.mjs",
+      "from": "return SKIP_DIR_NAMES.has(String(name || \"\"));",
+      "to": "return false;",
+      "status": "killed"
+    }
+  ]
+}

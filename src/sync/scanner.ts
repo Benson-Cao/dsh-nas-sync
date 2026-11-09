@@ -16,6 +16,8 @@ import { createHash } from 'node:crypto';
 import { dshHome, localOf, relFromRemote } from '../paths.js';
 import { DEFAULT_SYNC_SCOPE, type SyncScope, type SyncScopeKey } from '../config.js';
 import { collectWorkspaceDirs, walkWorkspaceFiles, walkCustomFolder, DEFAULT_MAX_FILE_BYTES, selfDevice, type WorkspaceDir, type CustomFolderLike } from './portable.js';
+import { isSkippedDirName, isIgnoredRelPath } from './exclusions.js';
+import type { ScanCacheSession } from './scan-cache.js';
 
 // ManifestEntry 统一定义在 data/models.ts（带 device 字段）。
 // 这里曾有一份同名副本，导致 scanner 写出的条目缺 device 而编译器不报错。
@@ -75,11 +77,11 @@ export const DEFAULT_RULES: Rule[] = SYNC_CATEGORIES
 
 const SENSITIVE_NAMES = ['.credentials.yaml', '.credentials', '.env', '.token'];
 
-/** 整目录跳过的运行时垃圾（理由见 walkFiles 里的注释）。 */
-const SKIP_DIRS = new Set(['node_modules', 'nas-sync', '.plugin-manager', '.cache', '.compile-cache']);
-
 /**
  * 这个 rel 是否属于「不该进同步空间」的运行时垃圾。
+ *
+ * 0.6.0 / P3：规则本体搬到 exclusions.ts，与工作区扫描（portable.ts）共用同一份，
+ * 不再出现「工作区跳过 .git、普通分类却把它列进清单」这种两边不一致。
  *
  * 本地扫描（walkFiles）与远端清单（readRemoteManifest）共用同一把尺子：
  * 光在本地排除不够 —— 只要**对端**的清单里还列着这些文件，本机每轮都会把它们
@@ -88,13 +90,7 @@ const SKIP_DIRS = new Set(['node_modules', 'nas-sync', '.plugin-manager', '.cach
  * 真正的差异完全被埋住了。
  */
 export function isIgnoredRel(rel: string): boolean {
-  const parts = String(rel || '').split('/');
-  if (parts.some((p) => SKIP_DIRS.has(p))) return true;
-  const last = parts[parts.length - 1] ?? '';
-  if (!last) return false;
-  if (last.endsWith('.base') || last.endsWith('.chunk-manifest.json')) return true;
-  if (last.endsWith('.lock')) return true;
-  return /\.bak(-|$)|\.nassync-bak$/.test(last);
+  return isIgnoredRelPath(rel);
 }
 
 /** 递归遍历目录下的普通文件（跳过运行时垃圾）。扫描与统计共用同一份过滤规则。 */
@@ -121,7 +117,7 @@ export async function* walkFiles(dir: string): AsyncGenerator<string> {
       //     把「待同步」撑到三位数，真正的差异被埋在里面
       //   · .cache / .compile-cache —— 构建与 V8 编译缓存，删了会自动重建
       //   · nas-sync —— 插件自己的状态目录（store.json/冲突缓存）
-      if (SKIP_DIRS.has(name)) continue;
+      if (isSkippedDirName(name)) continue;
       yield* walkFiles(full);
     } else {
       if (isIgnoredRel(name)) continue;
@@ -137,6 +133,15 @@ export class Scanner {
   private skillFilter: string[];
   private customFolders: CustomFolderLike[];
   private maxFileBytes: number;
+  /**
+   * 0.6.0 / 收尾①：本机清单 rel → 远端清单 rel 的投影。
+   * 默认 undefined = 原样返回（0.5.9 行为逐字节不变）。canonical 模式下把
+   * `sessions/<cwd编码>/<sid>/...` 投影成 `sessions/by-id/<sid>/vN/...`，
+   * 本地文件仍在原路径，改的只是**清单里的名字**。
+   */
+  private relProjector?: (rel: string) => string;
+  /** 0.6.0 / 收尾③：增量扫描缓存会话；不给 = 每轮全量 readFile + sha256。 */
+  private cache?: ScanCacheSession;
 
   /**
    * @param opts.scope            分类勾选（缺省 = DEFAULT_SYNC_SCOPE）
@@ -153,12 +158,18 @@ export class Scanner {
     customFolders?: CustomFolderLike[];
     maxFileBytes?: number;
     rules?: Rule[];
+    /** 见字段注释；不给 = 不投影 */
+    relProjector?: (rel: string) => string;
+    /** 增量扫描缓存会话（由引擎创建并持久化） */
+    cache?: ScanCacheSession;
   } = {}) {
     this.includeSensitive = opts.includeSensitive ?? false;
     this.scope = { ...DEFAULT_SYNC_SCOPE, ...(opts.scope ?? {}) } as SyncScope;
     this.skillFilter = opts.skillFilter ?? [];
     this.customFolders = opts.customFolders ?? [];
     this.maxFileBytes = opts.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
+    this.relProjector = opts.relProjector;
+    this.cache = opts.cache;
     this.rules = opts.rules ?? this.rulesFromScope();
   }
 
@@ -227,7 +238,18 @@ export class Scanner {
         out.push(await this.toEntry(file, rel));
       }
     }
-    return out;
+    // 投影只改 rel 标签，不改 file → 内容仍从本机真实路径读。投影后可能重名
+    // （同一 sid 的两条 legacy 别名），按 mtime 取新的那份，保证清单收敛。
+    this.cache?.prune(out.map((e) => e.rel));
+    if (!this.relProjector) return out;
+    const projected = new Map<string, ManifestEntry>();
+    for (const item of out) {
+      const rel = this.relProjector(item.rel);
+      if (!rel) continue;
+      const cur = projected.get(rel);
+      if (!cur || (item.mtime ?? 0) >= (cur.mtime ?? 0)) projected.set(rel, { ...item, rel });
+    }
+    return [...projected.values()];
   }
 
   /**
@@ -248,7 +270,7 @@ export class Scanner {
     }
     for (const ws of dirs) {
       try {
-        for await (const f of walkWorkspaceFiles(ws)) {
+        for await (const f of walkWorkspaceFiles(ws, this.maxFileBytes)) {
           if (!this.includeSensitive && this.isSensitive(f.rel)) continue;
           out.push(await this.toEntry(f.file, f.rel));
         }
@@ -289,12 +311,19 @@ export class Scanner {
 
   private async toEntry(file: string, rel: string): Promise<ManifestEntry> {
     const s = statSync(file);
-    const buf = await readFile(file);
+    const statTriple = { mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, size: s.size };
+    // 命中缓存就跳过整份 readFile + sha256；未命中才真读文件，并把结果记回缓存。
+    let hash = this.cache?.lookup(rel, statTriple) ?? null;
+    if (!hash) {
+      const buf = await readFile(file);
+      hash = createHash('sha256').update(buf).digest('hex');
+    }
+    this.cache?.record(rel, statTriple, hash);
     return {
       rel,
       mtime: s.mtimeMs,
       size: s.size,
-      hash: createHash('sha256').update(buf).digest('hex'),
+      hash,
       // 扫描到即认为「本机拥有/上传了它」。engine 写远端清单时会用「内容没变就
       // 保留原来源」的规则把它改回真正的上传方，所以这里填本机是安全的。
       device: selfDevice(),
@@ -331,17 +360,19 @@ export type CategorySummary = Record<SyncScopeKey, { files: number; bytes: numbe
  * 不能复用 buildManifest()：它对每个文件 `readFile` 算 sha256，attachments 一大就是
  * 几百 MB 的读盘，光为了显示一个数字不值得。
  */
-export async function summarizeCategories(opts: { scope: Partial<SyncScope>; includeSensitive?: boolean; skillFilter?: string[]; customFolders?: CustomFolderLike[] }): Promise<CategorySummary> {
+export async function summarizeCategories(opts: { scope: Partial<SyncScope>; includeSensitive?: boolean; skillFilter?: string[]; customFolders?: CustomFolderLike[]; maxFileBytes?: number }): Promise<CategorySummary> {
   const scope = { ...DEFAULT_SYNC_SCOPE, ...opts.scope } as SyncScope;
+  // 0.6.0 / P3：统计口径必须和真正扫描时一致，否则「预览说 10 个文件、同步只传 3 个」
+  const maxBytes = opts.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
   const out = {} as CategorySummary;
   for (const c of SYNC_CATEGORIES) out[c.key] = { files: 0, bytes: 0 };
-  const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter, customFolders: opts.customFolders });
+  const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter, customFolders: opts.customFolders, maxFileBytes: maxBytes });
   for (const rule of sc.activeRules()) {
     // 工作区文件：目录来源是注册表里的真实路径，stat 名义前缀会算出假数字
     if (rule.key === 'workspaceFiles') {
       try {
         for (const ws of await collectWorkspaceDirs(dshHome())) {
-          for await (const f of walkWorkspaceFiles(ws)) {
+          for await (const f of walkWorkspaceFiles(ws, maxBytes)) {
             try {
               const fs2 = await stat(f.file);
               out[rule.key].files += 1;
@@ -356,7 +387,7 @@ export async function summarizeCategories(opts: { scope: Partial<SyncScope>; inc
     if (rule.key === 'customFolders') {
       for (const folder of opts.customFolders ?? []) {
         try {
-          for await (const f of walkCustomFolder(folder)) {
+          for await (const f of walkCustomFolder(folder, maxBytes)) {
             const s = await stat(f.file);
             out[rule.key].files += 1;
             out[rule.key].bytes += s.size;

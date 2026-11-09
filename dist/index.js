@@ -226,7 +226,7 @@ var require_url_parse = __commonJS({
         rest
       };
     }
-    function resolve3(relative2, base) {
+    function resolve4(relative2, base) {
       if (relative2 === "") return base;
       var path4 = (base || "/").split("/").slice(0, -1).concat(relative2.split("/")), i2 = path4.length, last = path4[i2 - 1], unshift = false, up = 0;
       while (i2--) {
@@ -296,7 +296,7 @@ var require_url_parse = __commonJS({
       }
       if (parser) url.query = parser(url.query);
       if (relative2 && location.slashes && url.pathname.charAt(0) !== "/" && (url.pathname !== "" || location.pathname !== "")) {
-        url.pathname = resolve3(url.pathname, location.pathname);
+        url.pathname = resolve4(url.pathname, location.pathname);
       }
       if (url.pathname.charAt(0) !== "/" && isSpecial(url.protocol)) {
         url.pathname = "/" + url.pathname;
@@ -1672,7 +1672,7 @@ var require_ponyfill_es2018 = __commonJS({
         return new originalPromise(executor);
       }
       function promiseResolvedWith(value) {
-        return newPromise((resolve3) => resolve3(value));
+        return newPromise((resolve4) => resolve4(value));
       }
       function promiseRejectedWith(reason) {
         return originalPromiseReject(reason);
@@ -1842,8 +1842,8 @@ var require_ponyfill_es2018 = __commonJS({
         return new TypeError("Cannot " + name2 + " a stream using a released reader");
       }
       function defaultReaderClosedPromiseInitialize(reader) {
-        reader._closedPromise = newPromise((resolve3, reject) => {
-          reader._closedPromise_resolve = resolve3;
+        reader._closedPromise = newPromise((resolve4, reject) => {
+          reader._closedPromise_resolve = resolve4;
           reader._closedPromise_reject = reject;
         });
       }
@@ -2017,8 +2017,8 @@ var require_ponyfill_es2018 = __commonJS({
           }
           let resolvePromise;
           let rejectPromise;
-          const promise = newPromise((resolve3, reject) => {
-            resolvePromise = resolve3;
+          const promise = newPromise((resolve4, reject) => {
+            resolvePromise = resolve4;
             rejectPromise = reject;
           });
           const readRequest = {
@@ -2123,8 +2123,8 @@ var require_ponyfill_es2018 = __commonJS({
           const reader = this._reader;
           let resolvePromise;
           let rejectPromise;
-          const promise = newPromise((resolve3, reject) => {
-            resolvePromise = resolve3;
+          const promise = newPromise((resolve4, reject) => {
+            resolvePromise = resolve4;
             rejectPromise = reject;
           });
           const readRequest = {
@@ -3143,8 +3143,8 @@ var require_ponyfill_es2018 = __commonJS({
           }
           let resolvePromise;
           let rejectPromise;
-          const promise = newPromise((resolve3, reject) => {
-            resolvePromise = resolve3;
+          const promise = newPromise((resolve4, reject) => {
+            resolvePromise = resolve4;
             rejectPromise = reject;
           });
           const readIntoRequest = {
@@ -3456,10 +3456,10 @@ var require_ponyfill_es2018 = __commonJS({
           wasAlreadyErroring = true;
           reason = void 0;
         }
-        const promise = newPromise((resolve3, reject) => {
+        const promise = newPromise((resolve4, reject) => {
           stream._pendingAbortRequest = {
             _promise: void 0,
-            _resolve: resolve3,
+            _resolve: resolve4,
             _reject: reject,
             _reason: reason,
             _wasAlreadyErroring: wasAlreadyErroring
@@ -3476,9 +3476,9 @@ var require_ponyfill_es2018 = __commonJS({
         if (state === "closed" || state === "errored") {
           return promiseRejectedWith(new TypeError(`The stream (in ${state} state) is not in the writable state and cannot be closed`));
         }
-        const promise = newPromise((resolve3, reject) => {
+        const promise = newPromise((resolve4, reject) => {
           const closeRequest = {
-            _resolve: resolve3,
+            _resolve: resolve4,
             _reject: reject
           };
           stream._closeRequest = closeRequest;
@@ -3491,9 +3491,9 @@ var require_ponyfill_es2018 = __commonJS({
         return promise;
       }
       function WritableStreamAddWriteRequest(stream) {
-        const promise = newPromise((resolve3, reject) => {
+        const promise = newPromise((resolve4, reject) => {
           const writeRequest = {
-            _resolve: resolve3,
+            _resolve: resolve4,
             _reject: reject
           };
           stream._writeRequests.push(writeRequest);
@@ -4109,8 +4109,8 @@ var require_ponyfill_es2018 = __commonJS({
         return new TypeError("Cannot " + name2 + " a stream using a released writer");
       }
       function defaultWriterClosedPromiseInitialize(writer) {
-        writer._closedPromise = newPromise((resolve3, reject) => {
-          writer._closedPromise_resolve = resolve3;
+        writer._closedPromise = newPromise((resolve4, reject) => {
+          writer._closedPromise_resolve = resolve4;
           writer._closedPromise_reject = reject;
           writer._closedPromiseState = "pending";
         });
@@ -4146,8 +4146,8 @@ var require_ponyfill_es2018 = __commonJS({
         writer._closedPromiseState = "resolved";
       }
       function defaultWriterReadyPromiseInitialize(writer) {
-        writer._readyPromise = newPromise((resolve3, reject) => {
-          writer._readyPromise_resolve = resolve3;
+        writer._readyPromise = newPromise((resolve4, reject) => {
+          writer._readyPromise_resolve = resolve4;
           writer._readyPromise_reject = reject;
         });
         writer._readyPromiseState = "pending";
@@ -4234,7 +4234,7 @@ var require_ponyfill_es2018 = __commonJS({
         source._disturbed = true;
         let shuttingDown = false;
         let currentWrite = promiseResolvedWith(void 0);
-        return newPromise((resolve3, reject) => {
+        return newPromise((resolve4, reject) => {
           let abortAlgorithm;
           if (signal !== void 0) {
             abortAlgorithm = () => {
@@ -4379,7 +4379,7 @@ var require_ponyfill_es2018 = __commonJS({
             if (isError2) {
               reject(error);
             } else {
-              resolve3(void 0);
+              resolve4(void 0);
             }
             return null;
           }
@@ -4660,8 +4660,8 @@ var require_ponyfill_es2018 = __commonJS({
         let branch1;
         let branch2;
         let resolveCancelPromise;
-        const cancelPromise = newPromise((resolve3) => {
-          resolveCancelPromise = resolve3;
+        const cancelPromise = newPromise((resolve4) => {
+          resolveCancelPromise = resolve4;
         });
         function pullAlgorithm() {
           if (reading) {
@@ -4752,8 +4752,8 @@ var require_ponyfill_es2018 = __commonJS({
         let branch1;
         let branch2;
         let resolveCancelPromise;
-        const cancelPromise = newPromise((resolve3) => {
-          resolveCancelPromise = resolve3;
+        const cancelPromise = newPromise((resolve4) => {
+          resolveCancelPromise = resolve4;
         });
         function forwardReaderError(thisReader) {
           uponRejection(thisReader._closedPromise, (r2) => {
@@ -5533,8 +5533,8 @@ var require_ponyfill_es2018 = __commonJS({
           const writableHighWaterMark = ExtractHighWaterMark(writableStrategy, 1);
           const writableSizeAlgorithm = ExtractSizeAlgorithm(writableStrategy);
           let startPromise_resolve;
-          const startPromise = newPromise((resolve3) => {
-            startPromise_resolve = resolve3;
+          const startPromise = newPromise((resolve4) => {
+            startPromise_resolve = resolve4;
           });
           InitializeTransformStream(this, startPromise, writableHighWaterMark, writableSizeAlgorithm, readableHighWaterMark, readableSizeAlgorithm);
           SetUpTransformStreamDefaultControllerFromTransformer(this, transformer);
@@ -5627,8 +5627,8 @@ var require_ponyfill_es2018 = __commonJS({
         if (stream._backpressureChangePromise !== void 0) {
           stream._backpressureChangePromise_resolve();
         }
-        stream._backpressureChangePromise = newPromise((resolve3) => {
-          stream._backpressureChangePromise_resolve = resolve3;
+        stream._backpressureChangePromise = newPromise((resolve4) => {
+          stream._backpressureChangePromise_resolve = resolve4;
         });
         stream._backpressure = backpressure;
       }
@@ -5796,8 +5796,8 @@ var require_ponyfill_es2018 = __commonJS({
           return controller._finishPromise;
         }
         const readable = stream._readable;
-        controller._finishPromise = newPromise((resolve3, reject) => {
-          controller._finishPromise_resolve = resolve3;
+        controller._finishPromise = newPromise((resolve4, reject) => {
+          controller._finishPromise_resolve = resolve4;
           controller._finishPromise_reject = reject;
         });
         const cancelPromise = controller._cancelAlgorithm(reason);
@@ -5823,8 +5823,8 @@ var require_ponyfill_es2018 = __commonJS({
           return controller._finishPromise;
         }
         const readable = stream._readable;
-        controller._finishPromise = newPromise((resolve3, reject) => {
-          controller._finishPromise_resolve = resolve3;
+        controller._finishPromise = newPromise((resolve4, reject) => {
+          controller._finishPromise_resolve = resolve4;
           controller._finishPromise_reject = reject;
         });
         const flushPromise = controller._flushAlgorithm();
@@ -5854,8 +5854,8 @@ var require_ponyfill_es2018 = __commonJS({
           return controller._finishPromise;
         }
         const writable = stream._writable;
-        controller._finishPromise = newPromise((resolve3, reject) => {
-          controller._finishPromise_resolve = resolve3;
+        controller._finishPromise = newPromise((resolve4, reject) => {
+          controller._finishPromise_resolve = resolve4;
           controller._finishPromise_reject = reject;
         });
         const cancelPromise = controller._cancelAlgorithm(reason);
@@ -7734,7 +7734,7 @@ import zlib from "node:zlib";
 import Stream2, { PassThrough as PassThrough2, pipeline as pump } from "node:stream";
 import { Buffer as Buffer3 } from "node:buffer";
 async function fetch(url, options_) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const request2 = new Request(url, options_);
     const { parsedURL, options } = getNodeRequestOptions(request2);
     if (!supportedSchemas.has(parsedURL.protocol)) {
@@ -7743,7 +7743,7 @@ async function fetch(url, options_) {
     if (parsedURL.protocol === "data:") {
       const data = dist_default(request2.url);
       const response2 = new Response(data, { headers: { "Content-Type": data.typeFull } });
-      resolve3(response2);
+      resolve4(response2);
       return;
     }
     const send = (parsedURL.protocol === "https:" ? https : http2).request;
@@ -7865,7 +7865,7 @@ async function fetch(url, options_) {
             if (responseReferrerPolicy) {
               requestOptions.referrerPolicy = responseReferrerPolicy;
             }
-            resolve3(fetch(new Request(locationURL, requestOptions)));
+            resolve4(fetch(new Request(locationURL, requestOptions)));
             finalize();
             return;
           }
@@ -7898,7 +7898,7 @@ async function fetch(url, options_) {
       const codings = headers.get("Content-Encoding");
       if (!request2.compress || request2.method === "HEAD" || codings === null || response_.statusCode === 204 || response_.statusCode === 304) {
         response = new Response(body, responseOptions);
-        resolve3(response);
+        resolve4(response);
         return;
       }
       const zlibOptions = {
@@ -7912,7 +7912,7 @@ async function fetch(url, options_) {
           }
         });
         response = new Response(body, responseOptions);
-        resolve3(response);
+        resolve4(response);
         return;
       }
       if (codings === "deflate" || codings === "x-deflate") {
@@ -7936,12 +7936,12 @@ async function fetch(url, options_) {
             });
           }
           response = new Response(body, responseOptions);
-          resolve3(response);
+          resolve4(response);
         });
         raw.once("end", () => {
           if (!response) {
             response = new Response(body, responseOptions);
-            resolve3(response);
+            resolve4(response);
           }
         });
         return;
@@ -7953,11 +7953,11 @@ async function fetch(url, options_) {
           }
         });
         response = new Response(body, responseOptions);
-        resolve3(response);
+        resolve4(response);
         return;
       }
       response = new Response(body, responseOptions);
-      resolve3(response);
+      resolve4(response);
     });
     writeToStream(request_, request2).catch(reject);
   });
@@ -10481,7 +10481,7 @@ var init_copyFile = __esm({
 
 // node_modules/.pnpm/fast-xml-parser@5.12.0/node_modules/fast-xml-parser/src/util.js
 function getAllMatches(string, regex) {
-  const matches = [];
+  const matches2 = [];
   let match2 = regex.exec(string);
   while (match2) {
     const allmatches = [];
@@ -10490,10 +10490,10 @@ function getAllMatches(string, regex) {
     for (let index = 0; index < len; index++) {
       allmatches.push(match2[index]);
     }
-    matches.push(allmatches);
+    matches2.push(allmatches);
     match2 = regex.exec(string);
   }
-  return matches;
+  return matches2;
 }
 function isExist(v) {
   return typeof v !== "undefined";
@@ -10789,24 +10789,24 @@ function scanAttributeTokens(attrStr) {
   return tokens;
 }
 function validateAttributeString(attrStr, options) {
-  const matches = scanAttributeTokens(attrStr);
+  const matches2 = scanAttributeTokens(attrStr);
   const attrNames = {};
-  for (let i2 = 0; i2 < matches.length; i2++) {
-    if (matches[i2][1].length === 0) {
-      return getErrorObject("InvalidAttr", "Attribute '" + matches[i2][2] + "' has no space in starting.", getPositionFromMatch(matches[i2]));
-    } else if (matches[i2][3] !== void 0 && matches[i2][4] === void 0) {
-      return getErrorObject("InvalidAttr", "Attribute '" + matches[i2][2] + "' is without value.", getPositionFromMatch(matches[i2]));
-    } else if (matches[i2][3] === void 0 && !options.allowBooleanAttributes) {
-      return getErrorObject("InvalidAttr", "boolean attribute '" + matches[i2][2] + "' is not allowed.", getPositionFromMatch(matches[i2]));
+  for (let i2 = 0; i2 < matches2.length; i2++) {
+    if (matches2[i2][1].length === 0) {
+      return getErrorObject("InvalidAttr", "Attribute '" + matches2[i2][2] + "' has no space in starting.", getPositionFromMatch(matches2[i2]));
+    } else if (matches2[i2][3] !== void 0 && matches2[i2][4] === void 0) {
+      return getErrorObject("InvalidAttr", "Attribute '" + matches2[i2][2] + "' is without value.", getPositionFromMatch(matches2[i2]));
+    } else if (matches2[i2][3] === void 0 && !options.allowBooleanAttributes) {
+      return getErrorObject("InvalidAttr", "boolean attribute '" + matches2[i2][2] + "' is not allowed.", getPositionFromMatch(matches2[i2]));
     }
-    const attrName = matches[i2][2];
+    const attrName = matches2[i2][2];
     if (!validateAttrName(attrName)) {
-      return getErrorObject("InvalidAttr", "Attribute '" + attrName + "' is an invalid name.", getPositionFromMatch(matches[i2]));
+      return getErrorObject("InvalidAttr", "Attribute '" + attrName + "' is an invalid name.", getPositionFromMatch(matches2[i2]));
     }
     if (!Object.prototype.hasOwnProperty.call(attrNames, attrName)) {
       attrNames[attrName] = 1;
     } else {
-      return getErrorObject("InvalidAttr", "Attribute '" + attrName + "' is repeated.", getPositionFromMatch(matches[i2]));
+      return getErrorObject("InvalidAttr", "Attribute '" + attrName + "' is repeated.", getPositionFromMatch(matches2[i2]));
     }
   }
   return true;
@@ -13016,21 +13016,21 @@ var init_Matcher = __esm({
        * @returns {string}
        */
       toString(separator, includeNamespace = true) {
-        const sep4 = separator || this.separator;
-        const isDefault = sep4 === this.separator && includeNamespace === true;
+        const sep5 = separator || this.separator;
+        const isDefault = sep5 === this.separator && includeNamespace === true;
         if (isDefault) {
           if (this._pathStringCache !== null) {
             return this._pathStringCache;
           }
           const result = this.path.map(
             (n) => n.namespace ? `${n.namespace}:${n.tag}` : n.tag
-          ).join(sep4);
+          ).join(sep5);
           this._pathStringCache = result;
           return result;
         }
         return this.path.map(
           (n) => includeNamespace && n.namespace ? `${n.namespace}:${n.tag}` : n.tag
-        ).join(sep4);
+        ).join(sep5);
       }
       /**
        * Get path as array of tag names.
@@ -14103,15 +14103,15 @@ function resolveNameSpace(tagname) {
 function buildAttributesMap(attrStr, jPath, tagName, force = false) {
   const options = this.options;
   if (force === true || options.ignoreAttributes !== true && typeof attrStr === "string") {
-    const matches = getAllMatches(attrStr, attrsRegx);
-    const len = matches.length;
+    const matches2 = getAllMatches(attrStr, attrsRegx);
+    const len = matches2.length;
     const attrs = {};
     const processedVals = new Array(len);
     let hasRawAttrs = false;
     const rawAttrsForMatcher = {};
     for (let i2 = 0; i2 < len; i2++) {
-      const attrName = this.resolveNameSpace(matches[i2][1]);
-      const oldVal = matches[i2][4];
+      const attrName = this.resolveNameSpace(matches2[i2][1]);
+      const oldVal = matches2[i2][4];
       if (attrName.length && oldVal !== void 0) {
         let val = oldVal;
         if (options.trimValues) val = val.trim();
@@ -14127,7 +14127,7 @@ function buildAttributesMap(attrStr, jPath, tagName, force = false) {
     const jPathStr = options.jPath ? jPath.toString() : this.readonlyMatcher;
     let hasAttrs = false;
     for (let i2 = 0; i2 < len; i2++) {
-      const attrName = this.resolveNameSpace(matches[i2][1]);
+      const attrName = this.resolveNameSpace(matches2[i2][1]);
       if (this.ignoreAttributesFn(attrName, jPathStr)) continue;
       let aName = options.attributeNamePrefix + attrName;
       if (attrName.length) {
@@ -14135,7 +14135,7 @@ function buildAttributesMap(attrStr, jPath, tagName, force = false) {
           aName = options.transformAttributeName(aName);
         }
         aName = sanitizeName(aName, options);
-        if (matches[i2][4] !== void 0) {
+        if (matches2[i2][4] !== void 0) {
           const oldVal = processedVals[i2];
           const newVal = options.attributeValueProcessor(attrName, oldVal, jPathStr);
           if (newVal === null || newVal === void 0) {
@@ -14342,8 +14342,8 @@ function readStopNodeData(xmlData, tagName, i2) {
           const nextLt = xmlData.indexOf("<", i2 + 1);
           if (nextLt === -1 || nextLt > nextGt) {
             const exp = xmlData.substring(i2 + 1, nextGt);
-            const sep4 = exp.search(/\s/);
-            const name2 = sep4 === -1 ? exp : exp.substring(0, sep4);
+            const sep5 = exp.search(/\s/);
+            const name2 = sep5 === -1 ? exp : exp.substring(0, sep5);
             if (name2 === tagName && exp[exp.length - 1] !== "/") openTagCount++;
             i2 = nextGt;
           }
@@ -16176,12 +16176,12 @@ function parseXML(xml, context) {
     attributeParsers: [],
     tagParsers: [displaynameTagParser]
   };
-  return new Promise((resolve3) => {
+  return new Promise((resolve4) => {
     const result = getParser(context).parse(xml);
     if (context.clarkNotationProps) {
       applyClarkNotation(result, context.attributeNamePrefix ?? "@");
     }
-    resolve3(normaliseResult(result));
+    resolve4(normaliseResult(result));
   });
 }
 function prepareFileFromProps(props, filename, isDetailed = false) {
@@ -17247,6 +17247,74 @@ function createWebdavTransport(opts) {
       }
     }
   };
+  function isNotFound(e2) {
+    const s2 = Number(e2?.status ?? e2?.response?.status ?? 0);
+    return s2 === 404;
+  }
+  const etagOf = async (remote) => {
+    const target = p(remote);
+    try {
+      const s2 = await guarded("etag " + target, META_TIMEOUT_MS, (signal) => client.stat(target, { signal }));
+      if (typeof s2?.etag === "string" && s2.etag) return s2.etag;
+      return "weak:" + new Date(s2?.lastmod).getTime() + ":" + Number(s2?.size ?? 0);
+    } catch (e2) {
+      if (isNotFound(e2)) return null;
+      throw e2;
+    }
+  };
+  const putIfMatchImpl = async (data, remote, expectEtag, opts2) => {
+    const target = p(remote);
+    if (opts2?.mkdirs) await ensureParent(target);
+    const buf = toBuffer(data);
+    const weak = expectEtag !== null && expectEtag.startsWith("weak:");
+    if (expectEtag === null || weak) {
+      const cur = await etagOf(remote);
+      if (cur !== expectEtag) return { ok: false, etag: cur, reason: "conflict" };
+    }
+    const headers = {};
+    if (expectEtag === null) headers["If-None-Match"] = "*";
+    else if (!weak) headers["If-Match"] = expectEtag;
+    try {
+      await guarded("CAS \u5199\u5165 " + target, fileTimeoutMs(buf.byteLength), (signal) => client.putFileContents(target, buf, {
+        overwrite: true,
+        contentLength: buf.byteLength,
+        signal,
+        ...Object.keys(headers).length ? { headers } : {}
+      }));
+    } catch (e2) {
+      const s2 = Number(e2?.status ?? e2?.response?.status ?? 0);
+      if (s2 === 412 || s2 === 428 || s2 === 409) {
+        return { ok: false, etag: await etagOf(remote), reason: "conflict" };
+      }
+      throw e2;
+    }
+    return { ok: true, etag: await etagOf(remote) };
+  };
+  const delAbs = async (t2) => {
+    try {
+      await guarded("\u5220\u9664 " + t2, META_TIMEOUT_MS, (signal) => client.deleteFile(t2, { signal }));
+    } catch (e2) {
+      if (!isNotFound(e2)) throw e2;
+    }
+  };
+  const deleteTreeAbs = async (t2) => {
+    let items = null;
+    try {
+      const raw = await guarded("\u5217\u76EE\u5F55 " + t2, META_TIMEOUT_MS, (signal) => client.getDirectoryContents(t2, { signal }));
+      items = Array.isArray(raw) ? raw : [raw];
+    } catch (e2) {
+      if (isNotFound(e2)) return;
+      items = null;
+    }
+    if (items !== null) {
+      for (const it of items) {
+        const child = t2.replace(/\/+$/, "") + "/" + String(it.basename);
+        if (it.type === "directory") await deleteTreeAbs(child);
+        else await delAbs(child);
+      }
+    }
+    await delAbs(t2);
+  };
   return {
     async test() {
       try {
@@ -17288,9 +17356,9 @@ function createWebdavTransport(opts) {
     async get(remote, local) {
       const target = p(remote);
       const buf = await guarded("\u4E0B\u8F7D " + target, FILE_TIMEOUT_FLOOR_MS, (signal) => client.getFileContents(target, { signal }));
-      const { writeFileSync: writeFileSync3, mkdirSync: mkdirSync2 } = await import("node:fs");
+      const { writeFileSync: writeFileSync3, mkdirSync: mkdirSync3 } = await import("node:fs");
       const path4 = await import("node:path");
-      mkdirSync2(path4.dirname(local), { recursive: true });
+      mkdirSync3(path4.dirname(local), { recursive: true });
       writeFileSync3(local, buf);
     },
     async getBuffer(remote) {
@@ -17320,6 +17388,16 @@ function createWebdavTransport(opts) {
         await guarded("\u5EFA\u76EE\u5F55 " + target, META_TIMEOUT_MS, (signal) => client.createDirectory(target, { signal }));
       } catch {
       }
+    },
+    // ---- 0.6.0 / P0：CAS / 递归删 / 原子重命名 ----
+    etag: etagOf,
+    putIfMatch: putIfMatchImpl,
+    deleteTree: async (remote) => deleteTreeAbs(p(remote)),
+    async rename(from, to) {
+      const a = p(from);
+      const b = p(to);
+      await ensureParent(b);
+      await guarded("\u79FB\u52A8 " + a + " \u2192 " + b, META_TIMEOUT_MS, (signal) => client.moveFile(a, b, { signal }));
     }
   };
 }
@@ -17335,10 +17413,34 @@ var init_webdav = __esm({
 });
 
 // src/nas/mount.ts
-import { stat as stat2, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
+import { stat as stat2, mkdir, writeFile, readFile, rm, readdir, rename as fsRename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join, dirname } from "node:path";
 function createMountTransport(root) {
   const abs = (p) => join(root, p);
+  const etagOf = async (remote) => {
+    try {
+      const s2 = await stat2(abs(remote));
+      return "weak:" + Math.floor(s2.mtimeMs) + ":" + s2.size;
+    } catch (e2) {
+      if (e2?.code === "ENOENT") return null;
+      throw e2;
+    }
+  };
+  const atomicWrite = async (target, data) => {
+    await mkdir(dirname(target), { recursive: true });
+    const tmp = target + ".tmp-" + randomUUID();
+    try {
+      await writeFile(tmp, data);
+      await fsRename(tmp, target);
+    } catch (e2) {
+      try {
+        await rm(tmp, { force: true });
+      } catch {
+      }
+      throw e2;
+    }
+  };
   return {
     async test() {
       try {
@@ -17363,14 +17465,10 @@ function createMountTransport(root) {
       );
     },
     async put(local, remote, _opts) {
-      const target = abs(remote);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, await readFile(local));
+      await atomicWrite(abs(remote), await readFile(local));
     },
     async putBuffer(data, remote, _opts) {
-      const target = abs(remote);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, data);
+      await atomicWrite(abs(remote), data);
     },
     async get(remote, local) {
       await mkdir(dirname(local), { recursive: true });
@@ -17392,6 +17490,22 @@ function createMountTransport(root) {
     },
     async mkdir(remote) {
       await mkdir(abs(remote), { recursive: true });
+    },
+    // ---- 0.6.0 / P0：CAS / 递归删 / 原子重命名 ----
+    etag: etagOf,
+    async putIfMatch(data, remote, expectEtag, _opts) {
+      const cur = await etagOf(remote);
+      if (cur !== expectEtag) return { ok: false, etag: cur, reason: "conflict" };
+      await atomicWrite(abs(remote), data);
+      return { ok: true, etag: await etagOf(remote) };
+    },
+    async deleteTree(remote) {
+      await rm(abs(remote), { force: true, recursive: true });
+    },
+    async rename(from, to) {
+      const b = abs(to);
+      await mkdir(dirname(b), { recursive: true });
+      await fsRename(abs(from), b);
     }
   };
 }
@@ -20117,7 +20231,7 @@ var require_scrypt = __commonJS({
       }
       const lib = {
         scrypt: function(password, salt, N, r2, p, dkLen, progressCallback) {
-          return new Promise(function(resolve3, reject) {
+          return new Promise(function(resolve4, reject) {
             let lastProgress = 0;
             if (progressCallback) {
               progressCallback(0);
@@ -20129,7 +20243,7 @@ var require_scrypt = __commonJS({
                 if (progressCallback && lastProgress !== 1) {
                   progressCallback(1);
                 }
-                resolve3(new Uint8Array(key));
+                resolve4(new Uint8Array(key));
               } else if (progressCallback && progress !== lastProgress) {
                 lastProgress = progress;
                 return progressCallback(progress);
@@ -20301,6 +20415,63 @@ function advanceMissingRounds(input) {
 function shouldRetire(rounds) {
   return (rounds ?? 0) >= RETIRE_AFTER_MISSING_ROUNDS;
 }
+function eventStreamAllowsDeletes(t2) {
+  if (!t2) return { allowed: false, reason: "\u672C\u8F6E\u5C1A\u672A\u8BFB\u53D6\u4E8B\u4EF6\u6D41" };
+  if (!t2.trusted) {
+    const bits = [];
+    if (t2.failed.length) bits.push("\u8BFB\u5931\u8D25/\u7B7E\u540D\u5F02\u5E38 " + t2.failed.length + " \u5904");
+    if (t2.gaps.length) bits.push("\u5E8F\u53F7\u7F3A\u53E3 " + t2.gaps.length + " \u6BB5");
+    return { allowed: false, reason: "\u4E8B\u4EF6\u6D41\u4E0D\u5B8C\u6574\uFF08" + (bits.join("\u3001") || "\u672A\u77E5\u539F\u56E0") + "\uFF09" };
+  }
+  return { allowed: true, reason: null };
+}
+function computeLocalDeletes(input) {
+  const empty = { rels: [], blocked: false, reason: null, excludedCount: 0 };
+  if (!input.eventTrusted) return { ...empty, blocked: true, reason: "\u4E8B\u4EF6\u6D41\u4E0D\u53EF\u4FE1" };
+  if (!input.manifestTrusted) return { ...empty, blocked: true, reason: "\u8FDC\u7AEF\u6E05\u5355\u4E0D\u53EF\u4FE1" };
+  if (input.baseline.length === 0) return { ...empty, blocked: true, reason: "\u672C\u5730\u57FA\u7EBF\u4E3A\u7A7A\uFF08\u9996\u8F6E\u4E0D\u4EA7\u751F\u5220\u9664\uFF09" };
+  const present = new Set(input.fresh.map((e2) => e2.rel));
+  const prefixes = input.enabledPrefixes.filter(Boolean);
+  const excluded = input.excluded ?? /* @__PURE__ */ new Set();
+  const ignorable = input.isIgnorable ?? (() => false);
+  const inScope = (rel) => prefixes.some((p) => rel === p || rel.startsWith(p + "/"));
+  const candidates = [];
+  let excludedCount = 0;
+  for (const e2 of input.baseline) {
+    const rel = e2.rel;
+    if (present.has(rel)) continue;
+    if (!isSafeRel(rel) || ignorable(rel) || excluded.has(rel) || !inScope(rel)) {
+      excludedCount++;
+      continue;
+    }
+    candidates.push(rel);
+  }
+  if (candidates.length === 0) return { ...empty, excludedCount };
+  const maxDeletes = input.maxDeletes ?? 50;
+  if (candidates.length > maxDeletes) {
+    return {
+      ...empty,
+      blocked: true,
+      excludedCount,
+      reason: "\u5355\u8F6E\u6D88\u5931 " + candidates.length + " \u6761\uFF0C\u8D85\u8FC7\u4E0A\u9650 " + maxDeletes + "\uFF08\u7591\u4F3C\u914D\u7F6E/\u8DEF\u5F84\u53D8\u66F4\uFF09"
+    };
+  }
+  const maxRatio = input.maxRatio ?? 0.5;
+  if (candidates.length / input.baseline.length > maxRatio) {
+    return {
+      ...empty,
+      blocked: true,
+      excludedCount,
+      reason: "\u5355\u8F6E\u6D88\u5931\u6BD4\u4F8B " + (candidates.length / input.baseline.length).toFixed(2) + " \u8D85\u8FC7\u4E0A\u9650 " + maxRatio + "\uFF08\u7591\u4F3C\u626B\u63CF\u8303\u56F4\u53D8\u66F4\uFF09"
+    };
+  }
+  return { rels: candidates.sort(), blocked: false, reason: null, excludedCount };
+}
+function normalizeRetentionDays(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 30;
+  return Math.min(3650, Math.floor(n));
+}
 
 // src/sync/state-file.ts
 import {
@@ -20407,7 +20578,7 @@ function writeBackup(path4) {
 }
 
 // src/sync/engine.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash6 } from "node:crypto";
 
 // src/sync/scanner.ts
 init_paths();
@@ -20470,6 +20641,37 @@ var NasSyncSchema = z.object({
   chunkSize: z.number().min(1024).default(50 * 1024 * 1024),
   /** 上传并发数 */
   concurrency: z.number().min(1).max(16).default(4),
+  /**
+   * 删除后回收副本保留天数（0.6.0 / P1）。
+   * 0 = 永久保留；到期后由 gcRemoteObjects() 真删远端对象与分块残块。
+   * 默认 30 天，与 README 对外承诺一致。
+   */
+  retentionDays: z.number().min(0).max(3650).default(30),
+  /**
+   * 会话 rel 空间（0.6.0 / 收尾①）。
+   *   legacy    = 0.5.9 行为：`sessions/<cwd编码>/<sid>/...`（默认，升级不改数据）
+   *   shadow    = 主链仍是 legacy，但额外把会话双写到 canonical 空间
+   *   canonical = 主链切到 `sessions/by-id/<sid>/vN/...`（须先执行迁移并写 marker）
+   * 读侧永远双空间归并，所以三种模式可以混跑、可回滚。
+   */
+  sessionRelMode: z.union(["legacy", "shadow", "canonical"]).default("legacy"),
+  /**
+   * 上传密文的信封版本（0.6.0 / 收尾②）。1 = NSS1（0.5.9 兼容），2 = NSS2
+   * （带版本字段与 AAD 绑定）。解密永远双读，改这个数字不会让 NAS 上的历史密文失效。
+   */
+  envelopeVersion: z.number().min(1).max(2).default(1),
+  /** 增量扫描缓存（0.6.0 / 收尾③）：命中时跳过 readFile + sha256。 */
+  scanCacheEnabled: z.boolean().default(true),
+  /** 缓存条目最长可复用时长（小时）；到期强制重算，防 mtime 被保持的静默改写。 */
+  scanCacheTtlHours: z.number().min(1).max(720).default(24),
+  /**
+   * 工作区 / 自定义文件夹的单文件扫描上限（字节，0.6.0 / P3）。
+   *
+   * 0.5.9 里这是 portable.ts 里写死的 64 MiB，配置改不动，而且 `walkWorkspaceFiles`
+   * 两处调用都漏传参数 —— 用户在面板上调大也没用。现在配置化并由引擎贯穿到扫描器。
+   * 超大文件建议放 attachments 分类（那条链路走分块上传）。
+   */
+  maxFileBytes: z.number().min(1024).default(64 * 1024 * 1024),
   /** 已选分类**内部**是否连凭据文件（.credentials 等）一起同步，默认 false */
   includeSensitive: z.boolean().default(false),
   /** r3：按分类勾选同步内容（未列出的键走 DEFAULT_SYNC_SCOPE） */
@@ -20641,6 +20843,20 @@ var Store = class {
    * 和「本地有远端无 → 再传一份」，永不收敛。
    */
   sessionImports = {};
+  /**
+   * 0.6.0 / P1：本机对每台设备事件日志的处理位点。
+   * 不存就会在每次重启后重放历史 delete 事件（虽然本地回收是幂等的，但会刷日志、
+   * 也会让「本机继续编辑过的会话」被重复搬动）。
+   */
+  deviceCursors = {};
+  /**
+   * 0.6.0 / P1：待发布的屏蔽意图。
+   *
+   * `ignoreSession()` / `unignoreSession()` 是面板同步调用，不该在点击瞬间去写
+   * NAS（网络一断就把用户操作弄丢）。先记成意图，下一轮 sync 再转成正式事件发布，
+   * 对端消费后同样写进它自己的屏蔽清单 —— 这就是「屏蔽清单全局事件化」。
+   */
+  pendingIntents = [];
   constructor() {
     const stored = readJsonFile(this.storePath);
     const data = stored.data;
@@ -20679,6 +20895,18 @@ var Store = class {
       if (data.sessionImports && typeof data.sessionImports === "object") {
         this.sessionImports = data.sessionImports;
       }
+      if (data.deviceCursors && typeof data.deviceCursors === "object") {
+        const out = {};
+        for (const [k, v] of Object.entries(data.deviceCursors)) {
+          if (Number.isFinite(v) && v >= 0) out[k] = Math.floor(v);
+        }
+        this.deviceCursors = out;
+      }
+      if (Array.isArray(data.pendingIntents)) {
+        this.pendingIntents = data.pendingIntents.filter(
+          (x2) => x2 && (x2.op === "ignore" || x2.op === "unignore") && typeof x2.sid === "string" && x2.sid
+        ).slice(0, 200);
+      }
     }
     const credFile = readJsonFile(this.credentialsPath);
     if (credFile.corrupted) {
@@ -20704,7 +20932,9 @@ var Store = class {
         conflicts: this.conflicts,
         localManifest: this.localManifest,
         userConfig: publicPart,
-        sessionImports: this.sessionImports
+        sessionImports: this.sessionImports,
+        deviceCursors: this.deviceCursors,
+        pendingIntents: this.pendingIntents
       });
       const credJson = JSON.stringify(secrets);
       if (credJson !== this.lastCredentialsJson) {
@@ -20728,6 +20958,45 @@ import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mk
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import { join as join5, resolve, sep as sep3 } from "node:path";
 import * as os from "node:os";
+
+// src/sync/exclusions.ts
+var SKIP_DIR_NAMES = /* @__PURE__ */ new Set([
+  // 依赖与版本库元数据：体积大、跨机无意义
+  "node_modules",
+  ".git",
+  ".svn",
+  ".hg",
+  "__pycache__",
+  ".venv",
+  "venv",
+  // 框架 / 构建缓存
+  ".next",
+  ".nuxt",
+  ".turbo",
+  ".cache",
+  ".compile-cache",
+  // 宿主运行时产生的目录
+  "nas-sync",
+  ".plugin-manager",
+  // 插件自身的安装目录（两端版本/平台不同，搬过去只会把对面弄坏）
+  "dsh-nas-sync"
+]);
+function isSkippedDirName(name2) {
+  return SKIP_DIR_NAMES.has(String(name2 || ""));
+}
+function isIgnoredFileName(name2) {
+  const n = String(name2 || "");
+  if (!n) return false;
+  if (n.endsWith(".base") || n.endsWith(".chunk-manifest.json") || n.endsWith(".lock")) return true;
+  return /\.bak(-|$)|\.nassync-bak$/.test(n);
+}
+function isIgnoredRelPath(rel) {
+  const parts = String(rel || "").split("/");
+  if (parts.some((p) => isSkippedDirName(p))) return true;
+  return isIgnoredFileName(parts[parts.length - 1] ?? "");
+}
+
+// src/sync/portable.ts
 var zstdImpl = zlib2;
 var zstdCompress = zstdImpl.zstdCompressSync ?? null;
 var zstdDecompress = zstdImpl.zstdDecompressSync ?? null;
@@ -20850,24 +21119,6 @@ async function collectWorkspaceDirs(home = dshHome()) {
   }
   return out;
 }
-var WORKSPACE_SKIP_DIRS = /* @__PURE__ */ new Set([
-  "node_modules",
-  ".git",
-  ".svn",
-  ".hg",
-  "__pycache__",
-  ".venv",
-  "venv",
-  ".next",
-  ".nuxt",
-  ".turbo",
-  ".cache",
-  "nas-sync",
-  // 0.3.7：插件自己的安装目录。手机上的工作区里就有 `dsh-nas-sync/`
-  // （含 vendor/pnpm-*.tgz 约 1 MB），同步它等于把插件搬来搬去，
-  // 而两端插件版本/平台本就不同，搬过去只会把对面弄坏。
-  "dsh-nas-sync"
-]);
 var DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
 function isElectronAsarPath(p) {
   return /\.asar$/i.test(p);
@@ -20892,14 +21143,14 @@ async function* walkInto(dir, relBase, depth, maxBytes) {
       continue;
     }
     if (st.isDirectory()) {
-      if (WORKSPACE_SKIP_DIRS.has(name2)) continue;
+      if (isSkippedDirName(name2)) continue;
       yield* walkInto(full, `${relBase}/${name2}`, depth + 1, maxBytes);
       continue;
     }
     if (!st.isFile()) continue;
     if (isElectronAsarPath(full)) continue;
     if (st.size > maxBytes) continue;
-    if (name2.endsWith(".base") || name2.endsWith(".chunk-manifest.json") || name2.endsWith(".lock")) continue;
+    if (isIgnoredFileName(name2)) continue;
     yield { rel: `${relBase}/${name2}`, file: full };
   }
 }
@@ -21567,15 +21818,8 @@ var SYNC_CATEGORIES = [
 ];
 var DEFAULT_RULES = SYNC_CATEGORIES.filter((c) => DEFAULT_SYNC_SCOPE[c.key]).map((c) => ({ key: c.key, localDir: c.localDir, sensitive: c.sensitive }));
 var SENSITIVE_NAMES = [".credentials.yaml", ".credentials", ".env", ".token"];
-var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", "nas-sync", ".plugin-manager", ".cache", ".compile-cache"]);
 function isIgnoredRel(rel) {
-  const parts = String(rel || "").split("/");
-  if (parts.some((p) => SKIP_DIRS.has(p))) return true;
-  const last = parts[parts.length - 1] ?? "";
-  if (!last) return false;
-  if (last.endsWith(".base") || last.endsWith(".chunk-manifest.json")) return true;
-  if (last.endsWith(".lock")) return true;
-  return /\.bak(-|$)|\.nassync-bak$/.test(last);
+  return isIgnoredRelPath(rel);
 }
 async function* walkFiles(dir) {
   let names;
@@ -21593,7 +21837,7 @@ async function* walkFiles(dir) {
       continue;
     }
     if (st.isDirectory()) {
-      if (SKIP_DIRS.has(name2)) continue;
+      if (isSkippedDirName(name2)) continue;
       yield* walkFiles(full);
     } else {
       if (isIgnoredRel(name2)) continue;
@@ -21609,6 +21853,15 @@ var Scanner = class {
   customFolders;
   maxFileBytes;
   /**
+   * 0.6.0 / 收尾①：本机清单 rel → 远端清单 rel 的投影。
+   * 默认 undefined = 原样返回（0.5.9 行为逐字节不变）。canonical 模式下把
+   * `sessions/<cwd编码>/<sid>/...` 投影成 `sessions/by-id/<sid>/vN/...`，
+   * 本地文件仍在原路径，改的只是**清单里的名字**。
+   */
+  relProjector;
+  /** 0.6.0 / 收尾③：增量扫描缓存会话；不给 = 每轮全量 readFile + sha256。 */
+  cache;
+  /**
    * @param opts.scope            分类勾选（缺省 = DEFAULT_SYNC_SCOPE）
    * @param opts.includeSensitive 已选分类**内部**是否连凭据文件一起同步
    * @param opts.skillFilter      技能白名单（空 = 全部，见 config.ts 的语义说明）
@@ -21622,6 +21875,8 @@ var Scanner = class {
     this.skillFilter = opts.skillFilter ?? [];
     this.customFolders = opts.customFolders ?? [];
     this.maxFileBytes = opts.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
+    this.relProjector = opts.relProjector;
+    this.cache = opts.cache;
     this.rules = opts.rules ?? this.rulesFromScope();
   }
   /** 勾选的分类 → 规则表。注意：这里**不**用 includeSensitive 过滤整体分类。 */
@@ -21678,7 +21933,16 @@ var Scanner = class {
         out.push(await this.toEntry(file, rel));
       }
     }
-    return out;
+    this.cache?.prune(out.map((e2) => e2.rel));
+    if (!this.relProjector) return out;
+    const projected = /* @__PURE__ */ new Map();
+    for (const item of out) {
+      const rel = this.relProjector(item.rel);
+      if (!rel) continue;
+      const cur = projected.get(rel);
+      if (!cur || (item.mtime ?? 0) >= (cur.mtime ?? 0)) projected.set(rel, { ...item, rel });
+    }
+    return [...projected.values()];
   }
   /**
    * 「工作区文件」的清单。
@@ -21698,7 +21962,7 @@ var Scanner = class {
     }
     for (const ws of dirs) {
       try {
-        for await (const f3 of walkWorkspaceFiles(ws)) {
+        for await (const f3 of walkWorkspaceFiles(ws, this.maxFileBytes)) {
           if (!this.includeSensitive && this.isSensitive(f3.rel)) continue;
           out.push(await this.toEntry(f3.file, f3.rel));
         }
@@ -21735,12 +21999,18 @@ var Scanner = class {
   }
   async toEntry(file, rel) {
     const s2 = statSync2(file);
-    const buf = await readFile3(file);
+    const statTriple = { mtimeMs: s2.mtimeMs, ctimeMs: s2.ctimeMs, size: s2.size };
+    let hash = this.cache?.lookup(rel, statTriple) ?? null;
+    if (!hash) {
+      const buf = await readFile3(file);
+      hash = createHash("sha256").update(buf).digest("hex");
+    }
+    this.cache?.record(rel, statTriple, hash);
     return {
       rel,
       mtime: s2.mtimeMs,
       size: s2.size,
-      hash: createHash("sha256").update(buf).digest("hex"),
+      hash,
       // 扫描到即认为「本机拥有/上传了它」。engine 写远端清单时会用「内容没变就
       // 保留原来源」的规则把它改回真正的上传方，所以这里填本机是安全的。
       device: selfDevice()
@@ -21749,14 +22019,15 @@ var Scanner = class {
 };
 async function summarizeCategories(opts) {
   const scope = { ...DEFAULT_SYNC_SCOPE, ...opts.scope };
+  const maxBytes = opts.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
   const out = {};
   for (const c of SYNC_CATEGORIES) out[c.key] = { files: 0, bytes: 0 };
-  const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter, customFolders: opts.customFolders });
+  const sc = new Scanner({ scope, includeSensitive: opts.includeSensitive, skillFilter: opts.skillFilter, customFolders: opts.customFolders, maxFileBytes: maxBytes });
   for (const rule of sc.activeRules()) {
     if (rule.key === "workspaceFiles") {
       try {
         for (const ws of await collectWorkspaceDirs(dshHome())) {
-          for await (const f3 of walkWorkspaceFiles(ws)) {
+          for await (const f3 of walkWorkspaceFiles(ws, maxBytes)) {
             try {
               const fs2 = await stat4(f3.file);
               out[rule.key].files += 1;
@@ -21772,7 +22043,7 @@ async function summarizeCategories(opts) {
     if (rule.key === "customFolders") {
       for (const folder of opts.customFolders ?? []) {
         try {
-          for await (const f3 of walkCustomFolder(folder)) {
+          for await (const f3 of walkCustomFolder(folder, maxBytes)) {
             const s2 = await stat4(f3.file);
             out[rule.key].files += 1;
             out[rule.key].bytes += s2.size;
@@ -21851,15 +22122,23 @@ async function listSkills() {
 // src/sync/crypto.ts
 var import_tweetnacl = __toESM(require_nacl_fast(), 1);
 var import_scrypt_js = __toESM(require_scrypt(), 1);
-import { randomBytes as randomBytes2 } from "node:crypto";
+import { randomBytes as randomBytes2, createHmac, createHash as createHash2 } from "node:crypto";
 var SALT_LEN = 16;
 var NONCE_LEN = 24;
-var MAGIC = new Uint8Array([78, 83, 83, 49]);
-var HEADER_LEN = MAGIC.length + SALT_LEN + NONCE_LEN;
+var MAGIC_V1 = new Uint8Array([78, 83, 83, 49]);
+var MAGIC_V2 = new Uint8Array([78, 83, 83, 50]);
+var MAGIC_CHUNK = new Uint8Array([78, 83, 83, 50, 67]);
+var HEADER_V1_LEN = MAGIC_V1.length + SALT_LEN + NONCE_LEN;
+var HEADER_V2_MIN = MAGIC_V2.length + 1 + SALT_LEN + NONCE_LEN + 4;
+var MAC_LEN = 16;
 var keyCache = /* @__PURE__ */ new Map();
+function cacheKey(passphrase, salt) {
+  const passHash = createHash2("sha256").update(passphrase, "utf8").digest("hex");
+  return passHash + "|" + Buffer.from(salt).toString("hex");
+}
 async function deriveKey(passphrase, salt) {
-  const cacheKey = passphrase + "|" + Buffer.from(salt).toString("hex");
-  const hit = keyCache.get(cacheKey);
+  const ck = cacheKey(passphrase, salt);
+  const hit = keyCache.get(ck);
   if (hit) return hit;
   const key = await (0, import_scrypt_js.scrypt)(
     new TextEncoder().encode(passphrase),
@@ -21869,44 +22148,130 @@ async function deriveKey(passphrase, salt) {
     1,
     32
   );
-  keyCache.set(cacheKey, key);
+  keyCache.set(ck, key);
   return key;
 }
-function isEncrypted(blob) {
-  if (blob.length < HEADER_LEN + 16) return false;
-  for (let i2 = 0; i2 < MAGIC.length; i2++) {
-    if (blob[i2] !== MAGIC[i2]) return false;
-  }
+function subKey(master, domain, aad) {
+  return new Uint8Array(
+    createHmac("sha256", Buffer.from(master)).update("dsh-nas-sync\0" + domain + "\0" + aad, "utf8").digest()
+  );
+}
+function writeU32BE(out, at, value) {
+  out[at] = value >>> 24 & 255;
+  out[at + 1] = value >>> 16 & 255;
+  out[at + 2] = value >>> 8 & 255;
+  out[at + 3] = value & 255;
+}
+function readU32BE(buf, at) {
+  return (buf[at] << 24 | buf[at + 1] << 16 | buf[at + 2] << 8 | buf[at + 3]) >>> 0;
+}
+function matches(blob, magic) {
+  if (blob.length < magic.length) return false;
+  for (let i2 = 0; i2 < magic.length; i2++) if (blob[i2] !== magic[i2]) return false;
   return true;
 }
-var Crypto = class {
-  static async encrypt(data, passphrase, salt) {
+function envelopeInfo(blob) {
+  if (!blob || blob.length < HEADER_V1_LEN + MAC_LEN) return null;
+  if (matches(blob, MAGIC_V1)) {
+    return {
+      version: 1,
+      aad: "",
+      saltHex: Buffer.from(blob.slice(MAGIC_V1.length, MAGIC_V1.length + SALT_LEN)).toString("hex")
+    };
+  }
+  if (matches(blob, MAGIC_V2) && blob.length >= HEADER_V2_MIN + MAC_LEN) {
+    const at = MAGIC_V2.length + 1 + SALT_LEN + NONCE_LEN;
+    const aadLen = readU32BE(blob, at);
+    if (aadLen < 0 || aadLen > 4096 || at + 4 + aadLen + MAC_LEN > blob.length) return null;
+    const aadBytes = blob.slice(at + 4, at + 4 + aadLen);
+    return {
+      version: 2,
+      aad: new TextDecoder().decode(aadBytes),
+      saltHex: Buffer.from(blob.slice(MAGIC_V2.length + 1, MAGIC_V2.length + 1 + SALT_LEN)).toString("hex")
+    };
+  }
+  return null;
+}
+var Crypto = class _Crypto {
+  /**
+   * 加密。默认写 NSS1 —— 升级到 0.6.0 不会让还在跑 0.5.9 的对端读不懂清单。
+   * 只有 `envelopeVersion=2` 时引擎才传 `{version:2, aad}` 写 NSS2。
+   */
+  static async encrypt(data, passphrase, salt, opts = {}) {
     if (!passphrase) throw new Error("\u672A\u914D\u7F6E\u52A0\u5BC6\u53E3\u4EE4\uFF08\u8BBE\u7F6E\u91CC\u586B\u5199 passphrase \u540E\u91CD\u8BD5\uFF09");
+    if (salt.length !== SALT_LEN) throw new Error("salt \u5FC5\u987B\u662F 16 \u5B57\u8282");
     const key = await deriveKey(passphrase, salt);
-    const nonce = randomBytes2(NONCE_LEN);
-    const box = import_tweetnacl.default.secretbox(data, nonce, key);
-    const out = new Uint8Array(HEADER_LEN + box.length);
-    out.set(MAGIC, 0);
-    out.set(salt, MAGIC.length);
-    out.set(nonce, MAGIC.length + SALT_LEN);
-    out.set(box, HEADER_LEN);
+    const nonce = new Uint8Array(randomBytes2(NONCE_LEN));
+    if ((opts.version ?? 1) === 1) {
+      const box2 = import_tweetnacl.default.secretbox(data, nonce, key);
+      const out2 = new Uint8Array(HEADER_V1_LEN + box2.length);
+      out2.set(MAGIC_V1, 0);
+      out2.set(salt, MAGIC_V1.length);
+      out2.set(nonce, MAGIC_V1.length + SALT_LEN);
+      out2.set(box2, HEADER_V1_LEN);
+      return out2;
+    }
+    const aadBytes = new TextEncoder().encode(String(opts.aad ?? ""));
+    if (aadBytes.length > 4096) throw new Error("AAD \u8FC7\u957F\uFF08\u4E0A\u9650 4096 \u5B57\u8282\uFF09");
+    const box = import_tweetnacl.default.secretbox(data, nonce, subKey(key, "NSS2", String(opts.aad ?? "")));
+    const head = HEADER_V2_MIN;
+    const out = new Uint8Array(head + aadBytes.length + box.length);
+    out.set(MAGIC_V2, 0);
+    out[MAGIC_V2.length] = 2;
+    out.set(salt, MAGIC_V2.length + 1);
+    out.set(nonce, MAGIC_V2.length + 1 + SALT_LEN);
+    const lenAt = MAGIC_V2.length + 1 + SALT_LEN + NONCE_LEN;
+    const aadAt = head;
+    writeU32BE(out, lenAt, aadBytes.length);
+    out.set(aadBytes, aadAt);
+    out.set(box, aadAt + aadBytes.length);
     return out;
   }
+  /** 便捷入口：显式加密成 NSS2。 */
+  static async encryptV2(data, passphrase, salt, aad = "") {
+    return _Crypto.encrypt(data, passphrase, salt, { version: 2, aad });
+  }
+  /** 解密 NSS1 / NSS2。AAD 从头部读，调用方不需要（也不应该）再传一遍。 */
   static async decrypt(blob, passphrase) {
-    if (!isEncrypted(blob)) {
-      throw new Error("\u4E0D\u662F NAS \u540C\u6B65\u7684\u52A0\u5BC6\u6587\u4EF6\uFF08\u7F3A\u5C11 NSS1 \u5934\uFF09\uFF1A\u8FDC\u7AEF\u6570\u636E\u53EF\u80FD\u6765\u81EA\u65E7\u7248\u672C\u6216\u5DF2\u635F\u574F");
+    if (!passphrase) throw new Error("\u672A\u914D\u7F6E\u52A0\u5BC6\u53E3\u4EE4\uFF08\u8BBE\u7F6E\u91CC\u586B\u5199 passphrase \u540E\u91CD\u8BD5\uFF09");
+    if (matches(blob, MAGIC_V1)) {
+      const salt = blob.slice(MAGIC_V1.length, MAGIC_V1.length + SALT_LEN);
+      const nonce = blob.slice(MAGIC_V1.length + SALT_LEN, HEADER_V1_LEN);
+      const box = blob.slice(HEADER_V1_LEN);
+      const key = await deriveKey(passphrase, salt);
+      const plain = import_tweetnacl.default.secretbox.open(box, nonce, key);
+      if (!plain) throw new Error("\u89E3\u5BC6\u5931\u8D25\uFF1A\u53E3\u4EE4\u9519\u8BEF\u6216\u6587\u4EF6\u5DF2\u635F\u574F\uFF08NSS1\uFF09");
+      return plain;
     }
-    const salt = blob.slice(MAGIC.length, MAGIC.length + SALT_LEN);
-    const nonce = blob.slice(MAGIC.length + SALT_LEN, HEADER_LEN);
-    const box = blob.slice(HEADER_LEN);
-    const key = await deriveKey(passphrase, salt);
-    const plain = import_tweetnacl.default.secretbox.open(box, nonce, key);
-    if (!plain) throw new Error("\u89E3\u5BC6\u5931\u8D25\uFF1A\u53E3\u4EE4\u9519\u8BEF\u6216\u6587\u4EF6\u5DF2\u635F\u574F");
-    return plain;
+    if (matches(blob, MAGIC_V2)) {
+      const info = envelopeInfo(blob);
+      if (!info) throw new Error("NSS2 \u5934\u635F\u574F\uFF08AAD \u957F\u5EA6\u8D8A\u754C\u6216\u6587\u4EF6\u88AB\u622A\u65AD\uFF09");
+      const verAt = MAGIC_V2.length;
+      if (blob[verAt] !== 2) throw new Error("\u4E0D\u652F\u6301\u7684 NSS2 \u7248\u672C\uFF1A" + blob[verAt]);
+      const saltAt = verAt + 1;
+      const nonceAt = saltAt + SALT_LEN;
+      const lenAt = nonceAt + NONCE_LEN;
+      const aadLen = readU32BE(blob, lenAt);
+      const aadAt = lenAt + 4;
+      const aad = new TextDecoder().decode(blob.slice(aadAt, aadAt + aadLen));
+      const salt = blob.slice(saltAt, saltAt + SALT_LEN);
+      const nonce = blob.slice(nonceAt, nonceAt + NONCE_LEN);
+      const box = blob.slice(aadAt + aadLen);
+      const key = await deriveKey(passphrase, salt);
+      const plain = import_tweetnacl.default.secretbox.open(box, nonce, subKey(key, "NSS2", aad));
+      if (!plain) throw new Error("\u89E3\u5BC6\u5931\u8D25\uFF1A\u53E3\u4EE4\u9519\u8BEF\u3001AAD \u88AB\u7BE1\u6539\u6216\u6587\u4EF6\u5DF2\u635F\u574F\uFF08NSS2\uFF09");
+      return plain;
+    }
+    throw new Error("\u4E0D\u662F NAS \u540C\u6B65\u7684\u52A0\u5BC6\u6587\u4EF6\uFF08\u7F3A\u5C11 NSS1/NSS2 \u5934\uFF09\uFF1A\u8FDC\u7AEF\u6570\u636E\u53EF\u80FD\u6765\u81EA\u65E7\u7248\u672C\u6216\u5DF2\u635F\u574F");
   }
 };
+var CHUNK_FIXED = MAGIC_CHUNK.length + SALT_LEN + NONCE_LEN + 4 + 1 + 2;
 
 // src/sync/chunker.ts
+import { createHash as createHash3 } from "node:crypto";
+function sha256Hex(data) {
+  return createHash3("sha256").update(data).digest("hex");
+}
 var Chunker = class {
   transport;
   opts;
@@ -21917,41 +22282,72 @@ var Chunker = class {
   chunkRemote(base, index) {
     return base + ".part" + String(index).padStart(4, "0");
   }
-  /** 上传一段**已加密**的完整密文（含 NSS1 头）。plainHash 由调用方传入。 */
-  async upload(cipher, plainHash, plainSize, remotePath) {
+  /** 切块并算出每块的密文 hash（一次遍历，上传与清单共用）。 */
+  slice(cipher) {
     const chunkSize = this.opts.chunkSize;
     const num = Math.max(1, Math.ceil(cipher.length / chunkSize));
-    try {
-      const prev = await this.transport.getBuffer(remotePath + ".chunk-manifest.json");
-      const manifest2 = JSON.parse(new TextDecoder().decode(prev));
-      if (manifest2.plainHash === plainHash) {
-        let allOk = true;
-        for (let i2 = 0; i2 < num; i2++) {
-          const remote = this.chunkRemote(remotePath, i2);
-          const st = await this.transport.stat(remote);
-          const expect = i2 === num - 1 ? cipher.length - (num - 1) * chunkSize : chunkSize;
-          if (!st || st.size !== expect) {
-            allOk = false;
-            break;
-          }
-        }
-        if (allOk) return;
-      }
-    } catch {
+    const out = [];
+    for (let i2 = 0; i2 < num; i2++) {
+      const off = i2 * chunkSize;
+      const data = cipher.subarray(off, Math.min(off + chunkSize, cipher.length));
+      out.push({ data, hash: sha256Hex(data) });
     }
+    return out;
+  }
+  /** 读旧清单；读不到/损坏一律返回 null（不把「读失败」当成「没有清单」）。 */
+  async readManifest(remotePath) {
+    try {
+      const raw = await this.transport.getBuffer(remotePath + ".chunk-manifest.json");
+      const m2 = JSON.parse(new TextDecoder().decode(raw));
+      return m2 && Array.isArray(m2.chunks) ? m2 : null;
+    } catch {
+      return null;
+    }
+  }
+  /** 上传一段**已加密**的完整密文（含 NSS1 头）。plainHash 由调用方传入。 */
+  async upload(cipher, plainHash, plainSize, remotePath) {
+    const parts = this.slice(cipher);
+    const num = parts.length;
+    const chunkHashes = parts.map((p) => p.hash);
+    const prev = await this.readManifest(remotePath);
+    const prevNum = prev?.chunks.length ?? 0;
+    const hashesMatch = prev && Array.isArray(prev.chunkHashes) ? prev.chunkHashes.length === num && prev.chunkHashes.every((h2, i2) => h2 === chunkHashes[i2]) : true;
+    const contentSame = !!(prev && prev.plainHash === plainHash && hashesMatch);
+    if (contentSame) {
+      let allOk = true;
+      for (let i2 = 0; i2 < num; i2++) {
+        const st = await this.transport.stat(this.chunkRemote(remotePath, i2));
+        if (!st || st.size !== parts[i2].data.length) {
+          allOk = false;
+          break;
+        }
+      }
+      if (allOk) {
+        if (!Array.isArray(prev.chunkHashes)) {
+          await this.writeManifest(remotePath, {
+            chunks: Array.from({ length: num }, (_, i2) => this.chunkRemote(remotePath, i2).split("/").pop()),
+            plainHash,
+            plainSize,
+            chunkHashes
+          });
+        }
+        return;
+      }
+    }
+    const force = !contentSame;
     const queue = [];
     for (let i2 = 0; i2 < num; i2++) queue.push(i2);
     let active = 0;
     let failed = null;
-    await new Promise((resolve3, reject) => {
+    await new Promise((resolve4, reject) => {
       const spawn2 = () => {
         if (failed) return;
         while (queue.length > 0 && active < this.opts.concurrency) {
           const i2 = queue.shift();
           active++;
-          this.uploadOne(cipher, i2, remotePath).then(() => {
+          this.uploadOne(parts[i2].data, i2, remotePath, force).then(() => {
             active--;
-            if (queue.length === 0 && active === 0) resolve3();
+            if (queue.length === 0 && active === 0) resolve4();
             else spawn2();
           }).catch((e2) => {
             failed = e2;
@@ -21961,23 +22357,32 @@ var Chunker = class {
       };
       spawn2();
     });
-    const manifest = {
+    for (let i2 = num; i2 < prevNum; i2++) {
+      try {
+        await this.transport.delete(this.chunkRemote(remotePath, i2));
+      } catch {
+      }
+    }
+    await this.writeManifest(remotePath, {
       chunks: Array.from({ length: num }, (_, i2) => this.chunkRemote(remotePath, i2).split("/").pop()),
       plainHash,
-      plainSize
-    };
+      plainSize,
+      chunkHashes
+    });
+  }
+  async writeManifest(remotePath, manifest) {
     await this.transport.putBuffer(
       new TextEncoder().encode(JSON.stringify(manifest, null, 2)),
       remotePath + ".chunk-manifest.json",
       { mkdirs: true }
     );
   }
-  async uploadOne(cipher, index, remotePath) {
+  async uploadOne(chunk, index, remotePath, force) {
     const remote = this.chunkRemote(remotePath, index);
-    const offset = index * this.opts.chunkSize;
-    const chunk = cipher.subarray(offset, Math.min(offset + this.opts.chunkSize, cipher.length));
-    const st = await this.transport.stat(remote);
-    if (st && st.size === chunk.length) return;
+    if (!force) {
+      const st = await this.transport.stat(remote);
+      if (st && st.size === chunk.length) return;
+    }
     await this.transport.putBuffer(chunk, remote, { mkdirs: true });
   }
   /** 下载：按清单拉全部块拼回密文。返回 { cipher, manifest }。 */
@@ -21986,8 +22391,16 @@ var Chunker = class {
     const manifest = JSON.parse(new TextDecoder().decode(manifestEnc));
     const dir = remotePath.slice(0, remotePath.lastIndexOf("/") + 1);
     const parts = [];
-    for (const c of manifest.chunks) {
-      parts.push(await this.transport.getBuffer(dir + c));
+    for (let i2 = 0; i2 < manifest.chunks.length; i2++) {
+      const name2 = manifest.chunks[i2];
+      const buf = await this.transport.getBuffer(dir + name2);
+      const expected = Array.isArray(manifest.chunkHashes) ? manifest.chunkHashes[i2] : void 0;
+      if (expected && sha256Hex(buf) !== expected) {
+        throw new Error(
+          "\u5206\u5757\u6821\u9A8C\u5931\u8D25\uFF1A\u7B2C " + i2 + " \u5757 (" + name2 + ") \u5185\u5BB9\u635F\u574F\u6216\u534A\u622A\u5199\u5165\u3002\u8BF7\u5220\u9664\u8BE5\u5206\u5757\u540E\u91CD\u4F20\uFF0C\u6216\u7528 nas_confirm_delete \u6E05\u7406\u540E\u91CD\u65B0\u540C\u6B65\u3002"
+        );
+      }
+      parts.push(buf);
     }
     const total = parts.reduce((s2, p) => s2 + p.length, 0);
     const merged = new Uint8Array(total);
@@ -21997,6 +22410,31 @@ var Chunker = class {
       off += p.length;
     }
     return { cipher: merged, manifest };
+  }
+  /** 清理某个分块文件的全部残块（P1 的过期 GC / 手动清理复用）。 */
+  async cleanup(remotePath, upTo = 64) {
+    let n = 0;
+    let miss = 0;
+    for (let i2 = 0; i2 < upTo && miss < 2; i2++) {
+      const remote = this.chunkRemote(remotePath, i2);
+      const st = await this.transport.stat(remote).catch(() => null);
+      if (!st) {
+        miss++;
+        continue;
+      }
+      miss = 0;
+      try {
+        await this.transport.delete(remote);
+        n++;
+      } catch {
+      }
+    }
+    try {
+      await this.transport.delete(remotePath + ".chunk-manifest.json");
+      n++;
+    } catch {
+    }
+    return n;
   }
 };
 
@@ -22187,6 +22625,299 @@ function diffPlugins(installed, remote, opts = {}) {
   return out;
 }
 
+// src/sync/events.ts
+import { createHash as createHash4 } from "node:crypto";
+var EVENTS_DIR = "/dsh/events";
+var TOMBSTONES_FILE = "/dsh/tombstones.json";
+var CURSORS_DIR = "/dsh/cursors";
+var OBJECTS_DIR = "/dsh/objects";
+var TRASH_DIR = "/dsh/trash";
+var BIDMAP_FILE = "/dsh/bidmap.json";
+var DEFAULT_RETENTION_DAYS = 30;
+var EVENT_SHARD_SIZE = 500;
+var DAY_MS = 24 * 60 * 60 * 1e3;
+var VALID_OPS = /* @__PURE__ */ new Set([
+  "upsert",
+  "delete",
+  "ignore",
+  "unignore",
+  "plugin-install",
+  "plugin-uninstall"
+]);
+function safeName2(raw) {
+  return String(raw || "").replace(/[^A-Za-z0-9._-]/g, "_").replace(/\.{2,}/g, "_").slice(0, 64) || "_unknown";
+}
+function eventLogFileOf(device, shard = 0) {
+  const s2 = Math.max(0, Math.floor(Number(shard) || 0));
+  return EVENTS_DIR + "/" + safeName2(device) + "/" + String(s2).padStart(6, "0") + ".jsonl";
+}
+function eventShardOf(seq) {
+  const n = Math.max(1, Math.floor(Number(seq) || 1));
+  return Math.floor((n - 1) / EVENT_SHARD_SIZE);
+}
+function cursorFileOf(device) {
+  return CURSORS_DIR + "/" + safeName2(device) + ".json";
+}
+function objectPathOf(hash) {
+  const h2 = String(hash || "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(h2)) throw new Error("\u975E\u6CD5 CAS \u6307\u7EB9\uFF1A" + String(hash).slice(0, 80));
+  return OBJECTS_DIR + "/" + h2.slice(0, 2) + "/" + h2;
+}
+function trashPathOf(key, at) {
+  const k = safeName2(key).slice(0, 96);
+  const date = new Date(Number.isFinite(at) ? at : Date.now()).toISOString().slice(0, 10);
+  return TRASH_DIR + "/" + date + "/" + k + "-" + Math.floor(at);
+}
+function canonicalSessionRel(sid, version = 1) {
+  return "sessions/by-id/" + safeName2(sid).slice(0, 96) + "/v" + Math.max(1, Math.floor(version));
+}
+function sessionIdFromRel(rel) {
+  const parts = String(rel || "").split("/");
+  if (parts[0] !== "sessions") return null;
+  if (parts[1] === "by-id" && parts.length >= 3) return parts[2] || null;
+  if (parts.length < 4) return null;
+  return parts[parts.length - 2] || null;
+}
+function stableKeyOf(rel, opts = {}) {
+  if (opts.plugin) {
+    const p = opts.plugin;
+    return "plugin:" + p.name + "@" + p.platform + "/" + (p.abi || "none");
+  }
+  const sid = opts.sid ?? sessionIdFromRel(rel);
+  if (sid) return "session:" + sid;
+  return "rel:" + rel;
+}
+function pluginTarget(platform, arch, abi) {
+  return [platform, arch, "node-" + String(abi)].join("/");
+}
+var SIG_KEYS = [
+  "v",
+  "device",
+  "seq",
+  "ts",
+  "key",
+  "rel",
+  "hash",
+  "op",
+  "category",
+  "platform",
+  "retentionDays"
+];
+function canonicalForSig(e2) {
+  const parts = [];
+  for (const k of SIG_KEYS) {
+    const v = e2[k];
+    if (v !== void 0 && v !== null) parts.push(k + "=" + String(v));
+  }
+  return parts.join("\n");
+}
+function eventSignature(e2) {
+  return createHash4("sha256").update(canonicalForSig(e2)).digest("hex");
+}
+function makeEvent(input) {
+  const e2 = {
+    v: 2,
+    device: String(input.device || "_unknown"),
+    seq: Math.max(1, Math.floor(Number(input.seq) || 1)),
+    ts: Number.isFinite(input.ts) ? Math.floor(input.ts) : Date.now(),
+    key: String(input.key || ""),
+    op: input.op
+  };
+  if (input.rel) e2.rel = input.rel;
+  if (input.hash) e2.hash = input.hash;
+  if (input.category) e2.category = input.category;
+  if (input.platform) e2.platform = input.platform;
+  if (Number.isFinite(input.retentionDays)) e2.retentionDays = Math.max(0, Math.floor(input.retentionDays));
+  e2.sig = eventSignature(e2);
+  return e2;
+}
+function verifyEvent(e2) {
+  if (!e2 || typeof e2 !== "object") return false;
+  const r2 = e2;
+  if (r2.v !== 2) return false;
+  if (typeof r2.device !== "string" || !r2.device) return false;
+  if (!Number.isInteger(r2.seq) || r2.seq < 1) return false;
+  if (!Number.isFinite(r2.ts)) return false;
+  if (typeof r2.key !== "string" || !r2.key) return false;
+  if (!VALID_OPS.has(r2.op)) return false;
+  if (typeof r2.sig !== "string" || !r2.sig) return false;
+  try {
+    return eventSignature(e2) === r2.sig;
+  } catch {
+    return false;
+  }
+}
+function eventId(e2) {
+  return e2.device + ":" + e2.seq;
+}
+function compareEvents(a, b) {
+  if (a.ts !== b.ts) return a.ts - b.ts;
+  if (a.op !== b.op && (a.op === "delete" || b.op === "delete")) {
+    return a.op === "delete" ? 1 : -1;
+  }
+  const d = String(a.device).localeCompare(String(b.device));
+  if (d !== 0) return d;
+  return a.seq - b.seq;
+}
+function sortEvents(events) {
+  return [...events].sort(compareEvents);
+}
+function dedupeEvents(events) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const e2 of events) {
+    if (!e2 || !e2.device || !e2.seq) continue;
+    const id = eventId(e2);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(e2);
+  }
+  return out;
+}
+function mergeEventLogs(logs) {
+  const all = [];
+  for (const log of logs) {
+    if (!Array.isArray(log)) continue;
+    for (const e2 of log) if (e2 && e2.device && e2.seq) all.push(e2);
+  }
+  return sortEvents(dedupeEvents(all));
+}
+function nextLocalSeq(events, device) {
+  let max = 0;
+  for (const e2 of events) {
+    if (e2.device === device && Number.isInteger(e2.seq)) max = Math.max(max, e2.seq);
+  }
+  return max + 1;
+}
+function validateEventStream(reads) {
+  const failed = reads.filter((r2) => r2.events === null).map((r2) => r2.name);
+  const merged = mergeEventLogs(reads.flatMap((r2) => r2.events ? [r2.events] : []));
+  const badSignatures = [];
+  const byDevice = /* @__PURE__ */ new Map();
+  for (const e2 of merged) {
+    if (!verifyEvent(e2)) {
+      badSignatures.push(eventId(e2));
+      continue;
+    }
+    const arr = byDevice.get(e2.device) ?? [];
+    arr.push(e2.seq);
+    byDevice.set(e2.device, arr);
+  }
+  const gaps = [];
+  for (const [device, seqs] of byDevice) {
+    seqs.sort((a, b) => a - b);
+    let expect = 1;
+    for (const s2 of seqs) {
+      if (s2 > expect) gaps.push({ device, from: expect, to: s2 - 1 });
+      expect = Math.max(expect, s2 + 1);
+    }
+  }
+  return {
+    trusted: failed.length === 0 && badSignatures.length === 0 && gaps.length === 0,
+    failed: [...failed, ...badSignatures].sort(),
+    gaps,
+    badSignatures
+  };
+}
+function buildTombstones(events, opts = {}) {
+  const days = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
+  const byKey = /* @__PURE__ */ new Map();
+  for (const t2 of opts.previous ?? []) if (t2 && t2.key) byKey.set(t2.key, t2);
+  for (const e2 of sortEvents(events)) {
+    if (e2.op === "delete") {
+      const d = e2.retentionDays ?? days;
+      byKey.set(e2.key, {
+        key: e2.key,
+        rel: e2.rel,
+        deletedAt: e2.ts,
+        by: e2.device,
+        device: e2.device,
+        seq: e2.seq,
+        expiresAt: d > 0 ? e2.ts + d * DAY_MS : 0,
+        trashRel: e2.rel ? trashPathOf(e2.key, e2.ts) : void 0
+      });
+    } else if (e2.op === "upsert" || e2.op === "plugin-install") {
+      const t2 = byKey.get(e2.key);
+      if (t2 && e2.ts > t2.deletedAt) byKey.delete(e2.key);
+    } else if (e2.op === "unignore") {
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+function mergeTombstones(...lists) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const list of lists) {
+    for (const t2 of list) {
+      if (!t2 || !t2.key) continue;
+      const cur = byKey.get(t2.key);
+      if (!cur) {
+        byKey.set(t2.key, t2);
+        continue;
+      }
+      const newer = t2.deletedAt > cur.deletedAt || t2.deletedAt === cur.deletedAt && (t2.seq > cur.seq || t2.seq === cur.seq && String(t2.device) > String(cur.device));
+      if (newer) byKey.set(t2.key, t2);
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+function isDeleted(key, tombstones, now = Date.now()) {
+  const t2 = tombstones.find((x2) => x2.key === key);
+  if (!t2) return false;
+  return t2.expiresAt === 0 || now < t2.expiresAt;
+}
+function collectGc(tombstones, now = Date.now()) {
+  return tombstones.filter((t2) => t2.expiresAt !== 0 && now >= t2.expiresAt);
+}
+function tombstoneTargets(t2) {
+  if (t2.key.startsWith("session:")) return { rels: [], sid: t2.key.slice(8) };
+  if (t2.key.startsWith("rel:")) return { rels: [t2.key.slice(4)], sid: null };
+  return { rels: [], sid: null };
+}
+function advanceCursor(cursor, events, device, now = Date.now()) {
+  let max = cursor?.appliedSeq ?? 0;
+  for (const e2 of events) {
+    if (e2.device === device && Number.isInteger(e2.seq)) max = Math.max(max, e2.seq);
+  }
+  return { device, appliedSeq: max, updatedAt: now };
+}
+function eventsSince(events, cursors) {
+  const m2 = new Map(cursors.map((c) => [c.device, c.appliedSeq]));
+  return events.filter((e2) => e2.seq > (m2.get(e2.device) ?? 0));
+}
+function parseEventLog(text) {
+  const events = [];
+  let badLines = 0;
+  for (const line of String(text || "").split("\n")) {
+    const s2 = line.trim();
+    if (!s2) continue;
+    try {
+      const e2 = JSON.parse(s2);
+      if (!verifyEvent(e2)) {
+        badLines++;
+        continue;
+      }
+      events.push(e2);
+    } catch {
+      badLines++;
+    }
+  }
+  return { events, badLines, corrupted: badLines > 0 };
+}
+function serializeEventLog(events) {
+  return events.map((e2) => JSON.stringify(e2)).join("\n") + (events.length ? "\n" : "");
+}
+function mergeBidMaps(parts) {
+  const by = /* @__PURE__ */ new Map();
+  for (const list of parts) {
+    for (const e2 of list) {
+      if (!e2 || !e2.sid) continue;
+      const cur = by.get(e2.sid);
+      if (!cur || (e2.version ?? 0) > (cur.version ?? 0)) by.set(e2.sid, e2);
+    }
+  }
+  return [...by.values()].sort((a, b) => a.sid.localeCompare(b.sid));
+}
+
 // src/sync/manifest.ts
 var MANIFESTS_DIR = "/dsh/manifests";
 var LEGACY_MANIFEST = "/dsh/manifest.json";
@@ -22222,13 +22953,576 @@ function ownManifestEntries(fresh, prevOwn, pushedOk) {
     return o !== void 0 && o.hash === e2.hash;
   });
 }
+function stripDeletedEntries(entries, tombstones, now = Date.now()) {
+  const active = tombstones.filter((t2) => isDeleted(t2.key, tombstones, now));
+  if (active.length === 0) return [...entries];
+  const exactRel = /* @__PURE__ */ new Set();
+  const deletedSids = /* @__PURE__ */ new Set();
+  for (const t2 of active) {
+    const { rels, sid } = tombstoneTargets(t2);
+    for (const r2 of rels) exactRel.add(r2);
+    if (sid) deletedSids.add(sid);
+  }
+  return entries.filter((e2) => {
+    if (e2.deletedAt) return false;
+    if (exactRel.has(e2.rel)) return false;
+    if (deletedSids.size > 0 && deletedSids.has(sessionIdFromRel(e2.rel) ?? "")) return false;
+    return true;
+  });
+}
+
+// src/sync/rel-migration.ts
+var MIGRATION_MARKER_PATH = "/dsh/migration.json";
+function isLegacySessionRel(rel) {
+  return /^sessions\/[^/]+\/[^/]+\/[^/]+$/.test(String(rel || "")) && !isCanonicalSessionRel(rel);
+}
+function isCanonicalSessionRel(rel) {
+  return /^sessions\/by-id\/[^/]+\/v\d+\/[^/]+$/.test(String(rel || ""));
+}
+function legacyCwdSegment(rel) {
+  if (!isLegacySessionRel(rel)) return null;
+  return String(rel).split("/")[1] || null;
+}
+function fileNameOf(rel) {
+  const parts = String(rel || "").split("/");
+  return parts[parts.length - 1] || "";
+}
+function safeCwdSegment(raw) {
+  return String(raw || "").replace(/[^A-Za-z0-9._~-]/g, "_").replace(/\.\./g, "_").replace(/^\.+/, "_");
+}
+function legacyRelToCanonical(rel, version = 1) {
+  const sid = sessionIdFromRel(rel);
+  if (!sid || !isLegacySessionRel(rel)) return null;
+  const file = fileNameOf(rel);
+  if (!file) return null;
+  return canonicalSessionRel(sid, version) + "/" + file;
+}
+function canonicalRelToLocal(rel, cwdSegment) {
+  if (!isCanonicalSessionRel(rel)) return null;
+  const parts = String(rel).split("/");
+  const sid = parts[2];
+  const file = parts[4];
+  const seg = safeCwdSegment(cwdSegment);
+  if (!sid || !file || !seg) return null;
+  return "sessions/" + seg + "/" + sid + "/" + file;
+}
+function planRelMigration(entries, opts = {}) {
+  const now = Number.isFinite(opts.now) ? Number(opts.now) : Date.now();
+  const version = Math.max(1, Math.floor(opts.version ?? 1));
+  const byTarget = /* @__PURE__ */ new Map();
+  const skipped = [];
+  let alreadyCanonical = 0;
+  let untouched = 0;
+  const bidVersion = /* @__PURE__ */ new Map();
+  for (const b of opts.bidMap ?? []) {
+    if (b?.sid && Number.isFinite(b.version)) {
+      bidVersion.set(b.sid, Math.max(bidVersion.get(b.sid) ?? 0, Math.floor(b.version)));
+    }
+  }
+  for (const e2 of entries) {
+    if (!e2 || typeof e2.rel !== "string" || !e2.rel) continue;
+    if (isCanonicalSessionRel(e2.rel)) {
+      alreadyCanonical++;
+      continue;
+    }
+    if (!isLegacySessionRel(e2.rel)) {
+      untouched++;
+      continue;
+    }
+    const sid = sessionIdFromRel(e2.rel);
+    const target = legacyRelToCanonical(e2.rel, Math.max(version, bidVersion.get(sid ?? "") ?? 0));
+    if (!sid || !target) {
+      skipped.push({ rel: e2.rel, reason: "\u65E0\u6CD5\u4ECE rel \u89E3\u6790\u51FA\u5408\u6CD5 sid" });
+      continue;
+    }
+    const item = {
+      sid,
+      legacyRel: e2.rel,
+      canonicalRel: target,
+      cwdSegment: legacyCwdSegment(e2.rel) ?? "",
+      device: e2.device,
+      version: Math.max(version, bidVersion.get(sid) ?? 0),
+      hash: String(e2.hash || "")
+    };
+    const arr = byTarget.get(target) ?? [];
+    arr.push(item);
+    byTarget.set(target, arr);
+  }
+  const mappings = [];
+  const collisions = [];
+  for (const [canonicalRel, arr] of [...byTarget.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const hashes = [...new Set(arr.map((x2) => x2.hash))];
+    if (hashes.length > 1) {
+      collisions.push({
+        canonicalRel,
+        legacyRels: arr.map((x2) => x2.legacyRel).sort(),
+        hashes: hashes.sort()
+      });
+      continue;
+    }
+    const winner = [...arr].sort((a, b) => (a.device ?? "").localeCompare(b.device ?? ""))[0];
+    mappings.push(winner);
+  }
+  mappings.sort((a, b) => a.canonicalRel.localeCompare(b.canonicalRel));
+  return { createdAt: now, mappings, collisions, skipped, alreadyCanonical, untouched };
+}
+function validateRelPlan(plan) {
+  const errors = [];
+  if (!plan || !Array.isArray(plan.mappings)) return { ok: false, errors: ["\u8BA1\u5212\u683C\u5F0F\u975E\u6CD5"] };
+  if (plan.mappings.length === 0) errors.push("\u6CA1\u6709\u9700\u8981\u8FC1\u79FB\u7684\u4F1A\u8BDD\u6761\u76EE");
+  if (plan.collisions.length > 0) {
+    errors.push(`\u6709 ${plan.collisions.length} \u7EC4\u540C\u540D\u4E0D\u540C\u5185\u5BB9\u7684\u4F1A\u8BDD\uFF0C\u9700\u4EBA\u5DE5\u88C1\u51B3\uFF1A` + plan.collisions.slice(0, 3).map((c) => c.canonicalRel).join("\u3001"));
+  }
+  if (plan.skipped.length > 0) errors.push(`\u6709 ${plan.skipped.length} \u6761\u65E0\u6CD5\u89E3\u6790 sid \u7684\u4F1A\u8BDD`);
+  for (const m2 of plan.mappings) {
+    if (!isCanonicalSessionRel(m2.canonicalRel)) errors.push("\u975E\u6CD5 canonical rel\uFF1A" + m2.canonicalRel);
+    if (!isLegacySessionRel(m2.legacyRel)) errors.push("\u975E\u6CD5 legacy rel\uFF1A" + m2.legacyRel);
+    if (m2.canonicalRel.includes("..") || m2.legacyRel.includes("..")) {
+      errors.push("rel \u542B\u8DEF\u5F84\u7A7F\u8D8A\uFF1A" + m2.legacyRel);
+    }
+  }
+  return { ok: errors.length === 0, errors };
+}
+function buildMigrationMarker(plan, device, now = Date.now(), retentionDays = 30) {
+  return {
+    version: 1,
+    completedAt: now,
+    device: String(device || "unknown"),
+    migrated: plan.mappings.length,
+    fromMode: "legacy",
+    keepLegacyUntil: now + Math.max(0, retentionDays) * 864e5
+  };
+}
+function legacyProtected(marker, now = Date.now()) {
+  if (!marker || !Number.isFinite(marker.keepLegacyUntil)) return false;
+  return now < marker.keepLegacyUntil;
+}
+function rewriteManifestForMode(entries, mode, plan) {
+  if (mode === "legacy") return [...entries];
+  const lookup = new Map(plan.mappings.map((m2) => [m2.legacyRel, m2.canonicalRel]));
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const e2 of entries) {
+    if (!e2 || typeof e2.rel !== "string") continue;
+    const target = lookup.get(e2.rel);
+    if (!target) {
+      if (!seen.has(e2.rel)) {
+        out.push({ ...e2 });
+        seen.add(e2.rel);
+      }
+      continue;
+    }
+    if (mode === "shadow" && !seen.has(e2.rel)) {
+      out.push({ ...e2 });
+      seen.add(e2.rel);
+    }
+    if (!seen.has(target)) {
+      out.push({ ...e2, rel: target });
+      seen.add(target);
+    }
+  }
+  return out.sort((a, b) => a.rel.localeCompare(b.rel));
+}
+function mergeDualRead(entries) {
+  const canonical = /* @__PURE__ */ new Map();
+  for (const e2 of entries) {
+    if (e2 && isCanonicalSessionRel(e2.rel)) {
+      const cur = canonical.get(e2.rel);
+      if (!cur || (e2.mtime ?? 0) > (cur.mtime ?? 0)) canonical.set(e2.rel, { ...e2 });
+    }
+  }
+  const canonicalBySid = /* @__PURE__ */ new Map();
+  for (const rel of canonical.keys()) {
+    const sid = sessionIdFromRel(rel);
+    if (sid && !canonicalBySid.has(sid)) canonicalBySid.set(sid, rel);
+  }
+  const out = [...canonical.values()];
+  for (const e2 of entries) {
+    if (!e2 || typeof e2.rel !== "string") continue;
+    if (isCanonicalSessionRel(e2.rel)) continue;
+    if (isLegacySessionRel(e2.rel)) {
+      const sid = sessionIdFromRel(e2.rel);
+      if (sid && canonicalBySid.has(sid)) continue;
+    }
+    out.push({ ...e2 });
+  }
+  return out.sort((a, b) => a.rel.localeCompare(b.rel));
+}
+function bidMapFromPlan(plan, cwdSegmentForLocal) {
+  return plan.mappings.map((m2) => {
+    const file = fileNameOf(m2.canonicalRel);
+    const seg = safeCwdSegment(cwdSegmentForLocal(m2));
+    return {
+      sid: m2.sid,
+      canonicalRel: m2.canonicalRel,
+      localRel: "sessions/" + seg + "/" + m2.sid + "/" + file,
+      originalCwd: m2.cwdSegment,
+      version: m2.version,
+      hash: m2.hash
+    };
+  }).sort((a, b) => a.sid.localeCompare(b.sid));
+}
+
+// src/sync/scan-cache.ts
+init_paths();
+import { createHash as createHash5 } from "node:crypto";
+import { join as join7 } from "node:path";
+var SCAN_CACHE_VERSION = 1;
+var DEFAULT_SCAN_CACHE_TTL_MS = 24 * 3600 * 1e3;
+function configFingerprint(policy) {
+  const stable = {
+    scope: Object.keys(policy.scope ?? {}).sort().map((k) => [k, !!policy.scope[k]]),
+    includeSensitive: !!policy.includeSensitive,
+    skillFilter: [...policy.skillFilter ?? []].sort(),
+    customFolders: [...policy.customFolders ?? []].map((f3) => [String(f3.name), String(f3.path)]).sort((a, b) => a[0].localeCompare(b[0])),
+    maxFileBytes: Number(policy.maxFileBytes) || 0,
+    sessionRelMode: String(policy.sessionRelMode ?? "legacy")
+  };
+  return createHash5("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
+}
+function validHash(h2) {
+  return typeof h2 === "string" && /^[0-9a-f]{64}$/i.test(h2);
+}
+function isCacheEntryValid(e2) {
+  if (!e2 || typeof e2 !== "object") return false;
+  const x2 = e2;
+  return validHash(x2.hash) && Number.isFinite(x2.mtimeMs) && Number.isFinite(x2.ctimeMs) && Number.isFinite(x2.size) && Number.isFinite(x2.at);
+}
+function shouldReuse(prev, stat6, opts) {
+  if (!prev || !opts.samePolicy) return false;
+  if (!isCacheEntryValid(prev)) return false;
+  if (prev.mtimeMs !== stat6.mtimeMs || prev.ctimeMs !== stat6.ctimeMs || prev.size !== stat6.size) {
+    return false;
+  }
+  return opts.now - prev.at < Math.max(1, opts.ttlMs);
+}
+var ScanCacheSession = class {
+  constructor(prev, opts) {
+    this.opts = opts;
+    const samePolicy = !!prev && prev.version === SCAN_CACHE_VERSION && prev.fingerprint === opts.fingerprint;
+    if (prev && !samePolicy) this.stats.invalidated = true;
+    if (samePolicy && prev) {
+      for (const [rel, e2] of Object.entries(prev.entries ?? {})) {
+        if (isCacheEntryValid(e2)) this.entries[rel] = { ...e2 };
+      }
+    }
+  }
+  stats = {
+    hits: 0,
+    misses: 0,
+    changed: 0,
+    expired: 0,
+    invalidated: false
+  };
+  entries = {};
+  now() {
+    return Number.isFinite(this.opts.now) ? Number(this.opts.now) : Date.now();
+  }
+  /** 命中返回可直接复用的 hash；未命中返回 null。 */
+  lookup(rel, stat6) {
+    const prev = this.entries[rel];
+    const now = this.now();
+    const samePolicy = true;
+    if (shouldReuse(prev, stat6, { now, ttlMs: this.opts.ttlMs, samePolicy })) {
+      this.stats.hits++;
+      return prev.hash;
+    }
+    this.stats.misses++;
+    if (prev) {
+      if (prev.mtimeMs !== stat6.mtimeMs || prev.ctimeMs !== stat6.ctimeMs || prev.size !== stat6.size) {
+        this.stats.changed++;
+      } else if (now - prev.at >= Math.max(1, this.opts.ttlMs)) {
+        this.stats.expired++;
+      }
+    }
+    return null;
+  }
+  record(rel, stat6, hash) {
+    if (!validHash(hash)) return;
+    this.entries[rel] = {
+      mtimeMs: stat6.mtimeMs,
+      ctimeMs: stat6.ctimeMs,
+      size: stat6.size,
+      hash,
+      at: this.now()
+    };
+  }
+  /** 只保留本轮真实见过的 rel，避免删掉的文件永久占着缓存。 */
+  prune(seenRels) {
+    const keep = new Set(seenRels);
+    for (const rel of Object.keys(this.entries)) {
+      if (!keep.has(rel)) delete this.entries[rel];
+    }
+  }
+  snapshot() {
+    return {
+      version: SCAN_CACHE_VERSION,
+      fingerprint: this.opts.fingerprint,
+      entries: { ...this.entries }
+    };
+  }
+};
+function scanCachePath() {
+  return join7(dshHome(), "nas-sync", "scan-cache.json");
+}
+function loadScanCache(path4 = scanCachePath()) {
+  const r2 = readJsonFile(path4);
+  if (r2.data && typeof r2.data === "object" && Array.isArray(r2.data.entries)) {
+    return { data: null, missing: false, corrupted: true, quarantinedTo: r2.quarantinedTo };
+  }
+  if (r2.data && typeof r2.data === "object" && r2.data.entries && typeof r2.data.entries === "object") {
+    return { data: r2.data, missing: false, corrupted: false };
+  }
+  return {
+    data: null,
+    missing: r2.missing,
+    corrupted: r2.corrupted || !r2.missing && !r2.data,
+    quarantinedTo: r2.quarantinedTo
+  };
+}
+function saveScanCache(data, path4 = scanCachePath()) {
+  writeJsonAtomic(path4, data);
+}
+
+// src/sync/plugin-objects.ts
+function assemblyKey(name2, version) {
+  return String(name2 || "") + "@" + String(version || "");
+}
+function currentTarget(platform = process.platform, arch = process.arch, abi = process.versions?.modules ?? "unknown") {
+  return pluginTarget(platform, arch, abi);
+}
+function isValidObjectHash(hash) {
+  return typeof hash === "string" && /^[0-9a-f]{64}$/i.test(hash);
+}
+function buildAssemblies(records) {
+  const by = /* @__PURE__ */ new Map();
+  for (const r2 of records) {
+    if (!r2 || !r2.name || !r2.target || !isValidObjectHash(r2.objectHash)) continue;
+    const key = assemblyKey(r2.name, r2.version);
+    const a = by.get(key) ?? { name: r2.name, version: r2.version, targets: {} };
+    const cur = a.targets[r2.target];
+    if (!cur || r2.size > cur.size) {
+      a.targets[r2.target] = {
+        objectHash: r2.objectHash.toLowerCase(),
+        size: r2.size,
+        device: r2.device
+      };
+    }
+    by.set(key, a);
+  }
+  return [...by.values()].sort((a, b) => assemblyKey(a.name, a.version).localeCompare(assemblyKey(b.name, b.version)));
+}
+function mergeAssemblies(parts) {
+  const flat = [];
+  for (const list of parts) {
+    for (const a of list) {
+      if (!a || !a.name) continue;
+      for (const [target, o] of Object.entries(a.targets ?? {})) {
+        flat.push({
+          name: a.name,
+          version: a.version,
+          target,
+          objectHash: o.objectHash,
+          size: o.size,
+          device: o.device
+        });
+      }
+    }
+  }
+  return buildAssemblies(flat);
+}
+function recordsForTarget(assemblies, target) {
+  const out = [];
+  for (const a of assemblies) {
+    const o = a.targets?.[target];
+    if (!o || !isValidObjectHash(o.objectHash)) continue;
+    out.push({
+      name: a.name,
+      version: a.version,
+      target,
+      objectHash: o.objectHash,
+      size: o.size,
+      device: o.device
+    });
+  }
+  return out.sort((x2, y) => assemblyKey(x2.name, x2.version).localeCompare(assemblyKey(y.name, y.version)));
+}
+function pluginObjectPath(hash) {
+  return objectPathOf(hash);
+}
+
+// src/sync/tgz.ts
+import { gunzipSync } from "node:zlib";
+var BLOCK = 512;
+var DEFAULTS = {
+  maxEntries: 2e4,
+  maxTotalBytes: 256 * 1024 * 1024,
+  maxEntryBytes: 64 * 1024 * 1024,
+  maxInflationRatio: 200
+};
+function cstr(bytes, at, len) {
+  let end = at + len;
+  if (end > bytes.length) end = bytes.length;
+  let out = "";
+  for (let i2 = at; i2 < end; i2++) {
+    if (bytes[i2] === 0) break;
+    out += String.fromCharCode(bytes[i2]);
+  }
+  return out;
+}
+function parseSize(bytes, at, len) {
+  const first = bytes[at];
+  if (first & 128) {
+    let n = BigInt(first & 127);
+    for (let i2 = 1; i2 < len; i2++) n = n << 8n | BigInt(bytes[at + i2]);
+    const v2 = Number(n);
+    return Number.isSafeInteger(v2) ? v2 : -1;
+  }
+  const s2 = cstr(bytes, at, len).replace(/\s/g, "");
+  if (!s2) return 0;
+  const v = parseInt(s2, 8);
+  return Number.isSafeInteger(v) && v >= 0 ? v : -1;
+}
+function parseMode(bytes, at, len) {
+  const s2 = cstr(bytes, at, len).replace(/\s/g, "");
+  const v = s2 ? parseInt(s2, 8) : 420;
+  return Number.isFinite(v) && v >= 0 ? v : 420;
+}
+function checksumOk(header) {
+  const want = parseSize(header, 148, 8);
+  if (want < 0) return false;
+  let unsigned = 0;
+  let signed = 0;
+  for (let i2 = 0; i2 < BLOCK; i2++) {
+    const b = i2 >= 148 && i2 < 156 ? 32 : header[i2];
+    unsigned += b;
+    signed += b > 127 ? b - 256 : b;
+  }
+  return unsigned === want || signed === want;
+}
+function parsePax(data) {
+  const text = Buffer.from(data).toString("latin1");
+  const out = {};
+  let i2 = 0;
+  while (i2 < text.length) {
+    const sp = text.indexOf(" ", i2);
+    if (sp < 0) break;
+    const len = parseInt(text.slice(i2, sp), 10);
+    if (!Number.isFinite(len) || len <= 0 || i2 + len > text.length) break;
+    const rec = text.slice(sp + 1, i2 + len).replace(/\n$/, "");
+    const eq = rec.indexOf("=");
+    if (eq > 0) {
+      const key = rec.slice(0, eq);
+      const raw = rec.slice(eq + 1);
+      out[key] = Buffer.from(raw, "latin1").toString("utf8");
+    }
+    i2 += len;
+  }
+  return out;
+}
+function safeTarPath(raw, stripPrefix2 = "package/") {
+  let p = String(raw || "");
+  if (!p || p.includes("\0") || p.includes("\\")) return null;
+  if (p.startsWith("/") || /^[A-Za-z]:/.test(p)) return null;
+  if (stripPrefix2 && p.startsWith(stripPrefix2)) p = p.slice(stripPrefix2.length);
+  const parts = p.split("/").filter((s2) => s2.length > 0 && s2 !== ".");
+  if (parts.some((s2) => s2 === "..")) return null;
+  if (parts.length === 0) return null;
+  return parts.join("/");
+}
+function unpackTgz(gz, opts = {}) {
+  const o = { ...DEFAULTS, ...opts };
+  if (!gz || gz.length === 0) throw new Error("\u7A7A\u7684 tgz \u5BF9\u8C61");
+  let tar;
+  try {
+    tar = gunzipSync(Buffer.from(gz));
+  } catch (err) {
+    throw new Error("tgz \u89E3\u538B\u5931\u8D25\uFF08gzip \u635F\u574F\u6216\u4E0D\u662F gzip\uFF09\uFF1A" + String(err));
+  }
+  if (tar.length > Math.max(1, o.maxTotalBytes)) {
+    throw new Error("\u89E3\u538B\u540E\u4F53\u79EF\u8D85\u8FC7\u4E0A\u9650 " + o.maxTotalBytes);
+  }
+  if (gz.length > 0 && tar.length / gz.length > o.maxInflationRatio) {
+    throw new Error("\u89E3\u538B\u6BD4\u5F02\u5E38\uFF08\u7591\u4F3C\u89E3\u538B\u70B8\u5F39\uFF09\uFF1A" + (tar.length / gz.length).toFixed(1));
+  }
+  const entries = [];
+  const rejected = [];
+  let at = 0;
+  let total = 0;
+  let longName = null;
+  let pax = {};
+  let zeroBlocks = 0;
+  while (at + BLOCK <= tar.length) {
+    const header = tar.subarray(at, at + BLOCK);
+    if (header.every((b) => b === 0)) {
+      zeroBlocks++;
+      at += BLOCK;
+      if (zeroBlocks >= 2) break;
+      continue;
+    }
+    zeroBlocks = 0;
+    if (!checksumOk(header)) throw new Error("tar \u5934 checksum \u4E0D\u5339\u914D\uFF08\u5BF9\u8C61\u53EF\u80FD\u5DF2\u635F\u574F\uFF09");
+    let name2 = cstr(header, 0, 100);
+    const prefix = cstr(header, 345, 155);
+    if (prefix) name2 = prefix + "/" + name2;
+    if (longName) {
+      name2 = longName;
+      longName = null;
+    }
+    const type = String.fromCharCode(header[156] || 48);
+    let size = parseSize(header, 124, 12);
+    if (pax.size) {
+      const n = Number(pax.size);
+      if (Number.isSafeInteger(n) && n >= 0) size = n;
+    }
+    if (pax.path) name2 = pax.path;
+    pax = {};
+    if (size < 0) throw new Error("tar \u6761\u76EE\u957F\u5EA6\u975E\u6CD5\uFF1A" + name2);
+    const dataAt = at + BLOCK;
+    const padded = Math.ceil(size / BLOCK) * BLOCK;
+    if (dataAt + padded > tar.length) throw new Error("tar \u6570\u636E\u88AB\u622A\u65AD\uFF1A" + name2);
+    const body = tar.subarray(dataAt, dataAt + size);
+    at = dataAt + padded;
+    if (type === "L") {
+      longName = Buffer.from(body).toString("utf8").replace(/\0+$/, "");
+      continue;
+    }
+    if (type === "x" || type === "g") {
+      pax = parsePax(body);
+      continue;
+    }
+    const kindOk = type === "0" || type === "\0" || type === "5" || type === "7";
+    if (!kindOk) {
+      rejected.push({ path: name2, reason: "\u4E0D\u652F\u6301\u7684 tar \u7C7B\u578B " + JSON.stringify(type) + "\uFF08\u7B26\u53F7\u94FE\u63A5 / \u786C\u94FE\u63A5 / \u8BBE\u5907\u6587\u4EF6\u4E00\u5F8B\u62D2\u7EDD\uFF09" });
+      continue;
+    }
+    const rel = safeTarPath(name2, o.stripPrefix ?? "package/");
+    if (!rel) {
+      rejected.push({ path: name2, reason: "\u4E0D\u5B89\u5168\u7684\u8DEF\u5F84" });
+      continue;
+    }
+    if (entries.length >= o.maxEntries) throw new Error("tar \u6761\u76EE\u6570\u8D85\u8FC7\u4E0A\u9650 " + o.maxEntries);
+    if (size > o.maxEntryBytes) throw new Error("\u5355\u6587\u4EF6\u8D85\u8FC7\u4E0A\u9650\uFF1A" + rel + " (" + size + ")");
+    total += size;
+    if (total > o.maxTotalBytes) throw new Error("\u89E3\u538B\u603B\u5927\u5C0F\u8D85\u8FC7\u4E0A\u9650 " + o.maxTotalBytes);
+    const isDir = type === "5" || name2.endsWith("/");
+    entries.push({
+      path: rel,
+      data: isDir ? new Uint8Array(0) : new Uint8Array(body),
+      mode: parseMode(header, 100, 8),
+      isDir
+    });
+  }
+  return { entries, rejected };
+}
 
 // src/sync/engine.ts
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 var DEVICES_REMOTE = "/dsh/devices";
+var PLUGIN_ASSEMBLIES_FILE = "/dsh/plugin-assemblies.json";
 var deviceClaimFile = (device) => DEVICES_REMOTE + "/" + device.replace(/[^A-Za-z0-9._-]/g, "_") + ".json";
-function sha256Hex(data) {
-  return createHash2("sha256").update(data).digest("hex");
+function sha256Hex2(data) {
+  return createHash6("sha256").update(data).digest("hex");
 }
 function prefixOf(rel) {
   const parts = rel.split("/");
@@ -22240,7 +23534,7 @@ function readInstalled(nodeModulesDir) {
   const out = {};
   const versionOf = (p) => {
     try {
-      return String(JSON.parse(readFileSync3(join7(p, "package.json"), "utf8")).version ?? "");
+      return String(JSON.parse(readFileSync3(join8(p, "package.json"), "utf8")).version ?? "");
     } catch {
       return "";
     }
@@ -22256,20 +23550,20 @@ function readInstalled(nodeModulesDir) {
     if (name2.startsWith(".")) continue;
     if (name2.startsWith("@")) {
       try {
-        for (const s2 of readdirSync2(join7(nodeModulesDir, name2), { withFileTypes: true })) {
-          out[name2 + "/" + s2.name] = versionOf(join7(nodeModulesDir, name2, s2.name));
+        for (const s2 of readdirSync2(join8(nodeModulesDir, name2), { withFileTypes: true })) {
+          out[name2 + "/" + s2.name] = versionOf(join8(nodeModulesDir, name2, s2.name));
         }
       } catch {
       }
       continue;
     }
-    out[name2] = versionOf(join7(nodeModulesDir, name2));
+    out[name2] = versionOf(join8(nodeModulesDir, name2));
   }
   return out;
 }
 function declaredPlugins(profileDir) {
   try {
-    const parsed = parseProfilePackage(readFileSync3(join7(profileDir, "package.json"), "utf8"));
+    const parsed = parseProfilePackage(readFileSync3(join8(profileDir, "package.json"), "utf8"));
     if (!parsed) return [];
     return declaredPluginNames(parsed.deps);
   } catch {
@@ -22334,12 +23628,52 @@ var Engine = class {
   ignoredFileError = null;
   /** 本轮读失败的设备清单名（0.5.9），供状态面板解释「为什么这轮没有删除传播」。 */
   manifestTrustFailed = [];
+  /**
+   * 0.6.0 / 收尾①：会话 rel 空间模式。默认 legacy，升级后线上字节一个都不变。
+   * 只有显式配置成 shadow / canonical 才会启用新空间（见 rel-migration.ts）。
+   */
+  sessionRelMode = "legacy";
+  /** 迁移标记缓存；null = 尚未读取 / 不存在。 */
+  migrationMarker = null;
+  /** 0.6.0 / 收尾③：增量扫描缓存会话（跨轮复用 hash）。 */
+  scanCache;
+  /** 缓存损坏/写盘失败时要显式告警，不能静默退化成每轮全量扫描。 */
+  scanCacheWarning = null;
+  // ---- 0.6.0 / P1：事件驱动删除传播的运行态 ----
+  /** 本轮合并后的全局事件流（所有设备日志按序合并）。 */
+  eventStream = [];
+  /** 事件流完整性判据；null = 本轮还没读过。 */
+  eventTrust = null;
+  /** 由事件流回放出的墓碑（删除优先，带 30 天保留期）。 */
+  tombstones = [];
+  /** 事件流读取/发布失败的原因，供面板与日志解释「为什么这轮删除没生效」。 */
+  eventStreamError = null;
+  /** 本轮成功发布的本机事件数。 */
+  publishedEvents = 0;
   /** 面板/诊断用：当前安全开关的状态。 */
   safetyStatus() {
     return {
       ignoredFileError: this.ignoredFileError,
       manifestTrustFailed: [...this.manifestTrustFailed],
-      destructiveBlocked: this.ignoredFileError !== null
+      destructiveBlocked: this.ignoredFileError !== null,
+      eventStream: {
+        trusted: this.eventTrust?.trusted ?? false,
+        events: this.eventStream.length,
+        tombstones: this.tombstones.length,
+        failed: [...this.eventTrust?.failed ?? []],
+        gaps: this.eventTrust?.gaps.length ?? 0,
+        published: this.publishedEvents,
+        lastError: this.eventStreamError
+      },
+      scanCache: {
+        enabled: !!this.scanCache,
+        hits: this.scanCache?.stats.hits ?? 0,
+        misses: this.scanCache?.stats.misses ?? 0,
+        changed: this.scanCache?.stats.changed ?? 0,
+        expired: this.scanCache?.stats.expired ?? 0,
+        invalidated: this.scanCache?.stats.invalidated ?? false,
+        warning: this.scanCacheWarning
+      }
     };
   }
   /**
@@ -22364,27 +23698,33 @@ var Engine = class {
    * 这种一半对一半错的状态。
    */
   resolveLocal(rel) {
-    if (typeof rel !== "string" || rel.length === 0 || rel.startsWith("/") || rel.startsWith("\\") || rel.includes("\\") || rel.includes("\0") || rel.split("/").some((s2) => s2 === ".." || s2 === ".")) {
-      throw new Error("\u62D2\u7EDD\u4E0D\u5B89\u5168\u7684 rel\uFF1A" + String(rel).slice(0, 120));
+    let eff = rel;
+    if (this.effectiveRelMode() === "canonical" && isCanonicalSessionRel(rel)) {
+      const mapped = canonicalRelToLocal(rel, this.canonicalCwdSegment());
+      if (!mapped) throw new Error("\u65E0\u6CD5\u628A canonical \u4F1A\u8BDD rel \u843D\u5230\u672C\u673A\uFF1A" + rel);
+      eff = mapped;
     }
-    const hit = customFolderLocalOf(rel, this.deps.config.customFolders ?? []);
+    if (typeof eff !== "string" || eff.length === 0 || eff.startsWith("/") || eff.startsWith("\\") || eff.includes("\\") || eff.includes("\0") || eff.split("/").some((s2) => s2 === ".." || s2 === ".")) {
+      throw new Error("\u62D2\u7EDD\u4E0D\u5B89\u5168\u7684 rel\uFF1A" + String(eff).slice(0, 120));
+    }
+    const hit = customFolderLocalOf(eff, this.deps.config.customFolders ?? []);
     if (hit) return hit.local;
     const PREFIX = "workspaces/";
-    if (rel.startsWith(PREFIX)) {
-      const rest = rel.slice(PREFIX.length);
+    if (eff.startsWith(PREFIX)) {
+      const rest = eff.slice(PREFIX.length);
       const slash = rest.indexOf("/");
       const name2 = slash < 0 ? rest : rest.slice(0, slash);
       const tail = slash < 0 ? "" : rest.slice(slash + 1);
       const dir = this.workspaceDirs.get(name2);
-      if (dir) return tail ? join7(dir, ...tail.split("/")) : dir;
+      if (dir) return tail ? join8(dir, ...tail.split("/")) : dir;
     }
-    return localOf(rel);
+    return localOf(eff);
   }
   /** 读注册表缓存「工作区目录名 → 真实路径」；同步/扫描前各刷一次。 */
   loadWorkspaceDirs() {
     this.workspaceDirs.clear();
     try {
-      const raw = JSON.parse(readFileSync3(join7(dshHome(), "storages", "workspace.json"), "utf8"));
+      const raw = JSON.parse(readFileSync3(join8(dshHome(), "storages", "workspace.json"), "utf8"));
       for (const w of Object.values(raw?.tables?.workspaces ?? {})) {
         const p = String(w?.path ?? "");
         if (!p) continue;
@@ -22396,14 +23736,33 @@ var Engine = class {
   }
   constructor(deps) {
     this.deps = deps;
+    this.sessionRelMode = deps.config.sessionRelMode ?? "legacy";
+    if (deps.config.scanCacheEnabled !== false) {
+      const loaded = loadScanCache();
+      if (loaded.corrupted) {
+        this.scanCacheWarning = "\u626B\u63CF\u7F13\u5B58\u635F\u574F\uFF0C\u5DF2\u6309\u5168\u91CF\u91CD\u7B97" + (loaded.quarantinedTo ? "\uFF08\u5907\u4EFD\uFF1A" + loaded.quarantinedTo + "\uFF09" : "");
+        console.warn("[dsh-nas-sync] " + this.scanCacheWarning);
+      }
+      this.scanCache = new ScanCacheSession(loaded.data, {
+        fingerprint: this.cachePolicyFingerprint(),
+        ttlMs: Math.max(1, Number(deps.config.scanCacheTtlHours ?? 24)) * 36e5 || DEFAULT_SCAN_CACHE_TTL_MS
+      });
+    }
     this.scanner = new Scanner({
+      // 0.6.0 / 收尾①：canonical 模式把本机会话 rel 投影到 by-id 空间。
+      // 闭包每次调用时读 effectiveRelMode()，所以「标记没读到自动降级」也生效。
+      relProjector: (rel) => this.projectLocalRel(rel),
+      // 0.6.0 / 收尾③：命中时跳过整份 readFile + sha256
+      cache: this.scanCache,
       // r3：分类勾选决定同步哪些子树；includeSensitive 只管子树内部的凭据文件
       scope: deps.config.syncScope,
       includeSensitive: deps.config.includeSensitive,
       // 技能白名单（空 = 全部），只影响 skills/ 下的一级目录
       skillFilter: deps.config.skillFilter,
       // 自定义文件夹映射表：rel 里的名字 → 本机路径，全靠它
-      customFolders: deps.config.customFolders
+      customFolders: deps.config.customFolders,
+      // 0.6.0 / P3：把可配置的文件大小上限真正传给扫描器（此前一直是 64 MiB 硬编码）
+      maxFileBytes: deps.config.maxFileBytes
     });
     this.chunker = new Chunker(deps.transport, {
       chunkSize: deps.config.chunkSize,
@@ -22543,7 +23902,7 @@ var Engine = class {
         await this.writeManifestFile(manifestFileOf("_legacy"), cleaned);
       } catch {
       }
-      return cleaned;
+      return this.projectRemoteMerge(cleaned);
     }
     const reads = [];
     for (const f3 of files) {
@@ -22558,7 +23917,7 @@ var Engine = class {
       );
     }
     const parts = reads.flatMap((r2) => r2.entries === null ? [] : [r2.entries]);
-    return safeEntries(mergeDeviceManifests(parts));
+    return this.projectRemoteMerge(safeEntries(mergeDeviceManifests(parts)));
   }
   /**
    * 严格版：解密单份清单。**读失败与「读成了空清单」是两种结果**（null vs []），
@@ -22579,22 +23938,33 @@ var Engine = class {
     return await this.tryReadManifestAt(remote) ?? [];
   }
   async writeManifestFile(remote, entries) {
-    const enc = await Crypto.encrypt(
-      new TextEncoder().encode(JSON.stringify(entries, null, 2)),
-      this.deps.config.passphrase,
-      this.deps.store.salt()
-    );
+    const enc = await this.seal(new TextEncoder().encode(JSON.stringify(entries, null, 2)));
     await this.deps.transport.putBuffer(enc, remote, { mkdirs: true });
+  }
+  /**
+   * 0.6.0 / 收尾②：所有上传密文的唯一出口。
+   *
+   * `envelopeVersion=1`（默认）写 NSS1，行为与 0.5.9 逐字节一致；`=2` 写 NSS2，
+   * 并把稳定主键绑进 AAD。AAD 会写进头部，所以 decrypt() 不需要调用方推算 ——
+   * 跨平台会话落地后 rel 变了也照样能解。清单用固定域 `manifest`，避免「同一份
+   * 清单换了个文件名就解不开」。
+   */
+  async seal(data, rel) {
+    const cfg = this.deps.config;
+    const version = cfg.envelopeVersion === 2 ? 2 : 1;
+    const aad = "dsh-nas-sync|" + (rel ? stableKeyOf(rel) : "manifest");
+    return Crypto.encrypt(data, cfg.passphrase, this.deps.store.salt(), { version, aad });
   }
   /**
    * 本机屏蔽一条会话：以后不再下载它，本地已有的副本在下一轮扫描时回收（0.5.8）。
    *
-   * 与「对端删除 → 本机跟着删」相反：这是**只有本机**不想要。远端原文保留，
-   * 手机上的那份照旧在，只是电脑侧栏里不会出现。
-   *
    * 落盘位置是 `$DSH_HOME/nas-sync/ignored-sessions.json`，不是 `store.json` ——
    * store 是运行中的进程整份重写的（每次 save 都覆盖），外部改不了；
    * 这个清单要让用户/脚本能直接编辑，所以单独一个文件。
+   *
+   * 0.6.0 / P1：语义从「只有本机不想要」升级为**全局屏蔽**。点击只记一条待发布
+   * 意图，下一轮 sync 转成 ignore 事件，对端消费后写进它自己的屏蔽清单。
+   * 存量屏蔽（升级前本机已有的 id）不会补发历史事件，所以升级不会突然删掉对端数据。
    */
   async ignoreSession(sid) {
     this.checkReady();
@@ -22602,6 +23972,7 @@ var Engine = class {
     if (!id) return;
     this.ignoredFromFile.add(id);
     this.saveIgnoredFile();
+    this.deps.store.pendingIntents.push({ op: "ignore", sid: id });
     this.deps.store.pendingFiles = this.deps.store.pendingFiles.filter(
       (p) => this.sessionIdOfRel(p.rel) !== id
     );
@@ -22610,7 +23981,7 @@ var Engine = class {
   }
   /** `$DSH_HOME/nas-sync/ignored-sessions.json` 的路径。 */
   ignoredFilePath() {
-    return join7(dshHome(), "nas-sync", "ignored-sessions.json");
+    return join8(dshHome(), "nas-sync", "ignored-sessions.json");
   }
   /**
    * 读屏蔽清单（0.5.9 fail-closed）。
@@ -22688,6 +24059,8 @@ var Engine = class {
     this.loadIgnoredFile();
     if (!this.ignoredFromFile.delete(id)) return false;
     this.saveIgnoredFile();
+    this.deps.store.pendingIntents.push({ op: "unignore", sid: id });
+    this.deps.store.save();
     return true;
   }
   /** rel 形如 `sessions/<cwd编码>/<sessionId>/session.v<N>.jsonl.zstd`。 */
@@ -22730,7 +24103,14 @@ var Engine = class {
     const remote = manifestFileOf(selfDevice());
     const prevOwn = await this.readManifestAt(remote);
     const own = ownManifestEntries(fresh, prevOwn, this.pushedOk);
-    await this.writeManifestFile(remote, own);
+    const mode = this.effectiveRelMode();
+    let toWrite = own;
+    if (mode === "shadow") {
+      toWrite = rewriteManifestForMode(own, "shadow", planRelMigration(own));
+    } else if (mode === "canonical") {
+      toWrite = own.map((item) => ({ ...item, rel: this.projectLocalRel(item.rel) }));
+    }
+    await this.writeManifestFile(remote, toWrite);
   }
   /**
    * 同步完成后写本机声明。明文即可 —— 里面只有目录名和计数，不是敏感数据；
@@ -22745,7 +24125,7 @@ var Engine = class {
    */
   localPluginSnapshot() {
     const out = [];
-    const root = join7(dshHome(), "profiles");
+    const root = join8(dshHome(), "profiles");
     let dirs = [];
     try {
       dirs = readdirSync2(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => String(d.name));
@@ -22753,10 +24133,10 @@ var Engine = class {
       return out;
     }
     for (const p of dirs) {
-      const dir = join7(root, p);
+      const dir = join8(root, p);
       const declared = declaredPlugins(dir);
       if (!declared.length) continue;
-      const installed = readInstalled(join7(dir, "node_modules"));
+      const installed = readInstalled(join8(dir, "node_modules"));
       for (const name2 of declared) {
         out.push({ profile: p, name: name2, version: String(installed[name2] ?? "") });
       }
@@ -22771,7 +24151,7 @@ var Engine = class {
     }
     const workspaces = [];
     try {
-      const raw = JSON.parse(await readFile4(join7(dshHome(), "storages", "workspace.json"), "utf8"));
+      const raw = JSON.parse(await readFile4(join8(dshHome(), "storages", "workspace.json"), "utf8"));
       for (const w of Object.values(raw?.tables?.workspaces ?? {})) {
         const title = String(w?.title ?? "").trim();
         const p = String(w?.path ?? "");
@@ -22813,7 +24193,7 @@ var Engine = class {
       }
     }
     const plain = await Crypto.decrypt(cipher, this.deps.config.passphrase);
-    if (expectPlainHash && sha256Hex(plain) !== expectPlainHash) {
+    if (expectPlainHash && sha256Hex2(plain) !== expectPlainHash) {
       throw new Error("\u5206\u5757\u91CD\u7EC4\u6821\u9A8C\u5931\u8D25\uFF08plainHash \u4E0D\u5339\u914D\uFF09: " + remote);
     }
     return plain;
@@ -22823,7 +24203,7 @@ var Engine = class {
     try {
       const plain = await this.fetchRemotePlain("/dsh/" + rel);
       if (!plain) return;
-      const enc = await Crypto.encrypt(plain, this.deps.config.passphrase, this.deps.store.salt());
+      const enc = await this.seal(plain, rel);
       await this.deps.transport.putBuffer(enc, "/dsh/" + rel + ".base", { mkdirs: true });
     } catch {
     }
@@ -22844,7 +24224,7 @@ var Engine = class {
    */
   async auditPlugins(targetProfile) {
     this.checkReady();
-    const root = join7(dshHome(), "profiles");
+    const root = join8(dshHome(), "profiles");
     const locals = [];
     let dirNames = [];
     try {
@@ -22853,11 +24233,11 @@ var Engine = class {
       dirNames = [];
     }
     for (const p of dirNames) {
-      const dir = join7(root, p);
-      if (!existsSync3(join7(dir, "package.json"))) continue;
+      const dir = join8(root, p);
+      if (!existsSync3(join8(dir, "package.json"))) continue;
       locals.push({
         profile: p,
-        installed: readInstalled(join7(dir, "node_modules")),
+        installed: readInstalled(join8(dir, "node_modules")),
         declared: declaredPlugins(dir)
       });
     }
@@ -22977,14 +24357,784 @@ var Engine = class {
       selfDevice: selfId
     };
   }
+  // ==========================================================================
+  // 0.6.0 / P1：事件驱动删除传播
+  // --------------------------------------------------------------------------
+  // 0.5.9 靠「远端清单里这条连续两轮消失」推断删除，只覆盖跨平台会话镜像。
+  // 现在改成显式事件：每台设备只追加自己的日志分片，读端合并回放生成墓碑，
+  // 所有分类（附件/技能/工作区文件/会话）共用同一条删除链路。
+  //
+  // 三条硬纪律：
+  //   · 事件流不完整（读失败 / 签名坏 / seq 缺口）→ 整轮禁止按事件删本地文件；
+  //   · 本机「消失」要过 computeLocalDeletes 的六道闸才敢发 delete 事件；
+  //   · 删除一律「移进回收站」，远端对象保留 retentionDays 天后才由 GC 真删。
+  // ==========================================================================
+  /** 读远端纯文本；不存在返回空串（仅用于可重建的事件/墓碑文件）。 */
+  async readTextRemote(remote) {
+    try {
+      return new TextDecoder().decode(await this.deps.transport.getBuffer(remote));
+    } catch {
+      return "";
+    }
+  }
+  /** 读全局事件流：列每台设备的分片、逐片解析、校验完整性、回放墓碑。 */
+  async readEventStream() {
+    const t2 = this.deps.transport;
+    this.eventStream = [];
+    this.eventTrust = null;
+    this.tombstones = [];
+    this.eventStreamError = null;
+    const reads = [];
+    let devices = [];
+    try {
+      devices = await t2.list(EVENTS_DIR);
+    } catch {
+      try {
+        await t2.mkdir(EVENTS_DIR);
+        devices = await t2.list(EVENTS_DIR);
+      } catch {
+        reads.push({ name: EVENTS_DIR, events: null });
+      }
+    }
+    for (const d of devices) {
+      if (d.type !== "dir") continue;
+      if (!/^[A-Za-z0-9._-]+$/.test(d.name) || d.name.includes("..")) continue;
+      const dir = EVENTS_DIR + "/" + d.name;
+      let shards = [];
+      try {
+        shards = await t2.list(dir);
+      } catch {
+        reads.push({ name: dir, events: null });
+        continue;
+      }
+      const files = shards.filter((s2) => s2.type === "file" && /^\d{6}\.jsonl$/.test(s2.name)).sort((a, b) => a.name.localeCompare(b.name));
+      for (const s2 of files) {
+        const remote = dir + "/" + s2.name;
+        try {
+          const buf = await t2.getBuffer(remote);
+          const parsed = parseEventLog(new TextDecoder().decode(buf));
+          reads.push({ name: remote, events: parsed.corrupted ? null : parsed.events });
+        } catch {
+          reads.push({ name: remote, events: null });
+        }
+      }
+    }
+    const trust = validateEventStream(reads);
+    this.eventTrust = trust;
+    this.eventStream = mergeEventLogs(reads.flatMap((r2) => r2.events ? [r2.events] : []));
+    if (!trust.trusted) {
+      this.eventStreamError = eventStreamAllowsDeletes(trust).reason;
+      console.warn("[dsh-nas-sync] \u4E8B\u4EF6\u6D41\u4E0D\u5B8C\u6574\uFF0C\u672C\u8F6E\u7981\u7528\u4E8B\u4EF6\u9A71\u52A8\u5220\u9664\uFF1A" + this.eventStreamError);
+    }
+    this.tombstones = buildTombstones(this.eventStream, {
+      retentionDays: normalizeRetentionDays(this.deps.config.retentionDays)
+    });
+  }
+  /** 追加本机事件到自己的分片。CAS 保护同一分片被两个进程同时写。 */
+  async appendLocalEvents(newEvents) {
+    if (newEvents.length === 0) return;
+    const t2 = this.deps.transport;
+    const device = selfDevice();
+    const byShard = /* @__PURE__ */ new Map();
+    for (const e2 of newEvents) {
+      const sh = eventShardOf(e2.seq);
+      const arr = byShard.get(sh) ?? [];
+      arr.push(e2);
+      byShard.set(sh, arr);
+    }
+    for (const [sh, evts] of byShard) {
+      const remote = eventLogFileOf(device, sh);
+      const existing = parseEventLog(await this.readTextRemote(remote));
+      if (existing.corrupted) {
+        console.warn("[dsh-nas-sync] \u4E8B\u4EF6\u5206\u7247\u635F\u574F\uFF0C\u8DF3\u8FC7\u5199\u5165\u4EE5\u514D\u8986\u76D6\u5386\u53F2\uFF1A" + remote);
+        continue;
+      }
+      const writeMerged = async (list) => {
+        const data = new TextEncoder().encode(serializeEventLog(list));
+        if (t2.putIfMatch) {
+          const etag = t2.etag ? await t2.etag(remote) : null;
+          return (await t2.putIfMatch(data, remote, etag, { mkdirs: true })).ok;
+        }
+        await t2.putBuffer(data, remote, { mkdirs: true });
+        return true;
+      };
+      if (await writeMerged(mergeEventLogs([existing.events, evts]))) continue;
+      const again = parseEventLog(await this.readTextRemote(remote));
+      if (!await writeMerged(mergeEventLogs([again.events, evts]))) {
+        throw new Error("\u4E8B\u4EF6\u5206\u7247\u5199\u5165\u51B2\u7A81\uFF1A" + remote);
+      }
+    }
+  }
+  /** 写墓碑总表（共享文件，CAS 冲突时读回对方的表合并再写）。 */
+  async writeTombstones() {
+    const t2 = this.deps.transport;
+    const write = async (list) => {
+      const data = new TextEncoder().encode(
+        JSON.stringify({ tombstones: list, updatedAt: Date.now() }, null, 2)
+      );
+      if (t2.putIfMatch) {
+        const etag = t2.etag ? await t2.etag(TOMBSTONES_FILE) : null;
+        return (await t2.putIfMatch(data, TOMBSTONES_FILE, etag, { mkdirs: true })).ok;
+      }
+      await t2.putBuffer(data, TOMBSTONES_FILE, { mkdirs: true });
+      return true;
+    };
+    if (await write(this.tombstones)) return;
+    let remote = [];
+    try {
+      const parsed = JSON.parse(await this.readTextRemote(TOMBSTONES_FILE));
+      if (Array.isArray(parsed?.tombstones)) remote = parsed.tombstones;
+    } catch {
+    }
+    if (!await write(mergeTombstones(remote, this.tombstones))) {
+      console.warn("[dsh-nas-sync] \u5893\u7891\u603B\u8868\u5199\u5165\u51B2\u7A81\uFF08\u53EF\u7531\u4E8B\u4EF6\u6D41\u91CD\u5EFA\uFF0C\u4E0D\u4E22\u6570\u636E\uFF09");
+    }
+  }
+  /** 写本机位点并持久化，避免重启后重复回放历史 delete 事件。 */
+  async writeCursors(events) {
+    const t2 = this.deps.transport;
+    const devices = new Set(events.map((e2) => e2.device));
+    devices.add(selfDevice());
+    const cursors = [];
+    let changed = false;
+    for (const device of devices) {
+      const prev = {
+        device,
+        appliedSeq: this.deps.store.deviceCursors[device] ?? 0,
+        updatedAt: 0
+      };
+      const next = advanceCursor(prev, events, device);
+      cursors.push(next);
+      if (next.appliedSeq !== prev.appliedSeq) {
+        this.deps.store.deviceCursors[device] = next.appliedSeq;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    await t2.putBuffer(
+      new TextEncoder().encode(JSON.stringify(cursors, null, 2)),
+      cursorFileOf(selfDevice()),
+      { mkdirs: true }
+    );
+    this.deps.store.save();
+  }
+  /** 通用回收：把单个本地文件搬进 removed/ 并写 meta（会话走 retireLocalSession）。 */
+  async retireGeneric(rel, reason) {
+    if (!isSafeRel(rel)) throw new Error("\u62D2\u7EDD\u56DE\u6536\u4E0D\u5B89\u5168\u7684 rel\uFF1A" + String(rel).slice(0, 120));
+    const abs = this.resolveLocal(rel);
+    if (!existsSync3(abs)) return "";
+    const batch = join8(this.removedRoot(), (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-"));
+    const trash = join8(batch, rel.replace(/\//g, "__"));
+    await mkdir3(batch, { recursive: true });
+    try {
+      await rename2(abs, trash);
+    } catch {
+      await cp(abs, trash, { recursive: true });
+      await rm3(abs, { recursive: true, force: true });
+    }
+    try {
+      writeJsonAtomic(trash + ".meta.json", {
+        rel,
+        retiredAt: (/* @__PURE__ */ new Date()).toISOString(),
+        reason,
+        trashPath: trash
+      });
+    } catch {
+    }
+    return trash;
+  }
+  /** 消费对端 delete / ignore 事件，把本地对应内容移进回收站。 */
+  async applyRemoteDeletes(local) {
+    const gate = eventStreamAllowsDeletes(this.eventTrust);
+    if (!gate.allowed) {
+      if (gate.reason) console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u4E8B\u4EF6\u5220\u9664\u6D88\u8D39\uFF1A" + gate.reason);
+      return local;
+    }
+    if (this.ignoredFileError !== null) return local;
+    const self2 = selfDevice();
+    const cursors = Object.entries(this.deps.store.deviceCursors).map(([device, appliedSeq]) => ({ device, appliedSeq, updatedAt: 0 }));
+    const freshEvents = eventsSince(this.eventStream, cursors).filter((e2) => e2.device !== self2);
+    if (freshEvents.length === 0) return local;
+    let out = local;
+    const removed = /* @__PURE__ */ new Set();
+    for (const e2 of freshEvents) {
+      if (e2.op === "delete") {
+        const tomb = this.tombstones.find((x2) => x2.key === e2.key);
+        if (!tomb) continue;
+        const { rels, sid } = tombstoneTargets(tomb);
+        const targets = out.filter(
+          (x2) => rels.includes(x2.rel) || !!sid && this.sessionIdOfRel(x2.rel) === sid
+        );
+        for (const target of targets) {
+          if (removed.has(target.rel)) continue;
+          try {
+            if (this.isSessionBodyRel(target.rel)) {
+              await this.retireLocalSession(target.rel, { reason: "event-delete:" + e2.device });
+            } else {
+              await this.retireGeneric(target.rel, "event-delete:" + e2.device);
+            }
+            removed.add(target.rel);
+          } catch (err) {
+            console.warn("[dsh-nas-sync] \u6309\u4E8B\u4EF6\u56DE\u6536\u5931\u8D25\uFF08\u4E0B\u8F6E\u518D\u8BD5\uFF09\uFF1A" + target.rel + " \xB7 " + String(err));
+          }
+        }
+      } else if (e2.op === "ignore" || e2.op === "unignore") {
+        const sid = e2.key.startsWith("session:") ? e2.key.slice(8) : "";
+        if (!sid) continue;
+        if (e2.op === "ignore") this.ignoredFromFile.add(sid);
+        else this.ignoredFromFile.delete(sid);
+        this.saveIgnoredFile();
+      }
+    }
+    if (removed.size > 0) {
+      for (const [remoteRel, rec] of Object.entries(this.deps.store.sessionImports)) {
+        if (removed.has(rec.localRel)) delete this.deps.store.sessionImports[remoteRel];
+      }
+      out = out.filter((x2) => !removed.has(x2.rel));
+      this.deps.store.save();
+      console.log("[dsh-nas-sync] \u6309\u5BF9\u7AEF\u5220\u9664\u4E8B\u4EF6\u56DE\u6536 " + removed.size + " \u4E2A\u672C\u5730\u6587\u4EF6\uFF08\u53EF\u4ECE\u56DE\u6536\u7AD9\u6062\u590D\uFF09");
+    }
+    return out;
+  }
+  /** 收尾发布本机事件：上传成功 → upsert；确认删除 → delete；屏蔽操作 → ignore/unignore。 */
+  async publishEvents(fresh, baseline) {
+    const device = selfDevice();
+    const ts = Date.now();
+    let seq = nextLocalSeq(this.eventStream, device);
+    const out = [];
+    const retentionDays = normalizeRetentionDays(this.deps.config.retentionDays);
+    for (const rel of this.pushedOk) {
+      const e2 = fresh.find((x2) => x2.rel === rel);
+      if (!e2 || !isSafeRel(rel)) continue;
+      out.push(makeEvent({
+        device,
+        seq: seq++,
+        ts,
+        key: stableKeyOf(rel),
+        rel,
+        hash: e2.hash,
+        op: "upsert",
+        category: rel.split("/")[0]
+      }));
+    }
+    const excluded = new Set(
+      Object.values(this.deps.store.sessionImports ?? {}).map((r2) => r2.localRel)
+    );
+    for (const e2 of baseline) {
+      const sid = this.sessionIdOfRel(e2.rel);
+      if (sid && this.ignoredFromFile.has(sid)) excluded.add(e2.rel);
+    }
+    const decision = computeLocalDeletes({
+      baseline,
+      fresh,
+      enabledPrefixes: SYNC_CATEGORIES.filter((c) => this.deps.config.syncScope[c.key]).map((c) => c.localDir),
+      eventTrusted: this.eventTrust?.trusted ?? false,
+      manifestTrusted: this.remoteManifestTrusted,
+      excluded,
+      isIgnorable: isIgnoredRel
+    });
+    if (decision.blocked) {
+      console.warn("[dsh-nas-sync] \u672C\u8F6E\u4E0D\u4EA7\u751F\u5220\u9664\u4E8B\u4EF6\uFF1A" + decision.reason);
+    } else {
+      for (const rel of decision.rels) {
+        out.push(makeEvent({
+          device,
+          seq: seq++,
+          ts,
+          key: stableKeyOf(rel),
+          rel,
+          op: "delete",
+          retentionDays
+        }));
+      }
+    }
+    for (const intent of this.deps.store.pendingIntents ?? []) {
+      out.push(makeEvent({
+        device,
+        seq: seq++,
+        ts,
+        key: "session:" + intent.sid,
+        op: intent.op,
+        category: "sessions"
+      }));
+    }
+    if (out.length === 0) {
+      await this.writeCursors(this.eventStream);
+      return;
+    }
+    await this.appendLocalEvents(out);
+    this.deps.store.pendingIntents = [];
+    this.eventStream = mergeEventLogs([this.eventStream, out]);
+    this.tombstones = buildTombstones(this.eventStream, { retentionDays });
+    await this.writeTombstones();
+    await this.writeCursors(this.eventStream);
+    this.publishedEvents = out.length;
+  }
+  /** 过期墓碑 GC：保留期内一律不动，到期才真删远端对象与分块残块。 */
+  async gcRemoteObjects() {
+    const t2 = this.deps.transport;
+    const expired = collectGc(this.tombstones);
+    if (expired.length === 0) return;
+    await this.ensureMigrationMarker();
+    const legacyHold = legacyProtected(this.migrationMarker);
+    let n = 0;
+    for (const tomb of expired) {
+      for (const rel of tombstoneTargets(tomb).rels) {
+        if (legacyHold && isLegacySessionRel(rel)) continue;
+        const remote = "/dsh/" + rel;
+        try {
+          if (t2.deleteTree) await t2.deleteTree(remote);
+          else await t2.delete(remote);
+          await t2.delete(remote + ".chunk-manifest.json").catch(() => {
+          });
+          let miss = 0;
+          for (let i2 = 0; i2 < 64 && miss < 2; i2++) {
+            const part = remote + ".part" + String(i2).padStart(4, "0");
+            const st = await t2.stat(part).catch(() => null);
+            if (!st) {
+              miss++;
+              continue;
+            }
+            miss = 0;
+            await t2.delete(part);
+          }
+          n++;
+        } catch (err) {
+          console.warn("[dsh-nas-sync] GC \u8FDC\u7AEF\u5BF9\u8C61\u5931\u8D25\uFF08\u4E0B\u8F6E\u518D\u8BD5\uFF09\uFF1A" + rel + " \xB7 " + String(err));
+        }
+      }
+    }
+    if (n > 0) console.log("[dsh-nas-sync] \u5DF2\u6E05\u7406\u8FC7\u671F\u56DE\u6536\u5BF9\u8C61 " + n + " \u4E2A");
+  }
+  // ---- 0.6.0 / 收尾④：插件包体 CAS ----
+  /** 读装配清单（按 name@version 聚合，每个平台各自的对象指纹）。 */
+  async pluginAssemblies() {
+    try {
+      const raw = await this.readTextRemote(PLUGIN_ASSEMBLIES_FILE);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed?.assemblies)) return [];
+      return mergeAssemblies([parsed.assemblies]);
+    } catch {
+      return [];
+    }
+  }
+  /** 按内容指纹取一个对象；指纹非法 / 对象不存在都返回 null。 */
+  async pluginObject(hash) {
+    const h2 = String(hash || "").toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(h2)) return null;
+    try {
+      return await this.deps.transport.getBuffer(pluginObjectPath(h2));
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * 发布一个本机平台可用的插件包体（通常是 `pnpm pack` 产出的 .tgz）：
+   * 校验 tgz → 按 sha256 写进 CAS → 用 CAS 更新装配清单。
+   * 对象一旦存在就不重写（内容地址天然幂等），并发写清单冲突时重读重试。
+   */
+  async publishPluginObject(input) {
+    this.checkReady();
+    const name2 = String(input?.name || "").trim();
+    const version = String(input?.version || "").trim() || "0.0.0";
+    const tgzPath = String(input?.tgzPath || "").trim();
+    if (!name2 || !/^(@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i.test(name2)) {
+      throw new Error("\u63D2\u4EF6\u5305\u540D\u975E\u6CD5\uFF1A" + name2);
+    }
+    if (!tgzPath) throw new Error("\u7F3A\u5C11 tgzPath\uFF08\u672C\u673A .tgz \u6587\u4EF6\u8DEF\u5F84\uFF09");
+    const data = new Uint8Array(await readFile4(tgzPath));
+    if (data.length === 0) throw new Error("\u7A7A\u7684 .tgz \u6587\u4EF6");
+    const max = 128 * 1024 * 1024;
+    if (data.length > max) throw new Error(".tgz \u8D85\u8FC7 128 MiB \u4E0A\u9650");
+    let checked;
+    try {
+      checked = unpackTgz(data, { maxEntryBytes: max, maxTotalBytes: max });
+    } catch (err) {
+      throw new Error("\u62D2\u7EDD\u53D1\u5E03\uFF08.tgz \u6821\u9A8C\u5931\u8D25\uFF09\uFF1A" + String(err));
+    }
+    if (checked.entries.length === 0) throw new Error("\u62D2\u7EDD\u53D1\u5E03\uFF1A\u5305\u4F53\u91CC\u6CA1\u6709\u53EF\u7528\u6587\u4EF6");
+    const t2 = this.deps.transport;
+    const hash = sha256Hex2(data);
+    const path4 = pluginObjectPath(hash);
+    let existed = false;
+    try {
+      existed = !!await t2.stat(path4);
+    } catch {
+    }
+    if (!existed) await t2.putBuffer(data, path4, { mkdirs: true });
+    const target = currentTarget();
+    const record = {
+      name: name2,
+      version,
+      target,
+      objectHash: hash,
+      size: data.length,
+      device: selfDevice()
+    };
+    const write = async () => {
+      const cur = await this.pluginAssemblies();
+      const next = mergeAssemblies([cur, buildAssemblies([record])]);
+      const bytes = new TextEncoder().encode(
+        JSON.stringify({ assemblies: next, updatedAt: Date.now() }, null, 2)
+      );
+      if (t2.putIfMatch && t2.etag) {
+        const etag = await t2.etag(PLUGIN_ASSEMBLIES_FILE);
+        const r2 = await t2.putIfMatch(bytes, PLUGIN_ASSEMBLIES_FILE, etag, { mkdirs: true });
+        return r2.ok ? next : null;
+      }
+      await t2.putBuffer(bytes, PLUGIN_ASSEMBLIES_FILE, { mkdirs: true });
+      return next;
+    };
+    let merged = null;
+    for (let i2 = 0; i2 < 3 && !merged; i2++) merged = await write();
+    if (!merged) throw new Error("\u88C5\u914D\u6E05\u5355\u5E76\u53D1\u51B2\u7A81\uFF0C\u91CD\u8BD5 3 \u6B21\u4ECD\u5931\u8D25\uFF08\u5BF9\u8C61\u5DF2\u5199\u5165\uFF0C\u53EF\u91CD\u8DD1\uFF09");
+    return {
+      record,
+      objectPath: path4,
+      assemblies: merged.length,
+      entries: checked.entries.length,
+      rejected: checked.rejected.length,
+      objectExisted: existed
+    };
+  }
+  // ---- 0.6.0 / P2：会话稳定 ID 映射账本 ----
+  //
+  // 会话目录名是 cwd 编码，所以同一会话在电脑和手机上的 rel **永远不相等**。
+  // 0.5.9 用 `sessionImports` 在本机记「远端原文 rel → 本地镜像 rel」，但那份账只在本机，
+  // 第三台设备加入时无从得知哪个 sid 对应哪条 rel。这里把映射按 sid 汇总到远端，
+  // 为将来切到 canonical rel（`sessions/by-id/<sid>/v<N>`）准备好可迁移的账本。
+  //
+  // 本轮**不切换主 rel 空间**：线上 0.5.9 的 105+ 条存量 rel 一旦换主键，需要一次
+  // 全量重写 + 双端停机窗口，硬塞进同一轮会把正在同步的数据弄坏。
+  async readBidMap() {
+    try {
+      const parsed = JSON.parse(await this.readTextRemote(BIDMAP_FILE));
+      return Array.isArray(parsed?.entries) ? mergeBidMaps([parsed.entries]) : [];
+    } catch {
+      return [];
+    }
+  }
+  async publishBidMap() {
+    const t2 = this.deps.transport;
+    const own = [];
+    for (const [remoteRel, rec] of Object.entries(this.deps.store.sessionImports ?? {})) {
+      const sid = this.sessionIdOfRel(rec.localRel) ?? this.sessionIdOfRel(remoteRel);
+      if (!sid || !isSafeRel(rec.localRel)) continue;
+      own.push({
+        sid,
+        canonicalRel: canonicalSessionRel(sid, 1),
+        localRel: rec.localRel,
+        originalCwd: rec.originalCwd,
+        version: 1
+      });
+    }
+    if (own.length === 0) return;
+    const write = async (entries) => {
+      const data = new TextEncoder().encode(
+        JSON.stringify({ entries, updatedAt: Date.now() }, null, 2)
+      );
+      if (t2.putIfMatch) {
+        const etag = t2.etag ? await t2.etag(BIDMAP_FILE) : null;
+        return (await t2.putIfMatch(data, BIDMAP_FILE, etag, { mkdirs: true })).ok;
+      }
+      await t2.putBuffer(data, BIDMAP_FILE, { mkdirs: true });
+      return true;
+    };
+    if (await write(mergeBidMaps([await this.readBidMap(), own]))) return;
+    await write(mergeBidMaps([await this.readBidMap(), own]));
+  }
+  /** 面板/工具：查看会话稳定 ID ↔ 各端 rel 的映射账本。 */
+  async bidMap() {
+    const entries = await this.readBidMap();
+    return { entries, count: entries.length };
+  }
+  // -------------------------------------------------------------------------
+  // 0.6.0 / 收尾①：会话 rel 空间迁移
+  // -------------------------------------------------------------------------
+  /** 读迁移标记（明文 JSON，只有计数与时间戳，无敏感数据）。 */
+  async ensureMigrationMarker() {
+    if (this.migrationMarker) return;
+    try {
+      const raw = await this.readTextRemote(MIGRATION_MARKER_PATH);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.version === 1 && Number.isFinite(parsed.completedAt)) {
+        this.migrationMarker = parsed;
+      }
+    } catch {
+    }
+  }
+  /**
+   * 生效模式。配置写了 canonical 但迁移标记不存在时降级 legacy，
+   * 避免「手滑改了配置，下一轮所有会话 rel 全变、存量对象全找不到」。
+   */
+  /** 影响「哪些文件进清单 / 清单里叫什么」的配置指纹（0.6.0 / 收尾③）。 */
+  cachePolicyFingerprint() {
+    const c = this.deps.config;
+    return configFingerprint({
+      scope: c.syncScope ?? {},
+      includeSensitive: !!c.includeSensitive,
+      skillFilter: c.skillFilter ?? [],
+      customFolders: c.customFolders ?? [],
+      maxFileBytes: Number(c.maxFileBytes) || 0,
+      sessionRelMode: this.sessionRelMode
+    });
+  }
+  effectiveRelMode() {
+    if (this.sessionRelMode === "canonical" && !this.migrationMarker) return "legacy";
+    return this.sessionRelMode;
+  }
+  /** 本机会话 rel → 写进远端清单的 rel（canonical 模式才投影）。 */
+  projectLocalRel(rel) {
+    if (this.effectiveRelMode() !== "canonical") return rel;
+    if (isLegacySessionRel(rel)) return legacyRelToCanonical(rel, 1) ?? rel;
+    return rel;
+  }
+  /**
+   * canonical 远端 rel 落到本机时的 cwd 编码段。
+   * 优先用已知的本机会话落地记录，其次工作区注册表，最后 DSH home 兜底。
+   */
+  canonicalCwdSegment() {
+    for (const rec of Object.values(this.deps.store.sessionImports ?? {})) {
+      const parts = String(rec?.localRel || "").split("/");
+      if (parts[0] === "sessions" && parts[1]) return safeCwdSegment(parts[1]);
+    }
+    for (const dir of this.workspaceDirs.values()) {
+      if (dir) return safeCwdSegment(encodeCwd(dir));
+    }
+    return safeCwdSegment(encodeCwd(dshHome()));
+  }
+  isSessionBodyRel(rel) {
+    return isSessionRel(rel) || isCanonicalSessionRel(rel);
+  }
+  /**
+   * 查跨平台会话镜像账。canonical 模式下远端原文 rel 变了，但账本还是按老 rel
+   * 记的（迁移不改本机 Store）；按 sid 兜底找一次，避免镜像被误判成「本机已有
+   * 同 id 会话」而永远不更新。legacy 模式直接命中，行为不变。
+   */
+  importRecordFor(rel) {
+    const imports = this.deps.store.sessionImports ?? {};
+    const direct = imports[rel];
+    if (direct) return direct;
+    const sid = sessionIdFromRel(rel);
+    if (!sid) return void 0;
+    for (const [key, rec] of Object.entries(imports)) {
+      if (sessionIdFromRel(key) === sid || sessionIdFromRel(rec?.localRel ?? "") === sid) return rec;
+    }
+    return void 0;
+  }
+  /**
+   * 读侧双空间归并：NAS 上同时有 legacy 与 canonical 两份时按 sid 合成一份视图，
+   * 避免同一会话被计数两次、也避免「只删了一个空间」时删除判不出来。
+   * 只有 legacy 条目时（默认线上形态）原样返回，行为逐字节不变。
+   */
+  projectRemoteMerge(entries) {
+    if (!entries.some((e2) => isCanonicalSessionRel(e2.rel))) return entries;
+    const merged = mergeDualRead(entries);
+    if (this.effectiveRelMode() !== "canonical") return merged;
+    const out = /* @__PURE__ */ new Map();
+    for (const e2 of merged) {
+      const rel = this.projectLocalRel(e2.rel);
+      const cur = out.get(rel);
+      if (!cur || (e2.mtime ?? 0) >= (cur.mtime ?? 0)) out.set(rel, { ...e2, rel });
+    }
+    return [...out.values()].sort((a, b) => a.rel.localeCompare(b.rel));
+  }
+  /** 只读：生成会话 rel 迁移计划，不写任何东西。 */
+  async sessionRelPlan() {
+    this.checkReady();
+    await this.ensureMigrationMarker();
+    const remote = await this.readRemoteManifest();
+    const plan = planRelMigration(remote, { bidMap: await this.readBidMap() });
+    const check = validateRelPlan(plan);
+    return {
+      mode: this.sessionRelMode,
+      effectiveMode: this.effectiveRelMode(),
+      migrated: !!this.migrationMarker,
+      plan,
+      valid: check.ok,
+      errors: check.errors
+    };
+  }
+  /**
+   * 两阶段迁移：不带 confirm 只返回计划；带 confirm 才复制对象、写 bidmap、写 marker。
+   * 旧对象只复制不删除，保留期内 `legacyProtected()` 会挡住 GC。
+   */
+  async migrateSessionRels(opts = {}) {
+    this.checkReady();
+    await this.ensureMigrationMarker();
+    if (this.migrationMarker) {
+      return {
+        ok: true,
+        dryRun: false,
+        alreadyDone: true,
+        copied: 0,
+        skippedChunks: [],
+        bidMapEntries: 0,
+        errors: [],
+        marker: this.migrationMarker,
+        hint: "\u8FC1\u79FB\u6807\u8BB0\u5DF2\u5B58\u5728\uFF0C\u4E0D\u91CD\u590D\u6267\u884C\u3002\u65E7\u5BF9\u8C61\u4FDD\u7559\u671F\u5185\u4ECD\u53D7\u4FDD\u62A4\u3002"
+      };
+    }
+    const view = await this.sessionRelPlan();
+    const plan = view.plan;
+    const base = {
+      dryRun: !opts.confirm,
+      alreadyDone: false,
+      copied: 0,
+      skippedChunks: [],
+      bidMapEntries: 0,
+      errors: [...view.errors],
+      marker: null
+    };
+    if (!view.valid) {
+      return { ...base, ok: false, hint: "\u8BA1\u5212\u6821\u9A8C\u672A\u901A\u8FC7\uFF0C\u672A\u5199\u5165\u4EFB\u4F55\u6570\u636E\u3002" };
+    }
+    if (!opts.confirm) {
+      return {
+        ...base,
+        ok: true,
+        hint: `\u53EA\u8BFB\u9884\u6F14\uFF1A\u5C06\u590D\u5236 ${plan.mappings.length} \u4E2A\u4F1A\u8BDD\u5BF9\u8C61\u5E76\u5199 bidmap\u3002\u786E\u8BA4\u65E0\u8BEF\u540E\u5E26 confirm:true \u518D\u6267\u884C\u4E00\u6B21\u3002`
+      };
+    }
+    const t2 = this.deps.transport;
+    const skippedChunks = [];
+    let copied = 0;
+    for (const m2 of plan.mappings) {
+      const from = "/dsh/" + m2.legacyRel;
+      const to = "/dsh/" + m2.canonicalRel;
+      try {
+        let chunked = false;
+        try {
+          chunked = !!await t2.stat(from + ".chunk-manifest.json");
+        } catch {
+        }
+        if (chunked) {
+          skippedChunks.push(m2.legacyRel);
+          continue;
+        }
+        const buf = await t2.getBuffer(from);
+        if (!buf || buf.length === 0) {
+          skippedChunks.push(m2.legacyRel);
+          continue;
+        }
+        await t2.putBuffer(buf, to, { mkdirs: true });
+        copied++;
+      } catch (err) {
+        base.errors.push("\u590D\u5236\u5931\u8D25 " + m2.legacyRel + "\uFF1A" + String(err));
+      }
+    }
+    if (base.errors.length > 0) {
+      return {
+        ...base,
+        ok: false,
+        copied,
+        skippedChunks,
+        hint: "\u590D\u5236\u9636\u6BB5\u6709\u9519\u8BEF\uFF0C\u672A\u5199 bidmap / \u6807\u8BB0\uFF1B\u5DF2\u590D\u5236\u7684\u5BF9\u8C61\u4FDD\u7559\u53EF\u91CD\u8DD1\u3002"
+      };
+    }
+    const bidEntries = mergeBidMaps([
+      await this.readBidMap(),
+      bidMapFromPlan(plan, () => this.canonicalCwdSegment())
+    ]);
+    const bidData = new TextEncoder().encode(
+      JSON.stringify({ entries: bidEntries, updatedAt: Date.now() }, null, 2)
+    );
+    const marker = buildMigrationMarker(
+      plan,
+      selfDevice(),
+      Date.now(),
+      this.deps.config.retentionDays ?? 30
+    );
+    const markerData = new TextEncoder().encode(JSON.stringify(marker, null, 2));
+    try {
+      if (t2.putIfMatch && t2.etag) {
+        const bidEtag = await t2.etag(BIDMAP_FILE);
+        await t2.putIfMatch(bidData, BIDMAP_FILE, bidEtag, { mkdirs: true });
+        const mkEtag = await t2.etag(MIGRATION_MARKER_PATH);
+        await t2.putIfMatch(markerData, MIGRATION_MARKER_PATH, mkEtag, { mkdirs: true });
+      } else {
+        await t2.putBuffer(bidData, BIDMAP_FILE, { mkdirs: true });
+        await t2.putBuffer(markerData, MIGRATION_MARKER_PATH, { mkdirs: true });
+      }
+    } catch (err) {
+      return {
+        ...base,
+        ok: false,
+        copied,
+        skippedChunks,
+        hint: "\u5199\u5165 bidmap / \u6807\u8BB0\u5931\u8D25\uFF1A" + String(err) + "\uFF08\u5BF9\u8C61\u5DF2\u590D\u5236\uFF0C\u53EF\u91CD\u8DD1\uFF09"
+      };
+    }
+    this.migrationMarker = marker;
+    return {
+      ...base,
+      ok: true,
+      copied,
+      skippedChunks,
+      bidMapEntries: bidEntries.length,
+      marker,
+      hint: "\u8FC1\u79FB\u5B8C\u6210\u3002\u65E7\u5BF9\u8C61\u4EC5\u590D\u5236\u672A\u5220\u9664\uFF1B\u628A sessionRelMode \u8BBE\u4E3A canonical \u540E\u4E3B\u94FE\u5373\u5207\u6362\u3002"
+    };
+  }
+  /** 面板/工具：查看最近事件流与墓碑。 */
+  async listEvents(limit = 100) {
+    await this.readEventStream();
+    const n = Math.max(1, Math.min(1e3, Math.floor(Number(limit) || 100)));
+    return {
+      events: this.eventStream.slice(-n),
+      trusted: this.eventTrust?.trusted ?? false,
+      tombstones: this.tombstones,
+      cursors: { ...this.deps.store.deviceCursors }
+    };
+  }
+  /** 面板/工具：手动确认删除一条 rel，发布 delete 事件（仍受事件流完整性闸门约束）。 */
+  async confirmDelete(rel) {
+    this.checkReady();
+    if (!isSafeRel(rel)) throw new Error("\u4E0D\u5B89\u5168\u7684 rel\uFF1A" + String(rel).slice(0, 120));
+    await this.readEventStream();
+    const gate = eventStreamAllowsDeletes(this.eventTrust);
+    if (!gate.allowed) return { published: false, reason: gate.reason ?? "\u4E8B\u4EF6\u6D41\u4E0D\u53EF\u4FE1" };
+    const device = selfDevice();
+    const e2 = makeEvent({
+      device,
+      seq: nextLocalSeq(this.eventStream, device),
+      ts: Date.now(),
+      key: stableKeyOf(rel),
+      rel,
+      op: "delete",
+      retentionDays: normalizeRetentionDays(this.deps.config.retentionDays)
+    });
+    await this.appendLocalEvents([e2]);
+    this.eventStream = mergeEventLogs([this.eventStream, [e2]]);
+    this.tombstones = buildTombstones(this.eventStream, {
+      retentionDays: normalizeRetentionDays(this.deps.config.retentionDays)
+    });
+    await this.writeTombstones();
+    await this.writeCursors(this.eventStream);
+    this.publishedEvents++;
+    return { published: true, reason: "" };
+  }
   async scan() {
     this.checkReady();
     this.loadWorkspaceDirs();
     this.loadIgnoredFile();
+    await this.ensureMigrationMarker();
     this.setPhase("scanning");
-    const local = await this.scanner.buildManifest();
-    const remote = await this.readRemoteManifest();
+    await this.readEventStream();
+    let local = await this.scanner.buildManifest();
+    if (this.scanCache) {
+      try {
+        saveScanCache(this.scanCache.snapshot());
+      } catch (err) {
+        this.scanCacheWarning = "\u626B\u63CF\u7F13\u5B58\u5199\u5165\u5931\u8D25\uFF1A" + String(err);
+        console.warn("[dsh-nas-sync] " + this.scanCacheWarning);
+      }
+    }
+    const remote = stripDeletedEntries(await this.readRemoteManifest(), this.tombstones);
     this.remoteManifest = remote;
+    local = await this.applyRemoteDeletes(local);
     const localMap = new Map(local.map((e2) => [e2.rel, e2]));
     const remoteMap = new Map(remote.map((e2) => [e2.rel, e2]));
     const pending = [];
@@ -23032,7 +25182,7 @@ var Engine = class {
     }
     for (const rel of [...localMap.keys()]) {
       if (destructiveBlocked) break;
-      if (!isSessionRel(rel) || !this.isImportIgnored(rel)) continue;
+      if (!this.isSessionBodyRel(rel) || !this.isImportIgnored(rel)) continue;
       try {
         await this.retireLocalSession(rel);
         localMap.delete(rel);
@@ -23045,7 +25195,7 @@ var Engine = class {
     for (const [rel, le] of localMap) {
       if (isWorkspaceRegistryRel(rel)) continue;
       if (importedLocalRel.has(rel)) continue;
-      if (isSessionRel(rel) && this.isImportIgnored(rel)) continue;
+      if (this.isSessionBodyRel(rel) && this.isImportIgnored(rel)) continue;
       const re = remoteMap.get(rel);
       if (!re) {
         pending.push({ rel, size: le.size, action: "upload" });
@@ -23187,6 +25337,7 @@ var Engine = class {
       }
       if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
+        const baseline = this.deps.store.localManifest ?? [];
         await this.writeOwnManifest(this.withoutMirrors(fresh));
         this.remoteManifest = await this.readRemoteManifest();
         this.deps.store.localManifest = fresh;
@@ -23195,6 +25346,21 @@ var Engine = class {
         } catch {
         }
         this.deps.store.snapshot.lastSyncTime = Date.now();
+        try {
+          await this.publishEvents(fresh, baseline);
+        } catch (err) {
+          console.warn("[dsh-nas-sync] \u4E8B\u4EF6\u53D1\u5E03\u5931\u8D25\uFF08\u4E0B\u8F6E\u91CD\u653E\uFF09\uFF1A" + String(err));
+        }
+        try {
+          await this.gcRemoteObjects();
+        } catch (err) {
+          console.warn("[dsh-nas-sync] \u56DE\u6536\u5BF9\u8C61 GC \u5931\u8D25\uFF1A" + String(err));
+        }
+        try {
+          await this.publishBidMap();
+        } catch (err) {
+          console.warn("[dsh-nas-sync] bidmap \u53D1\u5E03\u5931\u8D25\uFF08\u4E0B\u8F6E\u91CD\u8BD5\uFF09\uFF1A" + String(err));
+        }
         this.deps.store.pendingFiles = [...remaining];
         this.deps.store.snapshot.pendingCount = remaining.size;
       }
@@ -23229,8 +25395,8 @@ var Engine = class {
    */
   async pushBytes(rel, data) {
     const remote = "/dsh/" + rel;
-    const plainHash = sha256Hex(data);
-    const cipher = await Crypto.encrypt(data, this.deps.config.passphrase, this.deps.store.salt());
+    const plainHash = sha256Hex2(data);
+    const cipher = await this.seal(data, rel);
     if (data.length >= this.deps.config.chunkThreshold) {
       await this.chunker.upload(cipher, plainHash, data.length, remote);
     } else {
@@ -23256,7 +25422,7 @@ var Engine = class {
   }
   /** 回收根目录。0.5.9 起这里的内容可被 `listRemovedSessions()` 枚举并恢复。 */
   removedRoot() {
-    return join7(dshHome(), "nas-sync", "removed");
+    return join8(dshHome(), "nas-sync", "removed");
   }
   /**
    * 把某个会话的**目录**搬进回收目录，并清掉它在工作区里的登记。
@@ -23276,8 +25442,8 @@ var Engine = class {
     const sessionDir = abs.slice(0, cut);
     const stamp2 = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
     const id = localRel.replace(/\//g, "__");
-    const batch = join7(this.removedRoot(), stamp2);
-    const trash = join7(batch, id);
+    const batch = join8(this.removedRoot(), stamp2);
+    const trash = join8(batch, id);
     await mkdir3(batch, { recursive: true });
     if (existsSync3(sessionDir)) {
       try {
@@ -23318,7 +25484,7 @@ var Engine = class {
     }
     const out = [];
     for (const batch of batches) {
-      const dir = join7(root, batch);
+      const dir = join8(root, batch);
       let names = [];
       try {
         names = readdirSync2(dir);
@@ -23327,7 +25493,7 @@ var Engine = class {
       }
       for (const name2 of names) {
         if (!name2.endsWith(".meta.json")) continue;
-        const metaPath = join7(dir, name2);
+        const metaPath = join8(dir, name2);
         const meta = readJsonFile(metaPath).data;
         const id = name2.slice(0, -".meta.json".length);
         out.push({
@@ -23341,7 +25507,7 @@ var Engine = class {
       }
       for (const name2 of names) {
         if (name2.endsWith(".meta.json") || name2.endsWith(".bak")) continue;
-        const metaPath = join7(dir, name2 + ".meta.json");
+        const metaPath = join8(dir, name2 + ".meta.json");
         if (existsSync3(metaPath)) continue;
         out.push({
           id: name2,
@@ -23387,16 +25553,16 @@ var Engine = class {
         return [];
       }
     })()) {
-      const candidate = join7(root, batch, entry.id + ".meta.json");
+      const candidate = join8(root, batch, entry.id + ".meta.json");
       if (!existsSync3(candidate)) continue;
       const m2 = readJsonFile(candidate).data;
       if (m2?.rel !== rel) continue;
       metaPath = candidate;
-      trashDir = typeof m2?.trashDir === "string" ? m2.trashDir : join7(root, batch, entry.id);
+      trashDir = typeof m2?.trashDir === "string" ? m2.trashDir : join8(root, batch, entry.id);
       break;
     }
     if (!trashDir || !existsSync3(trashDir)) throw new Error("\u56DE\u6536\u76EE\u5F55\u5DF2\u4E0D\u5B58\u5728\uFF1A" + (trashDir || entry.id));
-    await mkdir3(join7(sessionDir, ".."), { recursive: true });
+    await mkdir3(join8(sessionDir, ".."), { recursive: true });
     try {
       await rename2(trashDir, sessionDir);
     } catch {
@@ -23493,13 +25659,13 @@ var Engine = class {
       } catch {
         continue;
       }
-      if (sha256Hex(local) === rec.localHash) continue;
+      if (sha256Hex2(local) === rec.localHash) continue;
       const back = rewriteSessionCwdTo(local, rec.originalCwd) ?? local;
       try {
         await this.pushBytes(remoteRel, back);
-        const backHash = sha256Hex(back);
+        const backHash = sha256Hex2(back);
         rec.remoteHash = backHash;
-        rec.localHash = sha256Hex(local);
+        rec.localHash = sha256Hex2(local);
         await this.updateRemoteManifestEntry(remoteRel, backHash, back.length);
         republished += 1;
       } catch (e2) {
@@ -23532,7 +25698,7 @@ var Engine = class {
   async pullWorkspaceRegistry() {
     this.registryNeedsPush = false;
     this.loadIgnoredFile();
-    const localAbs = join7(dshHome(), WORKSPACE_REGISTRY_REL);
+    const localAbs = join8(dshHome(), WORKSPACE_REGISTRY_REL);
     let plain = null;
     try {
       plain = await this.fetchRemotePlain("/dsh/" + WORKSPACE_REGISTRY_REL);
@@ -23561,7 +25727,7 @@ var Engine = class {
   /** 把本机注册表发布到 NAS（只在 pullWorkspaceRegistry 判定「本机有多出来的部分」时调用）。 */
   async pushWorkspaceRegistry() {
     try {
-      const abs = join7(dshHome(), WORKSPACE_REGISTRY_REL);
+      const abs = join8(dshHome(), WORKSPACE_REGISTRY_REL);
       const buf = await readFile4(abs);
       await this.pushFile(WORKSPACE_REGISTRY_REL);
       this.pushedOk.add(WORKSPACE_REGISTRY_REL);
@@ -23591,7 +25757,7 @@ var Engine = class {
     const localAbs = this.resolveLocal(rel);
     const cut = Math.max(localAbs.lastIndexOf("/"), localAbs.lastIndexOf("\\"));
     await mkdir3(localAbs.slice(0, cut), { recursive: true });
-    if (isSessionRel(rel)) {
+    if (this.isSessionBodyRel(rel)) {
       const raw = Buffer.from(plain);
       const originalCwd = sessionCwdOf(raw);
       if (!originalCwd) return "skipped";
@@ -23611,17 +25777,16 @@ var Engine = class {
         written = out ? out.buf : raw;
         await mkdir3(targetDir, { recursive: true });
       }
-      const parts = rel.split("/");
-      const sid = parts[parts.length - 2] ?? "";
-      const fileName = parts[parts.length - 1] ?? "";
+      const sid = sessionIdFromRel(rel) ?? "";
+      const fileName = rel.split("/").pop() ?? "";
       const wantDir = encodeCwd(targetDir);
-      const targetRel = wantDir === parts[1] ? rel : ["sessions", wantDir, sid, fileName].join("/");
+      const targetRel = ["sessions", wantDir, sid, fileName].join("/");
       const target = this.resolveLocal(targetRel);
-      const priorRecord = this.deps.store.sessionImports[rel];
+      const priorRecord = this.importRecordFor(rel);
       const isOurMirror = priorRecord?.localRel === targetRel;
       if (crossPlatform && targetRel !== rel && !isOurMirror && existsSync3(target)) {
         const cur = await readFile4(target);
-        const sameHash = sha256Hex(cur) === sha256Hex(written);
+        const sameHash = sha256Hex2(cur) === sha256Hex2(written);
         if (sameHash) {
         } else if (!localIsStaleSnapshot(cur, written)) {
           if (!this.importSkipWarned.has(rel)) {
@@ -23633,9 +25798,9 @@ var Engine = class {
         // 必须再用首帧身份指纹（忽略 cwd）证明确实是同一条。
         sessionHeaderIdentity(cur) !== null && sessionHeaderIdentity(cur) === sessionHeaderIdentity(written)) {
           this.deps.store.sessionImports[rel] = {
-            remoteHash: sha256Hex(plain),
+            remoteHash: sha256Hex2(plain),
             localRel: targetRel,
-            localHash: sha256Hex(cur),
+            localHash: sha256Hex2(cur),
             originalCwd,
             adopted: true
           };
@@ -23662,9 +25827,9 @@ var Engine = class {
       }
       if (targetRel !== rel) {
         this.deps.store.sessionImports[rel] = {
-          remoteHash: sha256Hex(plain),
+          remoteHash: sha256Hex2(plain),
           localRel: targetRel,
-          localHash: sha256Hex(written),
+          localHash: sha256Hex2(written),
           originalCwd
         };
         this.deps.store.save();
@@ -23690,7 +25855,7 @@ var Engine = class {
         rel,
         mtime: st.mtimeMs,
         size: st.size,
-        hash: sha256Hex(data),
+        hash: sha256Hex2(data),
         // 本地版本胜出 = 本机上传，来源记为当前设备
         device: selfDevice()
       });
@@ -23720,7 +25885,7 @@ var Engine = class {
         rel,
         mtime: st.mtimeMs,
         size: st.size,
-        hash: sha256Hex(data),
+        hash: sha256Hex2(data),
         device: prevDevice
       });
       this.remoteManifest = await this.readRemoteManifest();
@@ -23755,24 +25920,33 @@ init_paths();
 
 // src/bridge.ts
 import { randomBytes as randomBytes3, timingSafeEqual } from "node:crypto";
-import { join as join9 } from "node:path";
+import { join as join10 } from "node:path";
 init_paths();
 
 // src/sync/installer.ts
 import { spawn } from "node:child_process";
-import { existsSync as existsSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname3, join as join8 } from "node:path";
+import {
+  existsSync as existsSync4,
+  readFileSync as readFileSync4,
+  writeFileSync as writeFileSync2,
+  mkdirSync as mkdirSync2,
+  renameSync as renameSync2,
+  rmSync
+} from "node:fs";
+import { dirname as dirname3, join as join9, resolve as resolve3, sep as sep4 } from "node:path";
+import { createHash as createHash7 } from "node:crypto";
 var LOG_CAP = 16 * 1024;
+var DEFAULT_CAS_MAX_BYTES = 128 * 1024 * 1024;
 function resolveCliScript() {
   const exe = process.execPath;
   if (!exe) return null;
-  const appAsar = join8(dirname3(exe), "resources", "app.asar");
+  const appAsar = join9(dirname3(exe), "resources", "app.asar");
   try {
     if (!existsSync4(appAsar)) return null;
   } catch {
     return null;
   }
-  return join8(
+  return join9(
     appAsar,
     "dsh",
     "node_modules",
@@ -23784,7 +25958,7 @@ function resolveCliScript() {
 }
 function readProfileJson(profileDir) {
   try {
-    return JSON.parse(readFileSync4(join8(profileDir, "package.json"), "utf8"));
+    return JSON.parse(readFileSync4(join9(profileDir, "package.json"), "utf8"));
   } catch {
     return null;
   }
@@ -23795,7 +25969,7 @@ function registerBundles(profileDir, installed) {
   const want = [];
   for (const name2 of installed) {
     try {
-      const pj = JSON.parse(readFileSync4(join8(profileDir, "node_modules", name2, "package.json"), "utf8"));
+      const pj = JSON.parse(readFileSync4(join9(profileDir, "node_modules", name2, "package.json"), "utf8"));
       if (pj?.dsh?.bundle?.patch) want.push(name2);
     } catch {
     }
@@ -23813,15 +25987,115 @@ function registerBundles(profileDir, installed) {
   }
   if (added.length === 0) return [];
   try {
-    writeFileSync2(join8(profileDir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+    writeFileSync2(join9(profileDir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
   } catch {
     return [];
   }
   return added;
 }
+async function installFromCas(profileDir, records, source, opts = {}) {
+  const maxBytes = Math.max(1024, Number(opts.maxBytes ?? DEFAULT_CAS_MAX_BYTES));
+  const now = Number.isFinite(opts.now) ? Number(opts.now) : Date.now();
+  const root = resolve3(profileDir, "node_modules");
+  const installed = [];
+  const skipped = [];
+  let rejectedPaths = 0;
+  let n = 0;
+  for (const rec of records) {
+    const name2 = String(rec?.name ?? "").trim();
+    const hash = String(rec?.objectHash ?? "").toLowerCase();
+    if (!name2 || !/^[0-9a-f]{64}$/.test(hash)) {
+      skipped.push({ name: name2 || "(\u7A7A)", reason: "\u5305\u540D\u6216\u5BF9\u8C61\u6307\u7EB9\u975E\u6CD5" });
+      continue;
+    }
+    const target = resolve3(root, ...name2.split("/"));
+    if (!target.startsWith(root + sep4)) {
+      skipped.push({ name: name2, reason: "\u5305\u540D\u8D8A\u51FA node_modules" });
+      continue;
+    }
+    let buf;
+    try {
+      buf = await source.getObject(hash);
+    } catch (err) {
+      skipped.push({ name: name2, reason: "\u8BFB\u53D6\u5BF9\u8C61\u5931\u8D25\uFF1A" + String(err) });
+      continue;
+    }
+    if (!buf || buf.length === 0) {
+      skipped.push({ name: name2, reason: "CAS \u91CC\u6CA1\u6709\u8FD9\u4E2A\u5BF9\u8C61" });
+      continue;
+    }
+    if (buf.length > maxBytes) {
+      skipped.push({ name: name2, reason: "\u5BF9\u8C61\u8D85\u8FC7\u5927\u5C0F\u4E0A\u9650 " + maxBytes });
+      continue;
+    }
+    const actual = createHash7("sha256").update(Buffer.from(buf)).digest("hex");
+    if (actual !== hash) {
+      skipped.push({ name: name2, reason: "\u5BF9\u8C61 sha256 \u4E0E\u88C5\u914D\u6E05\u5355\u4E0D\u7B26\uFF08\u62D2\u7EDD\u89E3\u5305\uFF09" });
+      continue;
+    }
+    let unpacked;
+    try {
+      unpacked = unpackTgz(buf, { maxEntryBytes: maxBytes, maxTotalBytes: maxBytes * 2 });
+    } catch (err) {
+      skipped.push({ name: name2, reason: "\u89E3\u5305\u5931\u8D25\uFF1A" + String(err) });
+      continue;
+    }
+    rejectedPaths += unpacked.rejected.length;
+    if (unpacked.entries.length === 0) {
+      skipped.push({ name: name2, reason: "\u5305\u4F53\u91CC\u6CA1\u6709\u53EF\u7528\u6587\u4EF6" });
+      continue;
+    }
+    const tmp = target + ".cas-tmp-" + process.pid + "-" + ++n;
+    let backup = null;
+    try {
+      mkdirSync2(tmp, { recursive: true });
+      for (const e2 of unpacked.entries) {
+        const dest = resolve3(tmp, ...e2.path.split("/"));
+        if (dest !== tmp && !dest.startsWith(tmp + sep4)) {
+          throw new Error("\u89E3\u5305\u8DEF\u5F84\u8D8A\u754C\uFF1A" + e2.path);
+        }
+        if (e2.isDir) {
+          mkdirSync2(dest, { recursive: true });
+        } else {
+          mkdirSync2(dirname3(dest), { recursive: true });
+          const mode = e2.mode & 511 || 420;
+          writeFileSync2(dest, Buffer.from(e2.data), { mode });
+        }
+      }
+      mkdirSync2(root, { recursive: true });
+      if (existsSync4(target)) {
+        backup = target + ".cas-bak-" + now + "-" + n;
+        renameSync2(target, backup);
+      }
+      renameSync2(tmp, target);
+      installed.push(name2);
+      if (backup) {
+        try {
+          rmSync(backup, { recursive: true, force: true });
+        } catch {
+        }
+      }
+    } catch (err) {
+      try {
+        rmSync(tmp, { recursive: true, force: true });
+      } catch {
+      }
+      if (backup && !existsSync4(target)) {
+        try {
+          renameSync2(backup, target);
+        } catch {
+        }
+      }
+      skipped.push({ name: name2, reason: "\u843D\u76D8\u5931\u8D25\uFF08\u5DF2\u56DE\u6EDA\uFF09\uFF1A" + String(err) });
+    }
+  }
+  const registered = installed.length > 0 ? registerBundles(profileDir, installed) : [];
+  return { installed, skipped, registered, rejectedPaths };
+}
 var Installer = class {
-  constructor(profilesRoot) {
+  constructor(profilesRoot, cas) {
     this.profilesRoot = profilesRoot;
+    this.cas = cas;
   }
   jobs = /* @__PURE__ */ new Map();
   seq = 0;
@@ -23841,12 +26115,17 @@ var Installer = class {
    * 这里不再解析 spec；`name` 只用于装完登记 `dsh.profile.bundles`。
    */
   start(profile, items) {
-    const cli = resolveCliScript();
-    if (!cli) throw new Error("\u8FD9\u53F0\u8BBE\u5907\u4E0A\u6CA1\u6709\u53EF\u7528\u7684 dsh CLI\uFF0C\u65E0\u6CD5\u81EA\u52A8\u5B89\u88C5\uFF08\u53EF\u4EE5\u590D\u5236\u547D\u4EE4\u624B\u52A8\u6267\u884C\uFF09");
     const items2 = items.filter((i2) => i2 && i2.target && i2.name);
     if (items2.length === 0) throw new Error("\u6CA1\u6709\u53EF\u5B89\u88C5\u7684\u63D2\u4EF6");
     const busy = this.running();
     if (busy) throw new Error(`\u5DF2\u6709\u5B89\u88C5\u4EFB\u52A1\u5728\u8FDB\u884C\u4E2D\uFF08${busy.profile}\uFF09`);
+    const cli = resolveCliScript();
+    if (!cli) {
+      if (!this.cas) {
+        throw new Error("\u8FD9\u53F0\u8BBE\u5907\u4E0A\u6CA1\u6709\u53EF\u7528\u7684 dsh CLI\uFF0C\u4E5F\u6CA1\u6709\u63D2\u4EF6\u5BF9\u8C61\u6E90\uFF08CAS\uFF09\uFF0C\u65E0\u6CD5\u81EA\u52A8\u5B89\u88C5\uFF08\u53EF\u4EE5\u590D\u5236\u547D\u4EE4\u624B\u52A8\u6267\u884C\uFF09");
+      }
+      return this.startCas(profile, items2);
+    }
     const targets = items2.map((i2) => i2.target);
     const names = items2.map((i2) => i2.name);
     const id = `job-${Date.now()}-${++this.seq}`;
@@ -23859,7 +26138,8 @@ var Installer = class {
       log: "",
       startedAt: Date.now(),
       endedAt: null,
-      registered: []
+      registered: [],
+      source: "cli"
     };
     this.jobs.set(id, job);
     const append = (chunk) => {
@@ -23899,7 +26179,7 @@ var Installer = class {
       job.endedAt = Date.now();
       job.state = code === 0 ? "done" : "failed";
       if (code === 0) {
-        const profileDir = join8(this.profilesRoot(), profile);
+        const profileDir = join9(this.profilesRoot(), profile);
         job.registered = registerBundles(profileDir, names);
         if (job.registered.length > 0) {
           append(`
@@ -23911,6 +26191,71 @@ var Installer = class {
         }
       }
     });
+    return job;
+  }
+  /**
+   * 无 CLI 时的安装路径：按本机 `platform/arch/node-ABI` 找装配清单里对应的
+   * CAS 对象，解包写 node_modules 并登记 bundles。与 CLI 路径一样是异步 job，
+   * 面板通过 `get(id)` 轮询，不会阻塞请求。
+   */
+  startCas(profile, items) {
+    const id = `job-${Date.now()}-${++this.seq}`;
+    const job = {
+      id,
+      profile,
+      targets: items.map((i2) => i2.target),
+      state: "running",
+      code: null,
+      log: "",
+      startedAt: Date.now(),
+      endedAt: null,
+      registered: [],
+      source: "cas"
+    };
+    this.jobs.set(id, job);
+    const append = (chunk) => {
+      job.log += chunk;
+      if (job.log.length > LOG_CAP) job.log = job.log.slice(-LOG_CAP);
+    };
+    const cas = this.cas;
+    void (async () => {
+      try {
+        const target = currentTarget();
+        const assemblies = await cas.assemblies();
+        const wanted = new Set(items.map((i2) => i2.name));
+        const selected = recordsForTarget(assemblies, target).filter((r2) => wanted.has(r2.name));
+        append(`
+\u672C\u673A target=${target}\uFF1B\u88C5\u914D\u6E05\u5355\u53EF\u7528 ${assemblies.length} \u4E2A\u5305\uFF0C\u672C\u5E73\u53F0\u5339\u914D ${selected.length} \u4E2A\u5BF9\u8C61
+`);
+        const missing = [...wanted].filter((name2) => !selected.some((r2) => r2.name === name2));
+        if (missing.length > 0) {
+          append("\u4EE5\u4E0B\u5305\u5728\u672C\u5E73\u53F0\u6CA1\u6709\u53EF\u7528\u5BF9\u8C61\uFF08\u9700\u7531\u53E6\u4E00\u53F0\u8BBE\u5907\u4E0A\u4F20\uFF09\uFF1A" + missing.join(", ") + "\n");
+        }
+        const result = await installFromCas(join9(this.profilesRoot(), profile), selected, cas);
+        job.registered = result.registered;
+        for (const s2 of result.skipped) append(`\u8DF3\u8FC7 ${s2.name}\uFF1A${s2.reason}
+`);
+        if (result.rejectedPaths > 0) {
+          append(`\u89E3\u5305\u65F6\u62D2\u7EDD\u4E86 ${result.rejectedPaths} \u4E2A\u4E0D\u5B89\u5168\u6761\u76EE\uFF08\u7B26\u53F7\u94FE\u63A5 / \u8D8A\u754C\u8DEF\u5F84\uFF09
+`);
+        }
+        append(`\u5DF2\u5B89\u88C5 ${result.installed.length} \u4E2A\u5305\uFF1A${result.installed.join(", ") || "(\u65E0)"}
+`);
+        if (result.registered.length > 0) {
+          append(`\u5DF2\u767B\u8BB0\u5230 dsh.profile.bundles\uFF1A${result.registered.join(", ")}
+\u91CD\u542F DSH \u540E\u751F\u6548\u3002
+`);
+        }
+        job.code = result.installed.length > 0 && result.skipped.length === 0 ? 0 : 1;
+        job.state = job.code === 0 ? "done" : "failed";
+      } catch (e2) {
+        job.code = 1;
+        job.state = "failed";
+        append("\nCAS \u5B89\u88C5\u5931\u8D25\uFF1A" + String(e2?.message ?? e2) + "\n");
+      } finally {
+        job.endedAt = Date.now();
+      }
+    })();
     return job;
   }
 };
@@ -23928,8 +26273,8 @@ function sendJson(res, status, body) {
 function ok(res, value) {
   sendJson(res, 200, { ok: true, value });
 }
-function fail(res, code, message) {
-  sendJson(res, 200, { ok: false, error: { code, message } });
+function fail(res, code, message, status = 200) {
+  sendJson(res, status, { ok: false, error: { code, message } });
 }
 function tokenMatches(actual, expected) {
   if (typeof actual !== "string") return false;
@@ -23966,12 +26311,26 @@ function publicConfig(cfg) {
     skillFilter: cfg.skillFilter ?? [],
     chunkThreshold: cfg.chunkThreshold,
     chunkSize: cfg.chunkSize,
-    concurrency: cfg.concurrency
+    concurrency: cfg.concurrency,
+    /** 0.6.0 / P1：删除后回收副本保留天数（0 = 永久） */
+    retentionDays: cfg.retentionDays ?? 30,
+    /** 0.6.0 / P3：工作区/自定义文件夹单文件扫描上限 */
+    maxFileBytes: cfg.maxFileBytes ?? 64 * 1024 * 1024,
+    /** 0.6.0 / 收尾①：会话 rel 空间（默认 legacy，升级不改数据） */
+    sessionRelMode: cfg.sessionRelMode ?? "legacy",
+    /** 0.6.0 / 收尾②：上传信封版本（1=NSS1 兼容，2=NSS2 带 AAD） */
+    envelopeVersion: cfg.envelopeVersion ?? 1,
+    /** 0.6.0 / 收尾③：增量扫描缓存开关与 TTL */
+    scanCacheEnabled: cfg.scanCacheEnabled ?? true,
+    scanCacheTtlHours: cfg.scanCacheTtlHours ?? 24
   };
 }
 function createBridge(ctx, deps) {
   const token = randomBytes3(24).toString("base64url");
-  const installer = new Installer(() => join9(dshHome(), "profiles"));
+  const installer = new Installer(() => join10(dshHome(), "profiles"), {
+    getObject: (hash) => deps.getEngine().pluginObject(hash),
+    assemblies: () => deps.getEngine().pluginAssemblies()
+  });
   if (typeof ctx.on === "function") {
     ctx.on("webserver/index-inject", (table) => {
       table.push(
@@ -24042,6 +26401,46 @@ function createBridge(ctx, deps) {
           safety: engine.safetyStatus(),
           storeError: deps.store.lastError
         });
+      }
+      if (sub === "/events" && method === "GET") {
+        const raw = Number(url.searchParams.get("limit") ?? 100);
+        const limit = Math.max(1, Math.min(1e3, Number.isFinite(raw) ? raw : 100));
+        try {
+          return ok(res, await engine.listEvents(limit));
+        } catch (e2) {
+          return ok(res, {
+            events: [],
+            trusted: false,
+            tombstones: [],
+            cursors: {},
+            error: e2.message
+          });
+        }
+      }
+      if (sub === "/events/status" && method === "GET") {
+        return ok(res, {
+          safety: engine.safetyStatus(),
+          cursors: { ...deps.store.deviceCursors },
+          retentionDays: deps.getConfig().retentionDays ?? 30
+        });
+      }
+      if (sub === "/events/delete" && method === "POST") {
+        const body = await readBody();
+        const rel = String(body?.rel ?? "").trim();
+        if (!rel) return fail(res, "bad-request", "\u7F3A\u5C11 rel\uFF08\u8981\u5220\u9664\u7684\u76F8\u5BF9\u8DEF\u5F84\uFF09", 400);
+        const r2 = await engine.confirmDelete(rel);
+        if (!r2.published) return fail(res, "blocked", r2.reason, 409);
+        return ok(res, { rel, published: true });
+      }
+      if (sub === "/rel-migration" && method === "GET") {
+        return ok(res, await engine.sessionRelPlan());
+      }
+      if (sub === "/rel-migration" && method === "POST") {
+        const body = await readBody();
+        const confirm = body?.confirm === true;
+        const r2 = await engine.migrateSessionRels({ confirm });
+        if (!r2.ok) return fail(res, "migration-blocked", r2.hint, 409);
+        return ok(res, r2);
       }
       if (sub === "/skills" && method === "GET") {
         return ok(res, { skills: await listSkills() });
@@ -24143,9 +26542,12 @@ function createBridge(ctx, deps) {
       if (sub === "/plugins" && method === "GET") {
         const want = url.searchParams.get("target") || void 0;
         const audit = await deps.getEngine().auditPlugins(want);
+        const assemblies = await deps.getEngine().pluginAssemblies();
         return ok(res, {
           ...audit,
-          canInstall: resolveCliScript() !== null,
+          // 没有 CLI 也未必不能装：只要 CAS 里有本平台的对象就能解包安装
+          canInstall: resolveCliScript() !== null || assemblies.length > 0,
+          casAssemblies: assemblies.length,
           running: installer.running()
         });
       }
@@ -24158,6 +26560,20 @@ function createBridge(ctx, deps) {
         const job = installer.start(profile, clean);
         return ok(res, job);
       }
+      if (sub === "/plugins/publish" && method === "POST") {
+        const body = await readBody();
+        const name2 = String(body?.name || "").trim();
+        const version = String(body?.version || "").trim();
+        const tgzPath = String(body?.tgzPath || "").trim();
+        if (!name2 || !tgzPath) {
+          return fail(res, "bad_request", "\u9700\u8981 name \u4E0E tgzPath\uFF08\u672C\u673A .tgz \u8DEF\u5F84\uFF09", 400);
+        }
+        try {
+          return ok(res, await deps.getEngine().publishPluginObject({ name: name2, version, tgzPath }));
+        } catch (e2) {
+          return fail(res, "publish_failed", e2.message, 409);
+        }
+      }
       if (sub === "/plugins/install" && method === "GET") {
         const id = url.searchParams.get("id") || "";
         const job = installer.get(id);
@@ -24165,7 +26581,7 @@ function createBridge(ctx, deps) {
         return ok(res, job);
       }
       if (sub === "/removed" && method === "GET") {
-        return ok(res, { items: engine.listRemovedSessions(), root: join9(dshHome(), "nas-sync", "removed") });
+        return ok(res, { items: engine.listRemovedSessions(), root: join10(dshHome(), "nas-sync", "removed") });
       }
       if (sub === "/removed/restore" && method === "POST") {
         const body = await readBody();
@@ -24477,7 +26893,7 @@ function apply(ctx, config) {
       const allOn = Object.fromEntries(SYNC_CATEGORIES.map((c) => [c.key, true]));
       let summary = {};
       try {
-        summary = await summarizeCategories({ scope: allOn, includeSensitive: cfg.includeSensitive, customFolders: cfg.customFolders });
+        summary = await summarizeCategories({ scope: allOn, includeSensitive: cfg.includeSensitive, customFolders: cfg.customFolders, maxFileBytes: cfg.maxFileBytes });
       } catch (e2) {
         warn("\u5206\u7C7B\u7EDF\u8BA1\u5931\u8D25\uFF1A" + e2.message);
       }
@@ -24738,7 +27154,7 @@ ${lines.join("\n")}` }];
   }));
   ctx.tools.register(defineTool({
     name: "nas_set_config",
-    description: `\u4FEE\u6539 NAS \u540C\u6B65\u914D\u7F6E\u5E76\u6301\u4E45\u5316\uFF08\u91CD\u542F\u5F15\u64CE\u540E\u4ECD\u751F\u6548\uFF09\u3002\u53EF\u6539\uFF1Atype(webdav/mount)\u3001webdav.{url,remotePath(\u5171\u4EAB\u6587\u4EF6\u5939),username,password}\u3001mountRoot\u3001passphrase(\u52A0\u5BC6\u53E3\u4EE4)\u3001autoSync.{enabled,mode,intervalMin}\u3001chunkThreshold\u3001chunkSize\u3001concurrency\u3001includeSensitive\u3001syncScope.{${SYNC_CATEGORIES.map((c) => c.key).join(",")}}\uFF08\u5206\u7C7B\u52FE\u9009\uFF0C\u4E8C\u7EA7\u5408\u5E76\uFF09\u3002\u4F20\u90E8\u5206\u5B57\u6BB5\u5373\u53EF\uFF1B\u53EA\u60F3\u6539\u52FE\u9009\u8BF7\u4F18\u5148\u7528 nas_sync_scope\u3002`,
+    description: `\u4FEE\u6539 NAS \u540C\u6B65\u914D\u7F6E\u5E76\u6301\u4E45\u5316\uFF08\u91CD\u542F\u5F15\u64CE\u540E\u4ECD\u751F\u6548\uFF09\u3002\u53EF\u6539\uFF1Atype(webdav/mount)\u3001webdav.{url,remotePath(\u5171\u4EAB\u6587\u4EF6\u5939),username,password}\u3001mountRoot\u3001passphrase(\u52A0\u5BC6\u53E3\u4EE4)\u3001autoSync.{enabled,mode,intervalMin}\u3001chunkThreshold\u3001chunkSize\u3001concurrency\u3001includeSensitive\u3001retentionDays\uFF08\u5220\u9664\u56DE\u6536\u4FDD\u7559\u5929\u6570\uFF0C0=\u6C38\u4E45\uFF0C\u9ED8\u8BA430\uFF09\u3001maxFileBytes\uFF08\u5355\u6587\u4EF6\u626B\u63CF\u4E0A\u9650\uFF09\u3001sessionRelMode(legacy/shadow/canonical\uFF0C\u9ED8\u8BA4legacy)\u3001envelopeVersion(1=NSS1\u517C\u5BB9/2=NSS2\u5E26AAD\uFF0C\u9ED8\u8BA41)\u3001scanCacheEnabled\u3001scanCacheTtlHours\u3001syncScope.{${SYNC_CATEGORIES.map((c) => c.key).join(",")}}\uFF08\u5206\u7C7B\u52FE\u9009\uFF0C\u4E8C\u7EA7\u5408\u5E76\uFF09\u3002\u4F20\u90E8\u5206\u5B57\u6BB5\u5373\u53EF\uFF1B\u53EA\u60F3\u6539\u52FE\u9009\u8BF7\u4F18\u5148\u7528 nas_sync_scope\u3002`,
     parameters: {
       config: {
         type: "object",
@@ -24960,7 +27376,7 @@ ${lines.join("\n")}` }];
   }));
   ctx.tools.register(defineTool({
     name: "nas_manage_ignored",
-    description: "\u7BA1\u7406\u300C\u672C\u673A\u4E0D\u540C\u6B65\u7684\u4F1A\u8BDD\u300D\u6E05\u5355\uFF1Alist \u67E5\u770B\u3001add \u5C4F\u853D\u4E00\u6761\u3001remove \u64A4\u9500\u5C4F\u853D\u3002\u5C4F\u853D\u53EA\u5F71\u54CD\u672C\u673A\uFF0C\u8FDC\u7AEF\u539F\u6587\u4FDD\u7559\u3002",
+    description: "\u7BA1\u7406\u300C\u4E0D\u540C\u6B65\u7684\u4F1A\u8BDD\u300D\u6E05\u5355\uFF1Alist \u67E5\u770B\u3001add \u5C4F\u853D\u4E00\u6761\u3001remove \u64A4\u9500\u5C4F\u853D\u30020.6.0 \u8D77\u5C4F\u853D\u4F1A\u4F5C\u4E3A\u4E8B\u4EF6\u540C\u6B65\u5230\u5BF9\u7AEF\uFF1B\u8FDC\u7AEF\u539F\u6587\u4FDD\u7559\u3001\u4E0D\u5220\u9664\u3002",
     parameters: {
       action: { type: "string", enum: ["list", "add", "remove"], description: "\u9ED8\u8BA4 list" },
       sessionId: { type: "string", description: "add/remove \u65F6\u5FC5\u586B\u7684\u4F1A\u8BDD id" }
@@ -24992,6 +27408,184 @@ ${lines.join("\n")}` }];
       if (action === "remove" && sid) engine.unignoreSession(sid);
       const state = engine.listIgnoredSessions();
       return { ids: state.ids, error: state.error, changed: action !== "list", message: null };
+    }
+  }));
+  ctx.tools.register(defineTool({
+    name: "nas_list_events",
+    description: "\u67E5\u770B NAS \u540C\u6B65\u4E8B\u4EF6\u6D41\uFF1A\u6700\u8FD1\u4E8B\u4EF6\u3001\u5B8C\u6574\u6027\u5224\u636E\u3001\u5893\u7891\u4E0E\u5404\u8BBE\u5907\u4F4D\u70B9\u3002\u7528\u4E8E\u6392\u67E5\u5220\u9664\u4F20\u64AD\u4E3A\u4F55\u6CA1\u6709\u751F\u6548\u3002\u53EA\u8BFB\u3002",
+    parameters: {
+      limit: { type: "integer", description: "\u6700\u591A\u8FD4\u56DE\u591A\u5C11\u6761\uFF0C\u9ED8\u8BA4 50\uFF0C\u4E0A\u9650 1000" }
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          trusted: { type: "boolean" },
+          events: { type: "json" },
+          tombstones: { type: "json" },
+          cursors: { type: "json" }
+        }
+      },
+      render: (_args, value) => {
+        const evs = Array.isArray(value.events) ? value.events : [];
+        const tombs = Array.isArray(value.tombstones) ? value.tombstones : [];
+        const head = value.trusted ? "\u4E8B\u4EF6\u6D41\u5B8C\u6574\uFF08\u5141\u8BB8\u5220\u9664\u4F20\u64AD\uFF09" : "\u26A0 \u4E8B\u4EF6\u6D41\u4E0D\u5B8C\u6574\uFF0C\u672C\u8F6E\u5DF2\u7981\u7528\u5220\u9664\u4F20\u64AD";
+        const lines = evs.slice(-20).map((e2) => `- ${e2.device}:${e2.seq} ${e2.op} ${e2.key}${e2.rel ? " (" + e2.rel + ")" : ""}`);
+        return [{
+          type: "text",
+          text: head + `\uFF5C\u4E8B\u4EF6 ${evs.length} \u6761\u3001\u5893\u7891 ${tombs.length} \u6761
+` + (lines.length ? lines.join("\n") : "\uFF08\u6682\u65E0\u4E8B\u4EF6\uFF09") + "\n\u4F4D\u70B9\uFF1A" + JSON.stringify(value.cursors ?? {})
+        }];
+      }
+    },
+    async execute(args) {
+      const raw = Number(args?.limit ?? 50);
+      const limit = Math.max(1, Math.min(1e3, Number.isFinite(raw) ? raw : 50));
+      return await engine.listEvents(limit);
+    }
+  }));
+  ctx.tools.register(defineTool({
+    name: "nas_confirm_delete",
+    description: "\u624B\u52A8\u786E\u8BA4\u5220\u9664\u4E00\u6761\u540C\u6B65\u5185\u5BB9\uFF1A\u53D1\u5E03 delete \u4E8B\u4EF6\uFF0C\u5404\u7AEF\u628A\u5BF9\u5E94\u6587\u4EF6\u79FB\u8FDB\u56DE\u6536\u7AD9\uFF08\u4FDD\u7559\u671F\u540E\u53EF\u6062\u590D\uFF09\u3002\u4E8B\u4EF6\u6D41\u4E0D\u5B8C\u6574\u65F6\u4F1A\u62D2\u7EDD\u6267\u884C\u3002",
+    parameters: {
+      rel: { type: "string", required: true, description: "\u76F8\u5BF9 ~/.dsh \u7684\u8DEF\u5F84\uFF0C\u5982 attachments/a.png" }
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          published: { type: "boolean" },
+          rel: { type: "string" },
+          message: { type: "json" }
+        }
+      },
+      render: (_args, value) => [{
+        type: "text",
+        text: value.published ? `\u5DF2\u53D1\u5E03\u5220\u9664\u4E8B\u4EF6\uFF1A${value.rel}\u3002\u5404\u7AEF\u4E0B\u4E00\u8F6E\u540C\u6B65\u4F1A\u628A\u6587\u4EF6\u79FB\u8FDB\u56DE\u6536\u7AD9\u3002` : "\u62D2\u7EDD\u53D1\u5E03\uFF1A" + (value.message || "\u4E8B\u4EF6\u6D41\u4E0D\u53EF\u4FE1")
+      }]
+    },
+    async execute(args) {
+      const rel = String(args?.rel || "").trim();
+      try {
+        const r2 = await engine.confirmDelete(rel);
+        return { published: r2.published, rel, message: r2.reason || null };
+      } catch (e2) {
+        return { published: false, rel, message: e2.message };
+      }
+    }
+  }));
+  ctx.tools.register(defineTool({
+    name: "nas_session_rel_migrate",
+    description: "\u628A\u4F1A\u8BDD\u8FDC\u7AEF rel \u4ECE cwd \u7F16\u7801\u76EE\u5F55\u8FC1\u5230 sessions/by-id/<sid>/vN \u7A33\u5B9A\u4E3B\u952E\u3002\u9ED8\u8BA4\u53EA\u8BFB\u9884\u6F14\uFF08\u8FD4\u56DE\u8BA1\u5212\u4E0E\u6821\u9A8C\u7ED3\u679C\uFF09\uFF1B\u53EA\u6709 confirm:true \u624D\u771F\u6B63\u590D\u5236\u5BF9\u8C61\u3001\u5199 bidmap \u4E0E\u8FC1\u79FB\u6807\u8BB0\u3002\u65E7\u5BF9\u8C61\u53EA\u590D\u5236\u4E0D\u5220\u9664\uFF0C\u53EF\u56DE\u6EDA\u3002",
+    parameters: {
+      // dsh-tools 的 schema 编译器不接受 `required: false`：
+      // 「parameters.confirm.required must be true when present」会让整个插件注册失败
+      // （宿主日志 dsh: warning: nas-sync did not activate），token 与 HTTP 桥全都不起来。
+      // 可选参数一律省略 required 字段，而不是写 false。
+      confirm: {
+        type: "boolean",
+        description: "true \u624D\u6267\u884C\u5199\u5165\uFF1B\u7F3A\u7701\u6216\u5176\u5B83\u503C\u4E00\u5F8B\u53EA\u8BFB\u9884\u6F14"
+      }
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          ok: { type: "boolean" },
+          dryRun: { type: "boolean" },
+          copied: { type: "number" },
+          planCount: { type: "number" },
+          valid: { type: "boolean" },
+          errors: { type: "json" },
+          hint: { type: "string" }
+        }
+      },
+      render: (_args, value) => [{
+        type: "text",
+        text: (value.dryRun ? "\u3010\u53EA\u8BFB\u9884\u6F14\u3011" : "\u3010\u5DF2\u6267\u884C\u3011") + value.hint + `
+\u8BA1\u5212 ${value.planCount} \u6761\uFF0C\u6821\u9A8C ${value.valid ? "\u901A\u8FC7" : "\u672A\u901A\u8FC7"}\uFF0C\u5B9E\u9645\u590D\u5236 ${value.copied} \u4E2A\u3002` + (Array.isArray(value.errors) && value.errors.length ? "\n\u95EE\u9898\uFF1A" + value.errors.slice(0, 5).join("\uFF1B") : "")
+      }]
+    },
+    async execute(args) {
+      const confirm = args?.confirm === true;
+      const r2 = await engine.migrateSessionRels({ confirm });
+      let planCount = 0;
+      let valid = true;
+      if (confirm === false || !r2.ok) {
+        try {
+          const view = await engine.sessionRelPlan();
+          planCount = view.plan.mappings.length;
+          valid = view.valid;
+        } catch {
+        }
+      } else {
+        planCount = r2.copied + r2.skippedChunks.length;
+      }
+      return {
+        ok: r2.ok,
+        dryRun: r2.dryRun,
+        copied: r2.copied,
+        planCount,
+        valid,
+        errors: r2.errors,
+        hint: r2.hint
+      };
+    }
+  }));
+  ctx.tools.register(defineTool({
+    name: "nas_publish_plugin_object",
+    description: "\u628A\u672C\u673A .tgz \u63D2\u4EF6\u5305\u4F53\u53D1\u5E03\u5230 CAS\uFF08\u6309 sha256 \u5185\u5BB9\u5730\u5740\uFF09\uFF0C\u5E76\u767B\u8BB0\u5230\u5F53\u524D\u5E73\u53F0/\u67B6\u6784/Node ABI \u7684\u88C5\u914D\u6E05\u5355\u3002\u53E6\u4E00\u53F0\u8BBE\u5907\u6CA1\u6709\u5BBF\u4E3B CLI \u65F6\u4F1A\u636E\u6B64\u76F4\u63A5\u89E3\u5305\u5199 node_modules\u3002",
+    parameters: {
+      name: { type: "string", required: true, description: "\u5305\u540D\uFF0C\u652F\u6301 @scope/name" },
+      version: { type: "string", description: "\u7248\u672C\u53F7\uFF0C\u7F3A\u7701 0.0.0" },
+      tgzPath: { type: "string", required: true, description: "\u672C\u673A .tgz \u6587\u4EF6\u7EDD\u5BF9\u8DEF\u5F84\uFF08\u5982 pnpm pack \u4EA7\u7269\uFF09" }
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          ok: { type: "boolean" },
+          objectPath: { type: "string" },
+          objectExisted: { type: "boolean" },
+          assemblies: { type: "number" },
+          entries: { type: "number" },
+          message: { type: "string" }
+        }
+      },
+      render: (_args, value) => [{
+        type: "text",
+        text: value.ok ? `\u5DF2\u53D1\u5E03 ${value.objectPath}\uFF08${value.objectExisted ? "\u5BF9\u8C61\u5DF2\u5B58\u5728\uFF0C\u590D\u7528" : "\u65B0\u5199\u5165"}\uFF09\uFF0C\u88C5\u914D\u6E05\u5355\u73B0\u6709 ${value.assemblies} \u4E2A\u5305\uFF0C\u5305\u5185\u542B ${value.entries} \u4E2A\u6587\u4EF6\u3002` : "\u53D1\u5E03\u5931\u8D25\uFF1A" + value.message
+      }]
+    },
+    async execute(args) {
+      try {
+        const r2 = await engine.publishPluginObject({
+          name: String(args?.name || ""),
+          version: String(args?.version || ""),
+          tgzPath: String(args?.tgzPath || "")
+        });
+        return {
+          ok: true,
+          objectPath: r2.objectPath,
+          objectExisted: r2.objectExisted,
+          assemblies: r2.assemblies,
+          entries: r2.entries,
+          message: ""
+        };
+      } catch (e2) {
+        return {
+          ok: false,
+          objectPath: "",
+          objectExisted: false,
+          assemblies: 0,
+          entries: 0,
+          message: e2.message
+        };
+      }
     }
   }));
   log("\u63D2\u4EF6\u5DF2\u52A0\u8F7D\uFF08name=" + name + "\uFF0Ctype=" + cfg.type + "\uFF09");

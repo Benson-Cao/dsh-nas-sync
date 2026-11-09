@@ -20,12 +20,16 @@ import { stat } from 'node:fs/promises';
 // 0.5.9：破坏性动作的纯判据与本地状态文件的安全读写（都能离线单测）
 import {
   isSafeRel, evaluateManifestTrust, advanceMissingRounds, shouldRetire,
+  computeLocalDeletes, eventStreamAllowsDeletes, normalizeRetentionDays,
   type ManifestRead,
 } from './safety.js';
 import { readJsonFile, writeJsonAtomic, writeBackup } from './state-file.js';
 import { createHash } from 'node:crypto';
-import type { ConflictItem, ManifestEntry, PendingFile, SyncPhase } from '../data/models.js';
-import { isIgnoredRel, Scanner } from './scanner.js';
+import type {
+  ConflictItem, ManifestEntry, PendingFile, SyncPhase,
+  SyncEvent, Tombstone, DeviceCursor, EventStreamTrust, BidMapEntry,
+} from '../data/models.js';
+import { isIgnoredRel, Scanner, SYNC_CATEGORIES } from './scanner.js';
 import { Crypto } from './crypto.js';
 import { Chunker } from './chunker.js';
 import type { NasEntry, NasTransport } from '../nas/transport.js';
@@ -51,7 +55,33 @@ import {
   mergeManifestDevices,
   mergeManifestPreserving,
   ownManifestEntries,
+  stripDeletedEntries,
 } from './manifest.js';
+import {
+  EVENTS_DIR, TOMBSTONES_FILE, BIDMAP_FILE, eventLogFileOf, eventShardOf, cursorFileOf,
+  parseEventLog, serializeEventLog, validateEventStream, mergeEventLogs,
+  buildTombstones, mergeTombstones, collectGc, stableKeyOf, nextLocalSeq,
+  makeEvent, eventsSince, advanceCursor, tombstoneTargets,
+  canonicalSessionRel, mergeBidMaps, sessionIdFromRel,
+  type EventLogRead,
+} from './events.js';
+import {
+  MIGRATION_MARKER_PATH, planRelMigration, validateRelPlan, rewriteManifestForMode,
+  mergeDualRead, isCanonicalSessionRel, isLegacySessionRel, legacyRelToCanonical,
+  canonicalRelToLocal, buildMigrationMarker, legacyProtected, bidMapFromPlan,
+  safeCwdSegment,
+  type SessionRelMode, type RelMigrationPlan, type MigrationMarker,
+} from './rel-migration.js';
+import {
+  ScanCacheSession, configFingerprint, loadScanCache, saveScanCache,
+  DEFAULT_SCAN_CACHE_TTL_MS,
+} from './scan-cache.js';
+import {
+  pluginObjectPath, buildAssemblies, mergeAssemblies, currentTarget,
+  type PluginAssembly,
+} from './plugin-objects.js';
+import { unpackTgz } from './tgz.js';
+import type { PluginObjectRecord } from '../data/models.js';
 import { join } from 'node:path';
 import {
   customFolderLocalOf,
@@ -97,6 +127,8 @@ export type DownloadOutcome = 'written' | 'merged' | 'skipped';
  * 设备声明按设备名分文件，天然不会互相覆盖，这才稳定回答「这份数据谁在用」。
  */
 const DEVICES_REMOTE = '/dsh/devices';
+/** 0.6.0 / 收尾④：各平台插件包体的装配清单（明文，只有指纹与大小）。 */
+const PLUGIN_ASSEMBLIES_FILE = '/dsh/plugin-assemblies.json';
 const deviceClaimFile = (device: string) =>
   DEVICES_REMOTE + '/' + device.replace(/[^A-Za-z0-9._-]/g, '_') + '.json';
 
@@ -268,12 +300,74 @@ export class Engine {
   /** 本轮读失败的设备清单名（0.5.9），供状态面板解释「为什么这轮没有删除传播」。 */
   private manifestTrustFailed: string[] = [];
 
+  /**
+   * 0.6.0 / 收尾①：会话 rel 空间模式。默认 legacy，升级后线上字节一个都不变。
+   * 只有显式配置成 shadow / canonical 才会启用新空间（见 rel-migration.ts）。
+   */
+  private sessionRelMode: SessionRelMode = 'legacy';
+
+  /** 迁移标记缓存；null = 尚未读取 / 不存在。 */
+  private migrationMarker: MigrationMarker | null = null;
+
+  /** 0.6.0 / 收尾③：增量扫描缓存会话（跨轮复用 hash）。 */
+  private scanCache?: ScanCacheSession;
+  /** 缓存损坏/写盘失败时要显式告警，不能静默退化成每轮全量扫描。 */
+  private scanCacheWarning: string | null = null;
+
+  // ---- 0.6.0 / P1：事件驱动删除传播的运行态 ----
+  /** 本轮合并后的全局事件流（所有设备日志按序合并）。 */
+  private eventStream: SyncEvent[] = [];
+  /** 事件流完整性判据；null = 本轮还没读过。 */
+  private eventTrust: EventStreamTrust | null = null;
+  /** 由事件流回放出的墓碑（删除优先，带 30 天保留期）。 */
+  private tombstones: Tombstone[] = [];
+  /** 事件流读取/发布失败的原因，供面板与日志解释「为什么这轮删除没生效」。 */
+  private eventStreamError: string | null = null;
+  /** 本轮成功发布的本机事件数。 */
+  private publishedEvents = 0;
+
   /** 面板/诊断用：当前安全开关的状态。 */
-  safetyStatus(): { ignoredFileError: string | null; manifestTrustFailed: string[]; destructiveBlocked: boolean } {
+  safetyStatus(): {
+    ignoredFileError: string | null;
+    manifestTrustFailed: string[];
+    destructiveBlocked: boolean;
+    eventStream: {
+      trusted: boolean;
+      events: number;
+      tombstones: number;
+      failed: string[];
+      gaps: number;
+      published: number;
+      lastError: string | null;
+    };
+    /** 0.6.0 / 收尾③：增量扫描缓存命中情况 */
+    scanCache: {
+      enabled: boolean; hits: number; misses: number; changed: number;
+      expired: number; invalidated: boolean; warning: string | null;
+    };
+  } {
     return {
       ignoredFileError: this.ignoredFileError,
       manifestTrustFailed: [...this.manifestTrustFailed],
       destructiveBlocked: this.ignoredFileError !== null,
+      eventStream: {
+        trusted: this.eventTrust?.trusted ?? false,
+        events: this.eventStream.length,
+        tombstones: this.tombstones.length,
+        failed: [...(this.eventTrust?.failed ?? [])],
+        gaps: this.eventTrust?.gaps.length ?? 0,
+        published: this.publishedEvents,
+        lastError: this.eventStreamError,
+      },
+      scanCache: {
+        enabled: !!this.scanCache,
+        hits: this.scanCache?.stats.hits ?? 0,
+        misses: this.scanCache?.stats.misses ?? 0,
+        changed: this.scanCache?.stats.changed ?? 0,
+        expired: this.scanCache?.stats.expired ?? 0,
+        invalidated: this.scanCache?.stats.invalidated ?? false,
+        warning: this.scanCacheWarning,
+      },
     };
   }
 
@@ -301,31 +395,40 @@ export class Engine {
    * 这种一半对一半错的状态。
    */
   private resolveLocal(rel: string): string {
+    // 0.6.0 / 收尾①：canonical 只用于**远端命名空间**。宿主 dsh 认的是
+    // `sessions/<cwd编码>/<sid>/...`，所以拉下来之前先折算回本机 rel。
+    // 清单比对仍用 canonical rel，只有「落地路径」这一层做转换。
+    let eff = rel;
+    if (this.effectiveRelMode() === 'canonical' && isCanonicalSessionRel(rel)) {
+      const mapped = canonicalRelToLocal(rel, this.canonicalCwdSegment());
+      if (!mapped) throw new Error('无法把 canonical 会话 rel 落到本机：' + rel);
+      eff = mapped;
+    }
     // 0.5.9 纵深防御：远端清单已被 isSafeRel() 过滤，但所有本地读写最终都汇聚到
     // 这里，再加一道最小判据，防止将来新增的调用点绕过过滤把 `../` 写进文件系统。
     if (
-      typeof rel !== 'string' || rel.length === 0 ||
-      rel.startsWith('/') || rel.startsWith('\\') || rel.includes('\\') ||
-      rel.includes('\0') || rel.split('/').some((s) => s === '..' || s === '.')
+      typeof eff !== 'string' || eff.length === 0 ||
+      eff.startsWith('/') || eff.startsWith('\\') || eff.includes('\\') ||
+      eff.includes('\0') || eff.split('/').some((s) => s === '..' || s === '.')
     ) {
-      throw new Error('拒绝不安全的 rel：' + String(rel).slice(0, 120));
+      throw new Error('拒绝不安全的 rel：' + String(eff).slice(0, 120));
     }
-    const hit = customFolderLocalOf(rel, this.deps.config.customFolders ?? []);
+    const hit = customFolderLocalOf(eff, this.deps.config.customFolders ?? []);
     if (hit) return hit.local;
 
     // 0.3.7：`workspaces/<名字>/<相对路径>` 的真实落点是注册表里该工作区的 path。
     // 手机上的工作区在 $DSH_HOME 之外（files/home/wstest），直接 localOf() 会算成
     // $DSH_HOME/workspaces/wstest/…，readFile ENOENT → 工作区文件从来没传成功过。
     const PREFIX = 'workspaces/';
-    if (rel.startsWith(PREFIX)) {
-      const rest = rel.slice(PREFIX.length);
+    if (eff.startsWith(PREFIX)) {
+      const rest = eff.slice(PREFIX.length);
       const slash = rest.indexOf('/');
       const name = slash < 0 ? rest : rest.slice(0, slash);
       const tail = slash < 0 ? '' : rest.slice(slash + 1);
       const dir = this.workspaceDirs.get(name);
       if (dir) return tail ? join(dir, ...tail.split('/')) : dir;
     }
-    return localOf(rel);
+    return localOf(eff);
   }
 
   /** 读注册表缓存「工作区目录名 → 真实路径」；同步/扫描前各刷一次。 */
@@ -346,7 +449,28 @@ export class Engine {
 
   constructor(deps: EngineDeps) {
     this.deps = deps;
+    this.sessionRelMode = (deps.config as NasSyncConfig & { sessionRelMode?: SessionRelMode })
+      .sessionRelMode ?? 'legacy';
+    // 0.6.0 / 收尾③：配置指纹决定整表失效，TTL 决定单条强制重算。
+    if (deps.config.scanCacheEnabled !== false) {
+      const loaded = loadScanCache();
+      if (loaded.corrupted) {
+        this.scanCacheWarning = '扫描缓存损坏，已按全量重算'
+          + (loaded.quarantinedTo ? '（备份：' + loaded.quarantinedTo + '）' : '');
+        console.warn('[dsh-nas-sync] ' + this.scanCacheWarning);
+      }
+      this.scanCache = new ScanCacheSession(loaded.data, {
+        fingerprint: this.cachePolicyFingerprint(),
+        ttlMs: Math.max(1, Number(deps.config.scanCacheTtlHours ?? 24)) * 3600_000
+          || DEFAULT_SCAN_CACHE_TTL_MS,
+      });
+    }
     this.scanner = new Scanner({
+      // 0.6.0 / 收尾①：canonical 模式把本机会话 rel 投影到 by-id 空间。
+      // 闭包每次调用时读 effectiveRelMode()，所以「标记没读到自动降级」也生效。
+      relProjector: (rel) => this.projectLocalRel(rel),
+      // 0.6.0 / 收尾③：命中时跳过整份 readFile + sha256
+      cache: this.scanCache,
       // r3：分类勾选决定同步哪些子树；includeSensitive 只管子树内部的凭据文件
       scope: deps.config.syncScope,
       includeSensitive: deps.config.includeSensitive,
@@ -354,6 +478,8 @@ export class Engine {
       skillFilter: deps.config.skillFilter,
       // 自定义文件夹映射表：rel 里的名字 → 本机路径，全靠它
       customFolders: deps.config.customFolders,
+      // 0.6.0 / P3：把可配置的文件大小上限真正传给扫描器（此前一直是 64 MiB 硬编码）
+      maxFileBytes: deps.config.maxFileBytes,
     });
     this.chunker = new Chunker(deps.transport, {
       chunkSize: deps.config.chunkSize,
@@ -529,7 +655,7 @@ export class Engine {
       } catch {
         /* 迁移失败只是每轮多读一次旧文件，不影响同步 */
       }
-      return cleaned;
+      return this.projectRemoteMerge(cleaned);
     }
 
     /**
@@ -553,7 +679,7 @@ export class Engine {
     }
     // 空清单也要计入 parts：一台设备「确实一个条目都没有」是有效信息。
     const parts: ManifestEntry[][] = reads.flatMap((r) => (r.entries === null ? [] : [r.entries]));
-    return safeEntries(mergeDeviceManifests(parts));
+    return this.projectRemoteMerge(safeEntries(mergeDeviceManifests(parts)));
   }
 
   /**
@@ -577,23 +703,35 @@ export class Engine {
   }
 
   private async writeManifestFile(remote: string, entries: ManifestEntry[]): Promise<void> {
-    const enc = await Crypto.encrypt(
-      new TextEncoder().encode(JSON.stringify(entries, null, 2)),
-      this.deps.config.passphrase,
-      this.deps.store.salt(),
-    );
+    const enc = await this.seal(new TextEncoder().encode(JSON.stringify(entries, null, 2)));
     await this.deps.transport.putBuffer(enc, remote, { mkdirs: true });
+  }
+
+  /**
+   * 0.6.0 / 收尾②：所有上传密文的唯一出口。
+   *
+   * `envelopeVersion=1`（默认）写 NSS1，行为与 0.5.9 逐字节一致；`=2` 写 NSS2，
+   * 并把稳定主键绑进 AAD。AAD 会写进头部，所以 decrypt() 不需要调用方推算 ——
+   * 跨平台会话落地后 rel 变了也照样能解。清单用固定域 `manifest`，避免「同一份
+   * 清单换了个文件名就解不开」。
+   */
+  private async seal(data: Uint8Array, rel?: string): Promise<Uint8Array> {
+    const cfg = this.deps.config as NasSyncConfig & { envelopeVersion?: 1 | 2 };
+    const version: 1 | 2 = cfg.envelopeVersion === 2 ? 2 : 1;
+    const aad = 'dsh-nas-sync|' + (rel ? stableKeyOf(rel) : 'manifest');
+    return Crypto.encrypt(data, cfg.passphrase, this.deps.store.salt(), { version, aad });
   }
 
   /**
    * 本机屏蔽一条会话：以后不再下载它，本地已有的副本在下一轮扫描时回收（0.5.8）。
    *
-   * 与「对端删除 → 本机跟着删」相反：这是**只有本机**不想要。远端原文保留，
-   * 手机上的那份照旧在，只是电脑侧栏里不会出现。
-   *
    * 落盘位置是 `$DSH_HOME/nas-sync/ignored-sessions.json`，不是 `store.json` ——
    * store 是运行中的进程整份重写的（每次 save 都覆盖），外部改不了；
    * 这个清单要让用户/脚本能直接编辑，所以单独一个文件。
+   *
+   * 0.6.0 / P1：语义从「只有本机不想要」升级为**全局屏蔽**。点击只记一条待发布
+   * 意图，下一轮 sync 转成 ignore 事件，对端消费后写进它自己的屏蔽清单。
+   * 存量屏蔽（升级前本机已有的 id）不会补发历史事件，所以升级不会突然删掉对端数据。
    */
   async ignoreSession(sid: string): Promise<void> {
     this.checkReady();
@@ -601,6 +739,8 @@ export class Engine {
     if (!id) return;
     this.ignoredFromFile.add(id);
     this.saveIgnoredFile();
+    // 不在点击瞬间写 NAS：网络一断就把用户操作弄丢了。
+    this.deps.store.pendingIntents.push({ op: 'ignore', sid: id });
     this.deps.store.pendingFiles = this.deps.store.pendingFiles.filter(
       (p) => this.sessionIdOfRel(p.rel) !== id,
     );
@@ -700,6 +840,9 @@ export class Engine {
     this.loadIgnoredFile();
     if (!this.ignoredFromFile.delete(id)) return false;
     this.saveIgnoredFile();
+    // 0.6.0 / P1：撤销同样要广播，否则对端会一直屏蔽着这条会话
+    this.deps.store.pendingIntents.push({ op: 'unignore', sid: id });
+    this.deps.store.save();
     return true;
   }
 
@@ -746,7 +889,16 @@ export class Engine {
     const remote = manifestFileOf(selfDevice());
     const prevOwn = await this.readManifestAt(remote);
     const own = ownManifestEntries(fresh, prevOwn, this.pushedOk);
-    await this.writeManifestFile(remote, own);
+    // 0.6.0 / 收尾①：shadow 双写（主链仍 legacy）、canonical 只写新空间。
+    // ownManifestEntries() 必须先算完再投影，否则 pushedOk 里的老 rel 会全部对不上。
+    const mode = this.effectiveRelMode();
+    let toWrite = own;
+    if (mode === 'shadow') {
+      toWrite = rewriteManifestForMode(own, 'shadow', planRelMigration(own));
+    } else if (mode === 'canonical') {
+      toWrite = own.map((item) => ({ ...item, rel: this.projectLocalRel(item.rel) }));
+    }
+    await this.writeManifestFile(remote, toWrite);
   }
 
   /**
@@ -854,7 +1006,7 @@ export class Engine {
     try {
       const plain = await this.fetchRemotePlain('/dsh/' + rel);
       if (!plain) return;
-      const enc = await Crypto.encrypt(plain, this.deps.config.passphrase, this.deps.store.salt());
+      const enc = await this.seal(plain, rel);
       await this.deps.transport.putBuffer(enc, '/dsh/' + rel + '.base', { mkdirs: true });
     } catch {
       /* .base 只是合并辅助，失败可以接受 */
@@ -1066,14 +1218,807 @@ export class Engine {
     };
   }
 
+  // ==========================================================================
+  // 0.6.0 / P1：事件驱动删除传播
+  // --------------------------------------------------------------------------
+  // 0.5.9 靠「远端清单里这条连续两轮消失」推断删除，只覆盖跨平台会话镜像。
+  // 现在改成显式事件：每台设备只追加自己的日志分片，读端合并回放生成墓碑，
+  // 所有分类（附件/技能/工作区文件/会话）共用同一条删除链路。
+  //
+  // 三条硬纪律：
+  //   · 事件流不完整（读失败 / 签名坏 / seq 缺口）→ 整轮禁止按事件删本地文件；
+  //   · 本机「消失」要过 computeLocalDeletes 的六道闸才敢发 delete 事件；
+  //   · 删除一律「移进回收站」，远端对象保留 retentionDays 天后才由 GC 真删。
+  // ==========================================================================
+
+  /** 读远端纯文本；不存在返回空串（仅用于可重建的事件/墓碑文件）。 */
+  private async readTextRemote(remote: string): Promise<string> {
+    try {
+      return new TextDecoder().decode(await this.deps.transport.getBuffer(remote));
+    } catch {
+      return '';
+    }
+  }
+
+  /** 读全局事件流：列每台设备的分片、逐片解析、校验完整性、回放墓碑。 */
+  private async readEventStream(): Promise<void> {
+    const t = this.deps.transport;
+    this.eventStream = [];
+    this.eventTrust = null;
+    this.tombstones = [];
+    this.eventStreamError = null;
+    const reads: EventLogRead[] = [];
+
+    let devices: NasEntry[] = [];
+    try {
+      devices = await t.list(EVENTS_DIR);
+    } catch {
+      // 升级后的首轮常态是「/dsh/events 还不存在」。建一次再列；
+      // 仍然失败（NAS 掉线 / 无权限）必须判不可信，不能当成空流。
+      try {
+        await t.mkdir(EVENTS_DIR);
+        devices = await t.list(EVENTS_DIR);
+      } catch {
+        reads.push({ name: EVENTS_DIR, events: null });
+      }
+    }
+
+    for (const d of devices) {
+      if (d.type !== 'dir') continue;
+      // 目录名来自远端列举，拼进路径前先挡住分隔符与 '..'
+      if (!/^[A-Za-z0-9._-]+$/.test(d.name) || d.name.includes('..')) continue;
+      const dir = EVENTS_DIR + '/' + d.name;
+      let shards: NasEntry[] = [];
+      try {
+        shards = await t.list(dir);
+      } catch {
+        reads.push({ name: dir, events: null });
+        continue;
+      }
+      const files = shards
+        .filter((s) => s.type === 'file' && /^\d{6}\.jsonl$/.test(s.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      for (const s of files) {
+        const remote = dir + '/' + s.name;
+        try {
+          const buf = await t.getBuffer(remote);
+          const parsed = parseEventLog(new TextDecoder().decode(buf));
+          // 坏行 = 读失败，不是「读成了空日志」（0.5.9 在这里踩过坑）
+          reads.push({ name: remote, events: parsed.corrupted ? null : parsed.events });
+        } catch {
+          reads.push({ name: remote, events: null });
+        }
+      }
+    }
+
+    const trust = validateEventStream(reads);
+    this.eventTrust = trust;
+    this.eventStream = mergeEventLogs(reads.flatMap((r) => (r.events ? [r.events] : [])));
+    if (!trust.trusted) {
+      this.eventStreamError = eventStreamAllowsDeletes(trust).reason;
+      console.warn('[dsh-nas-sync] 事件流不完整，本轮禁用事件驱动删除：' + this.eventStreamError);
+    }
+    this.tombstones = buildTombstones(this.eventStream, {
+      retentionDays: normalizeRetentionDays(this.deps.config.retentionDays),
+    });
+  }
+
+  /** 追加本机事件到自己的分片。CAS 保护同一分片被两个进程同时写。 */
+  private async appendLocalEvents(newEvents: SyncEvent[]): Promise<void> {
+    if (newEvents.length === 0) return;
+    const t = this.deps.transport;
+    const device = selfDevice();
+    const byShard = new Map<number, SyncEvent[]>();
+    for (const e of newEvents) {
+      const sh = eventShardOf(e.seq);
+      const arr = byShard.get(sh) ?? [];
+      arr.push(e);
+      byShard.set(sh, arr);
+    }
+    for (const [sh, evts] of byShard) {
+      const remote = eventLogFileOf(device, sh);
+      const existing = parseEventLog(await this.readTextRemote(remote));
+      if (existing.corrupted) {
+        // 分片坏了绝不覆盖 —— 那会毁掉历史删除证据。宁可本轮不写。
+        console.warn('[dsh-nas-sync] 事件分片损坏，跳过写入以免覆盖历史：' + remote);
+        continue;
+      }
+      const writeMerged = async (list: SyncEvent[]): Promise<boolean> => {
+        const data = new TextEncoder().encode(serializeEventLog(list));
+        if (t.putIfMatch) {
+          const etag = t.etag ? await t.etag(remote) : null;
+          return (await t.putIfMatch(data, remote, etag, { mkdirs: true })).ok;
+        }
+        await t.putBuffer(data, remote, { mkdirs: true });
+        return true;
+      };
+      if (await writeMerged(mergeEventLogs([existing.events, evts]))) continue;
+      // 冲突：重读一次合并再试；仍冲突就抛错，让下一轮重放，绝不盲目覆盖
+      const again = parseEventLog(await this.readTextRemote(remote));
+      if (!(await writeMerged(mergeEventLogs([again.events, evts])))) {
+        throw new Error('事件分片写入冲突：' + remote);
+      }
+    }
+  }
+
+  /** 写墓碑总表（共享文件，CAS 冲突时读回对方的表合并再写）。 */
+  private async writeTombstones(): Promise<void> {
+    const t = this.deps.transport;
+    const write = async (list: Tombstone[]): Promise<boolean> => {
+      const data = new TextEncoder().encode(
+        JSON.stringify({ tombstones: list, updatedAt: Date.now() }, null, 2),
+      );
+      if (t.putIfMatch) {
+        const etag = t.etag ? await t.etag(TOMBSTONES_FILE) : null;
+        return (await t.putIfMatch(data, TOMBSTONES_FILE, etag, { mkdirs: true })).ok;
+      }
+      await t.putBuffer(data, TOMBSTONES_FILE, { mkdirs: true });
+      return true;
+    };
+    if (await write(this.tombstones)) return;
+    let remote: Tombstone[] = [];
+    try {
+      const parsed = JSON.parse(await this.readTextRemote(TOMBSTONES_FILE));
+      if (Array.isArray(parsed?.tombstones)) remote = parsed.tombstones;
+    } catch { /* 读不回就只报警，事件流本身可重建 */ }
+    if (!(await write(mergeTombstones(remote, this.tombstones)))) {
+      // 墓碑总表是缓存，丢了可由事件流重建；不抛错，不让整轮同步判失败
+      console.warn('[dsh-nas-sync] 墓碑总表写入冲突（可由事件流重建，不丢数据）');
+    }
+  }
+
+  /** 写本机位点并持久化，避免重启后重复回放历史 delete 事件。 */
+  private async writeCursors(events: SyncEvent[]): Promise<void> {
+    const t = this.deps.transport;
+    const devices = new Set(events.map((e) => e.device));
+    devices.add(selfDevice());
+    const cursors: DeviceCursor[] = [];
+    let changed = false;
+    for (const device of devices) {
+      const prev: DeviceCursor = {
+        device,
+        appliedSeq: this.deps.store.deviceCursors[device] ?? 0,
+        updatedAt: 0,
+      };
+      const next = advanceCursor(prev, events, device);
+      cursors.push(next);
+      if (next.appliedSeq !== prev.appliedSeq) {
+        this.deps.store.deviceCursors[device] = next.appliedSeq;
+        changed = true;
+      }
+    }
+    // 位点没推进就别写盘：每轮同步都会走到这里，无谓写只会刷 mtime
+    if (!changed) return;
+    await t.putBuffer(
+      new TextEncoder().encode(JSON.stringify(cursors, null, 2)),
+      cursorFileOf(selfDevice()),
+      { mkdirs: true },
+    );
+    this.deps.store.save();
+  }
+
+  /** 通用回收：把单个本地文件搬进 removed/ 并写 meta（会话走 retireLocalSession）。 */
+  private async retireGeneric(rel: string, reason: string): Promise<string> {
+    if (!isSafeRel(rel)) throw new Error('拒绝回收不安全的 rel：' + String(rel).slice(0, 120));
+    const abs = this.resolveLocal(rel);
+    if (!existsSync(abs)) return '';
+    const batch = join(this.removedRoot(), new Date().toISOString().replace(/[:.]/g, '-'));
+    const trash = join(batch, rel.replace(/\//g, '__'));
+    await mkdir(batch, { recursive: true });
+    try {
+      await rename(abs, trash);
+    } catch {
+      await cp(abs, trash, { recursive: true });
+      await rm(abs, { recursive: true, force: true });
+    }
+    try {
+      writeJsonAtomic(trash + '.meta.json', {
+        rel, retiredAt: new Date().toISOString(), reason, trashPath: trash,
+      });
+    } catch { /* 元数据失败不影响「文件已搬走」这个事实 */ }
+    return trash;
+  }
+
+  /** 消费对端 delete / ignore 事件，把本地对应内容移进回收站。 */
+  private async applyRemoteDeletes(local: ManifestEntry[]): Promise<ManifestEntry[]> {
+    const gate = eventStreamAllowsDeletes(this.eventTrust);
+    if (!gate.allowed) {
+      if (gate.reason) console.warn('[dsh-nas-sync] 跳过事件删除消费：' + gate.reason);
+      return local;
+    }
+    // 屏蔽清单读坏时连「按事件搬文件」都不做：判据不可信，宁可这轮不收敛
+    if (this.ignoredFileError !== null) return local;
+
+    const self = selfDevice();
+    const cursors: DeviceCursor[] = Object.entries(this.deps.store.deviceCursors)
+      .map(([device, appliedSeq]) => ({ device, appliedSeq, updatedAt: 0 }));
+    const freshEvents = eventsSince(this.eventStream, cursors).filter((e) => e.device !== self);
+    if (freshEvents.length === 0) return local;
+
+    let out = local;
+    const removed = new Set<string>();
+    for (const e of freshEvents) {
+      if (e.op === 'delete') {
+        const tomb = this.tombstones.find((x) => x.key === e.key);
+        if (!tomb) continue;
+        const { rels, sid } = tombstoneTargets(tomb);
+        const targets = out.filter(
+          (x) => rels.includes(x.rel) || (!!sid && this.sessionIdOfRel(x.rel) === sid),
+        );
+        for (const target of targets) {
+          if (removed.has(target.rel)) continue;
+          try {
+            if (this.isSessionBodyRel(target.rel)) {
+              await this.retireLocalSession(target.rel, { reason: 'event-delete:' + e.device });
+            } else {
+              await this.retireGeneric(target.rel, 'event-delete:' + e.device);
+            }
+            removed.add(target.rel);
+          } catch (err) {
+            console.warn('[dsh-nas-sync] 按事件回收失败（下轮再试）：' + target.rel + ' · ' + String(err));
+          }
+        }
+      } else if (e.op === 'ignore' || e.op === 'unignore') {
+        const sid = e.key.startsWith('session:') ? e.key.slice(8) : '';
+        if (!sid) continue;
+        if (e.op === 'ignore') this.ignoredFromFile.add(sid);
+        else this.ignoredFromFile.delete(sid);
+        this.saveIgnoredFile();
+      }
+    }
+    if (removed.size > 0) {
+      // 镜像账一并销掉：不销的话下一轮扫描会把已回收的副本当「本机新文件」传回去
+      for (const [remoteRel, rec] of Object.entries(this.deps.store.sessionImports)) {
+        if (removed.has(rec.localRel)) delete this.deps.store.sessionImports[remoteRel];
+      }
+      out = out.filter((x) => !removed.has(x.rel));
+      this.deps.store.save();
+      console.log('[dsh-nas-sync] 按对端删除事件回收 ' + removed.size + ' 个本地文件（可从回收站恢复）');
+    }
+    return out;
+  }
+
+  /** 收尾发布本机事件：上传成功 → upsert；确认删除 → delete；屏蔽操作 → ignore/unignore。 */
+  private async publishEvents(fresh: ManifestEntry[], baseline: ManifestEntry[]): Promise<void> {
+    const device = selfDevice();
+    const ts = Date.now();
+    let seq = nextLocalSeq(this.eventStream, device);
+    const out: SyncEvent[] = [];
+    const retentionDays = normalizeRetentionDays(this.deps.config.retentionDays);
+
+    for (const rel of this.pushedOk) {
+      const e = fresh.find((x) => x.rel === rel);
+      if (!e || !isSafeRel(rel)) continue;
+      out.push(makeEvent({
+        device, seq: seq++, ts, key: stableKeyOf(rel), rel, hash: e.hash,
+        op: 'upsert', category: rel.split('/')[0],
+      }));
+    }
+
+    // 排除镜像与本机屏蔽会话：它们的本地副本被搬走是**同步策略**造成的，
+    // 不是用户删除，绝不能据此发 delete 事件把对端也删掉。
+    const excluded = new Set<string>(
+      Object.values(this.deps.store.sessionImports ?? {}).map((r) => r.localRel),
+    );
+    for (const e of baseline) {
+      const sid = this.sessionIdOfRel(e.rel);
+      if (sid && this.ignoredFromFile.has(sid)) excluded.add(e.rel);
+    }
+    const decision = computeLocalDeletes({
+      baseline,
+      fresh,
+      enabledPrefixes: SYNC_CATEGORIES
+        .filter((c) => this.deps.config.syncScope[c.key])
+        .map((c) => c.localDir),
+      eventTrusted: this.eventTrust?.trusted ?? false,
+      manifestTrusted: this.remoteManifestTrusted,
+      excluded,
+      isIgnorable: isIgnoredRel,
+    });
+    if (decision.blocked) {
+      console.warn('[dsh-nas-sync] 本轮不产生删除事件：' + decision.reason);
+    } else {
+      for (const rel of decision.rels) {
+        out.push(makeEvent({
+          device, seq: seq++, ts, key: stableKeyOf(rel), rel,
+          op: 'delete', retentionDays,
+        }));
+      }
+    }
+
+    for (const intent of this.deps.store.pendingIntents ?? []) {
+      out.push(makeEvent({
+        device, seq: seq++, ts, key: 'session:' + intent.sid,
+        op: intent.op, category: 'sessions',
+      }));
+    }
+
+    if (out.length === 0) {
+      // 即使本机这轮没发任何事件，也必须推进位点 —— 否则对端已有的 delete/ignore
+      // 事件会被每轮重复回放（回收是幂等的，但 ignore 会反复写屏蔽清单文件）。
+      await this.writeCursors(this.eventStream);
+      return;
+    }
+    await this.appendLocalEvents(out);
+    this.deps.store.pendingIntents = [];
+    this.eventStream = mergeEventLogs([this.eventStream, out]);
+    this.tombstones = buildTombstones(this.eventStream, { retentionDays });
+    await this.writeTombstones();
+    await this.writeCursors(this.eventStream);
+    this.publishedEvents = out.length;
+  }
+
+  /** 过期墓碑 GC：保留期内一律不动，到期才真删远端对象与分块残块。 */
+  private async gcRemoteObjects(): Promise<void> {
+    const t = this.deps.transport;
+    const expired = collectGc(this.tombstones);
+    if (expired.length === 0) return;
+    // 0.6.0 / 收尾①：迁移保留期内，legacy 会话对象是唯一的回滚副本，绝不 GC。
+    await this.ensureMigrationMarker();
+    const legacyHold = legacyProtected(this.migrationMarker);
+    let n = 0;
+    for (const tomb of expired) {
+      for (const rel of tombstoneTargets(tomb).rels) {
+        if (legacyHold && isLegacySessionRel(rel)) continue;
+        const remote = '/dsh/' + rel;
+        try {
+          if (t.deleteTree) await t.deleteTree(remote);
+          else await t.delete(remote);
+          await t.delete(remote + '.chunk-manifest.json').catch(() => {});
+          // 分块残块按序号找；连续两个不存在就认为后面没有了
+          let miss = 0;
+          for (let i = 0; i < 64 && miss < 2; i++) {
+            const part = remote + '.part' + String(i).padStart(4, '0');
+            const st = await t.stat(part).catch(() => null);
+            if (!st) { miss++; continue; }
+            miss = 0;
+            await t.delete(part);
+          }
+          n++;
+        } catch (err) {
+          console.warn('[dsh-nas-sync] GC 远端对象失败（下轮再试）：' + rel + ' · ' + String(err));
+        }
+      }
+    }
+    if (n > 0) console.log('[dsh-nas-sync] 已清理过期回收对象 ' + n + ' 个');
+  }
+
+  // ---- 0.6.0 / 收尾④：插件包体 CAS ----
+
+  /** 读装配清单（按 name@version 聚合，每个平台各自的对象指纹）。 */
+  async pluginAssemblies(): Promise<PluginAssembly[]> {
+    try {
+      const raw = await this.readTextRemote(PLUGIN_ASSEMBLIES_FILE);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed?.assemblies)) return [];
+      return mergeAssemblies([parsed.assemblies]);
+    } catch {
+      return [];
+    }
+  }
+
+  /** 按内容指纹取一个对象；指纹非法 / 对象不存在都返回 null。 */
+  async pluginObject(hash: string): Promise<Uint8Array | null> {
+    const h = String(hash || '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(h)) return null;
+    try {
+      return await this.deps.transport.getBuffer(pluginObjectPath(h));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 发布一个本机平台可用的插件包体（通常是 `pnpm pack` 产出的 .tgz）：
+   * 校验 tgz → 按 sha256 写进 CAS → 用 CAS 更新装配清单。
+   * 对象一旦存在就不重写（内容地址天然幂等），并发写清单冲突时重读重试。
+   */
+  async publishPluginObject(input: {
+    name: string; version: string; tgzPath: string;
+  }): Promise<{
+    record: PluginObjectRecord; objectPath: string; assemblies: number;
+    entries: number; rejected: number; objectExisted: boolean;
+  }> {
+    this.checkReady();
+    const name = String(input?.name || '').trim();
+    const version = String(input?.version || '').trim() || '0.0.0';
+    const tgzPath = String(input?.tgzPath || '').trim();
+    if (!name || !/^(@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i.test(name)) {
+      throw new Error('插件包名非法：' + name);
+    }
+    if (!tgzPath) throw new Error('缺少 tgzPath（本机 .tgz 文件路径）');
+    const data = new Uint8Array(await readFile(tgzPath));
+    if (data.length === 0) throw new Error('空的 .tgz 文件');
+    const max = 128 * 1024 * 1024;
+    if (data.length > max) throw new Error('.tgz 超过 128 MiB 上限');
+    // 发布前先完整解一次：坏包 / 越界路径绝不能进 CAS 让别人踩
+    let checked;
+    try {
+      checked = unpackTgz(data, { maxEntryBytes: max, maxTotalBytes: max });
+    } catch (err) {
+      throw new Error('拒绝发布（.tgz 校验失败）：' + String(err));
+    }
+    if (checked.entries.length === 0) throw new Error('拒绝发布：包体里没有可用文件');
+
+    const t = this.deps.transport;
+    const hash = sha256Hex(data);
+    const path = pluginObjectPath(hash);
+    let existed = false;
+    try { existed = !!(await t.stat(path)); } catch { /* 不存在 */ }
+    if (!existed) await t.putBuffer(data, path, { mkdirs: true });
+
+    const target = currentTarget();
+    const record: PluginObjectRecord = {
+      name, version, target,
+      objectHash: hash, size: data.length, device: selfDevice(),
+    };
+    const write = async (): Promise<PluginAssembly[] | null> => {
+      const cur = await this.pluginAssemblies();
+      const next = mergeAssemblies([cur, buildAssemblies([record])]);
+      const bytes = new TextEncoder().encode(
+        JSON.stringify({ assemblies: next, updatedAt: Date.now() }, null, 2),
+      );
+      if (t.putIfMatch && t.etag) {
+        const etag = await t.etag(PLUGIN_ASSEMBLIES_FILE);
+        const r = await t.putIfMatch(bytes, PLUGIN_ASSEMBLIES_FILE, etag, { mkdirs: true });
+        return r.ok ? next : null;
+      }
+      await t.putBuffer(bytes, PLUGIN_ASSEMBLIES_FILE, { mkdirs: true });
+      return next;
+    };
+    let merged: PluginAssembly[] | null = null;
+    for (let i = 0; i < 3 && !merged; i++) merged = await write();
+    if (!merged) throw new Error('装配清单并发冲突，重试 3 次仍失败（对象已写入，可重跑）');
+
+    return {
+      record, objectPath: path, assemblies: merged.length,
+      entries: checked.entries.length, rejected: checked.rejected.length,
+      objectExisted: existed,
+    };
+  }
+
+  // ---- 0.6.0 / P2：会话稳定 ID 映射账本 ----
+  //
+  // 会话目录名是 cwd 编码，所以同一会话在电脑和手机上的 rel **永远不相等**。
+  // 0.5.9 用 `sessionImports` 在本机记「远端原文 rel → 本地镜像 rel」，但那份账只在本机，
+  // 第三台设备加入时无从得知哪个 sid 对应哪条 rel。这里把映射按 sid 汇总到远端，
+  // 为将来切到 canonical rel（`sessions/by-id/<sid>/v<N>`）准备好可迁移的账本。
+  //
+  // 本轮**不切换主 rel 空间**：线上 0.5.9 的 105+ 条存量 rel 一旦换主键，需要一次
+  // 全量重写 + 双端停机窗口，硬塞进同一轮会把正在同步的数据弄坏。
+
+  private async readBidMap(): Promise<BidMapEntry[]> {
+    try {
+      const parsed = JSON.parse(await this.readTextRemote(BIDMAP_FILE));
+      return Array.isArray(parsed?.entries) ? mergeBidMaps([parsed.entries]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private async publishBidMap(): Promise<void> {
+    const t = this.deps.transport;
+    const own: BidMapEntry[] = [];
+    for (const [remoteRel, rec] of Object.entries(this.deps.store.sessionImports ?? {})) {
+      const sid = this.sessionIdOfRel(rec.localRel) ?? this.sessionIdOfRel(remoteRel);
+      if (!sid || !isSafeRel(rec.localRel)) continue;
+      own.push({
+        sid,
+        canonicalRel: canonicalSessionRel(sid, 1),
+        localRel: rec.localRel,
+        originalCwd: rec.originalCwd,
+        version: 1,
+      });
+    }
+    if (own.length === 0) return;
+
+    const write = async (entries: BidMapEntry[]): Promise<boolean> => {
+      const data = new TextEncoder().encode(
+        JSON.stringify({ entries, updatedAt: Date.now() }, null, 2),
+      );
+      if (t.putIfMatch) {
+        const etag = t.etag ? await t.etag(BIDMAP_FILE) : null;
+        return (await t.putIfMatch(data, BIDMAP_FILE, etag, { mkdirs: true })).ok;
+      }
+      await t.putBuffer(data, BIDMAP_FILE, { mkdirs: true });
+      return true;
+    };
+    if (await write(mergeBidMaps([await this.readBidMap(), own]))) return;
+    // 冲突：重读再合并。bidmap 是按 sid 幂等归并的，重复写不会丢条目。
+    await write(mergeBidMaps([await this.readBidMap(), own]));
+  }
+
+  /** 面板/工具：查看会话稳定 ID ↔ 各端 rel 的映射账本。 */
+  async bidMap(): Promise<{ entries: BidMapEntry[]; count: number }> {
+    const entries = await this.readBidMap();
+    return { entries, count: entries.length };
+  }
+
+  // -------------------------------------------------------------------------
+  // 0.6.0 / 收尾①：会话 rel 空间迁移
+  // -------------------------------------------------------------------------
+
+  /** 读迁移标记（明文 JSON，只有计数与时间戳，无敏感数据）。 */
+  private async ensureMigrationMarker(): Promise<void> {
+    if (this.migrationMarker) return;
+    try {
+      const raw = await this.readTextRemote(MIGRATION_MARKER_PATH);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.version === 1 && Number.isFinite(parsed.completedAt)) {
+        this.migrationMarker = parsed as MigrationMarker;
+      }
+    } catch {
+      // 不存在 / 损坏都按「尚未迁移」处理：canonical 会自动降级成 legacy，
+      // 绝不在标记缺失时把主链切到新空间（fail-closed）。
+    }
+  }
+
+  /**
+   * 生效模式。配置写了 canonical 但迁移标记不存在时降级 legacy，
+   * 避免「手滑改了配置，下一轮所有会话 rel 全变、存量对象全找不到」。
+   */
+  /** 影响「哪些文件进清单 / 清单里叫什么」的配置指纹（0.6.0 / 收尾③）。 */
+  private cachePolicyFingerprint(): string {
+    const c = this.deps.config as NasSyncConfig & { sessionRelMode?: SessionRelMode };
+    return configFingerprint({
+      scope: c.syncScope ?? {},
+      includeSensitive: !!c.includeSensitive,
+      skillFilter: c.skillFilter ?? [],
+      customFolders: c.customFolders ?? [],
+      maxFileBytes: Number(c.maxFileBytes) || 0,
+      sessionRelMode: this.sessionRelMode,
+    });
+  }
+
+  private effectiveRelMode(): SessionRelMode {
+    if (this.sessionRelMode === 'canonical' && !this.migrationMarker) return 'legacy';
+    return this.sessionRelMode;
+  }
+
+  /** 本机会话 rel → 写进远端清单的 rel（canonical 模式才投影）。 */
+  private projectLocalRel(rel: string): string {
+    if (this.effectiveRelMode() !== 'canonical') return rel;
+    if (isLegacySessionRel(rel)) return legacyRelToCanonical(rel, 1) ?? rel;
+    return rel;
+  }
+
+  /**
+   * canonical 远端 rel 落到本机时的 cwd 编码段。
+   * 优先用已知的本机会话落地记录，其次工作区注册表，最后 DSH home 兜底。
+   */
+  private canonicalCwdSegment(): string {
+    for (const rec of Object.values(this.deps.store.sessionImports ?? {})) {
+      const parts = String(rec?.localRel || '').split('/');
+      if (parts[0] === 'sessions' && parts[1]) return safeCwdSegment(parts[1]);
+    }
+    for (const dir of this.workspaceDirs.values()) {
+      if (dir) return safeCwdSegment(encodeCwd(dir));
+    }
+    return safeCwdSegment(encodeCwd(dshHome()));
+  }
+
+  private isSessionBodyRel(rel: string): boolean {
+    return isSessionRel(rel) || isCanonicalSessionRel(rel);
+  }
+
+  /**
+   * 查跨平台会话镜像账。canonical 模式下远端原文 rel 变了，但账本还是按老 rel
+   * 记的（迁移不改本机 Store）；按 sid 兜底找一次，避免镜像被误判成「本机已有
+   * 同 id 会话」而永远不更新。legacy 模式直接命中，行为不变。
+   */
+  private importRecordFor(rel: string): SessionImportRecord | undefined {
+    const imports = this.deps.store.sessionImports ?? {};
+    const direct = imports[rel];
+    if (direct) return direct;
+    const sid = sessionIdFromRel(rel);
+    if (!sid) return undefined;
+    for (const [key, rec] of Object.entries(imports)) {
+      if (sessionIdFromRel(key) === sid || sessionIdFromRel(rec?.localRel ?? '') === sid) return rec;
+    }
+    return undefined;
+  }
+
+  /**
+   * 读侧双空间归并：NAS 上同时有 legacy 与 canonical 两份时按 sid 合成一份视图，
+   * 避免同一会话被计数两次、也避免「只删了一个空间」时删除判不出来。
+   * 只有 legacy 条目时（默认线上形态）原样返回，行为逐字节不变。
+   */
+  private projectRemoteMerge(entries: ManifestEntry[]): ManifestEntry[] {
+    if (!entries.some((e) => isCanonicalSessionRel(e.rel))) return entries;
+    const merged = mergeDualRead(entries);
+    if (this.effectiveRelMode() !== 'canonical') return merged;
+    const out = new Map<string, ManifestEntry>();
+    for (const e of merged) {
+      const rel = this.projectLocalRel(e.rel);
+      const cur = out.get(rel);
+      if (!cur || (e.mtime ?? 0) >= (cur.mtime ?? 0)) out.set(rel, { ...e, rel });
+    }
+    return [...out.values()].sort((a, b) => a.rel.localeCompare(b.rel));
+  }
+
+  /** 只读：生成会话 rel 迁移计划，不写任何东西。 */
+  async sessionRelPlan(): Promise<{
+    mode: SessionRelMode; effectiveMode: SessionRelMode; migrated: boolean;
+    plan: RelMigrationPlan; valid: boolean; errors: string[];
+  }> {
+    this.checkReady();
+    await this.ensureMigrationMarker();
+    const remote = await this.readRemoteManifest();
+    const plan = planRelMigration(remote, { bidMap: await this.readBidMap() });
+    const check = validateRelPlan(plan);
+    return {
+      mode: this.sessionRelMode,
+      effectiveMode: this.effectiveRelMode(),
+      migrated: !!this.migrationMarker,
+      plan,
+      valid: check.ok,
+      errors: check.errors,
+    };
+  }
+
+  /**
+   * 两阶段迁移：不带 confirm 只返回计划；带 confirm 才复制对象、写 bidmap、写 marker。
+   * 旧对象只复制不删除，保留期内 `legacyProtected()` 会挡住 GC。
+   */
+  async migrateSessionRels(opts: { confirm?: boolean } = {}): Promise<{
+    ok: boolean; dryRun: boolean; alreadyDone: boolean; copied: number;
+    skippedChunks: string[]; bidMapEntries: number; errors: string[];
+    marker: MigrationMarker | null; hint: string;
+  }> {
+    this.checkReady();
+    await this.ensureMigrationMarker();
+    if (this.migrationMarker) {
+      return {
+        ok: true, dryRun: false, alreadyDone: true, copied: 0, skippedChunks: [],
+        bidMapEntries: 0, errors: [], marker: this.migrationMarker,
+        hint: '迁移标记已存在，不重复执行。旧对象保留期内仍受保护。',
+      };
+    }
+    const view = await this.sessionRelPlan();
+    const plan = view.plan;
+    const base = {
+      dryRun: !opts.confirm, alreadyDone: false, copied: 0, skippedChunks: [] as string[],
+      bidMapEntries: 0, errors: [...view.errors],
+      marker: null as MigrationMarker | null,
+    };
+    if (!view.valid) {
+      return { ...base, ok: false, hint: '计划校验未通过，未写入任何数据。' };
+    }
+    if (!opts.confirm) {
+      return {
+        ...base, ok: true,
+        hint: `只读预演：将复制 ${plan.mappings.length} 个会话对象并写 bidmap。`
+          + '确认无误后带 confirm:true 再执行一次。',
+      };
+    }
+
+    const t = this.deps.transport;
+    const skippedChunks: string[] = [];
+    let copied = 0;
+    for (const m of plan.mappings) {
+      const from = '/dsh/' + m.legacyRel;
+      const to = '/dsh/' + m.canonicalRel;
+      try {
+        // 分块对象不能只复制主文件（还有 .partNNNN 与清单）。这类条目保留在
+        // legacy 空间由双读继续服务，绝不复制出半份不可解的 canonical 对象。
+        let chunked = false;
+        try { chunked = !!(await t.stat(from + '.chunk-manifest.json')); } catch { /* 不存在 */ }
+        if (chunked) { skippedChunks.push(m.legacyRel); continue; }
+        const buf = await t.getBuffer(from);
+        if (!buf || buf.length === 0) { skippedChunks.push(m.legacyRel); continue; }
+        await t.putBuffer(buf, to, { mkdirs: true });
+        copied++;
+      } catch (err) {
+        base.errors.push('复制失败 ' + m.legacyRel + '：' + String(err));
+      }
+    }
+    if (base.errors.length > 0) {
+      return {
+        ...base, ok: false, copied, skippedChunks,
+        hint: '复制阶段有错误，未写 bidmap / 标记；已复制的对象保留可重跑。',
+      };
+    }
+
+    const bidEntries = mergeBidMaps([
+      await this.readBidMap(),
+      bidMapFromPlan(plan, () => this.canonicalCwdSegment()),
+    ]);
+    const bidData = new TextEncoder().encode(
+      JSON.stringify({ entries: bidEntries, updatedAt: Date.now() }, null, 2),
+    );
+    const marker = buildMigrationMarker(
+      plan, selfDevice(), Date.now(), this.deps.config.retentionDays ?? 30,
+    );
+    const markerData = new TextEncoder().encode(JSON.stringify(marker, null, 2));
+    try {
+      if (t.putIfMatch && t.etag) {
+        const bidEtag = await t.etag(BIDMAP_FILE);
+        await t.putIfMatch(bidData, BIDMAP_FILE, bidEtag, { mkdirs: true });
+        const mkEtag = await t.etag(MIGRATION_MARKER_PATH);
+        await t.putIfMatch(markerData, MIGRATION_MARKER_PATH, mkEtag, { mkdirs: true });
+      } else {
+        await t.putBuffer(bidData, BIDMAP_FILE, { mkdirs: true });
+        await t.putBuffer(markerData, MIGRATION_MARKER_PATH, { mkdirs: true });
+      }
+    } catch (err) {
+      return {
+        ...base, ok: false, copied, skippedChunks,
+        hint: '写入 bidmap / 标记失败：' + String(err) + '（对象已复制，可重跑）',
+      };
+    }
+    this.migrationMarker = marker;
+    return {
+      ...base, ok: true, copied, skippedChunks, bidMapEntries: bidEntries.length,
+      marker,
+      hint: '迁移完成。旧对象仅复制未删除；把 sessionRelMode 设为 canonical 后主链即切换。',
+    };
+  }
+
+  /** 面板/工具：查看最近事件流与墓碑。 */
+  async listEvents(limit = 100): Promise<{
+    events: SyncEvent[]; trusted: boolean; tombstones: Tombstone[]; cursors: Record<string, number>;
+  }> {
+    await this.readEventStream();
+    const n = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 100)));
+    return {
+      events: this.eventStream.slice(-n),
+      trusted: this.eventTrust?.trusted ?? false,
+      tombstones: this.tombstones,
+      cursors: { ...this.deps.store.deviceCursors },
+    };
+  }
+
+  /** 面板/工具：手动确认删除一条 rel，发布 delete 事件（仍受事件流完整性闸门约束）。 */
+  async confirmDelete(rel: string): Promise<{ published: boolean; reason: string }> {
+    this.checkReady();
+    if (!isSafeRel(rel)) throw new Error('不安全的 rel：' + String(rel).slice(0, 120));
+    await this.readEventStream();
+    const gate = eventStreamAllowsDeletes(this.eventTrust);
+    if (!gate.allowed) return { published: false, reason: gate.reason ?? '事件流不可信' };
+    const device = selfDevice();
+    const e = makeEvent({
+      device, seq: nextLocalSeq(this.eventStream, device), ts: Date.now(),
+      key: stableKeyOf(rel), rel, op: 'delete',
+      retentionDays: normalizeRetentionDays(this.deps.config.retentionDays),
+    });
+    await this.appendLocalEvents([e]);
+    this.eventStream = mergeEventLogs([this.eventStream, [e]]);
+    this.tombstones = buildTombstones(this.eventStream, {
+      retentionDays: normalizeRetentionDays(this.deps.config.retentionDays),
+    });
+    await this.writeTombstones();
+    await this.writeCursors(this.eventStream);
+    this.publishedEvents++;
+    return { published: true, reason: '' };
+  }
+
   async scan(): Promise<{ local: ManifestEntry[]; pending: PendingFile[]; conflicts: ConflictItem[] }> {
     this.checkReady();
     this.loadWorkspaceDirs();
     this.loadIgnoredFile();
+    // 0.6.0 / 收尾①：先读迁移标记，effectiveRelMode() 据此决定要不要降级。
+    await this.ensureMigrationMarker();
     this.setPhase('scanning');
-    const local = await this.scanner.buildManifest();
-    const remote = await this.readRemoteManifest();
+    // 0.6.0 / P1：先读事件流（删除的唯一证据），再按墓碑过滤远端清单、
+    // 按对端事件把本地对应内容移进回收站。顺序不能反 —— 否则被删的条目还会
+    // 在下面被判成「远端有本地无 → 下载」，删完立刻又拉回来。
+    await this.readEventStream();
+    let local = await this.scanner.buildManifest();
+    // 0.6.0 / 收尾③：扫描成功后原子落盘。写失败只降级（下轮重算），不能让
+    // 一轮同步因为缓存写不进去而整体失败。
+    if (this.scanCache) {
+      try {
+        saveScanCache(this.scanCache.snapshot());
+      } catch (err) {
+        this.scanCacheWarning = '扫描缓存写入失败：' + String(err);
+        console.warn('[dsh-nas-sync] ' + this.scanCacheWarning);
+      }
+    }
+    const remote = stripDeletedEntries(await this.readRemoteManifest(), this.tombstones);
     this.remoteManifest = remote;
+    local = await this.applyRemoteDeletes(local);
 
     const localMap = new Map(local.map((e) => [e.rel, e]));
     const remoteMap = new Map(remote.map((e) => [e.rel, e]));
@@ -1163,7 +2108,7 @@ export class Engine {
      */
     for (const rel of [...localMap.keys()]) {
       if (destructiveBlocked) break; // 屏蔽清单不可信，不敢按它搬文件
-      if (!isSessionRel(rel) || !this.isImportIgnored(rel)) continue;
+      if (!this.isSessionBodyRel(rel) || !this.isImportIgnored(rel)) continue;
       try {
         await this.retireLocalSession(rel);
         localMap.delete(rel);
@@ -1181,7 +2126,7 @@ export class Engine {
       // 跨平台会话的本地改写副本：镜像，不参与上传（回传走 flushSessionImports）
       if (importedLocalRel.has(rel)) continue;
       // 本机屏蔽的会话不该上传（上面已回收，这里兜住「回收失败」那种情况）
-      if (isSessionRel(rel) && this.isImportIgnored(rel)) continue;
+      if (this.isSessionBodyRel(rel) && this.isImportIgnored(rel)) continue;
       const re = remoteMap.get(rel);
       if (!re) {
         pending.push({ rel, size: le.size, action: 'upload' });
@@ -1403,6 +2348,9 @@ export class Engine {
       // 回写 manifest：用最新本地状态重建（下载过的文件也反映进来）
       if (!this.abort.signal.aborted) {
         const fresh = await this.scanner.buildManifest();
+        // 保存本轮之前的基线：下面会把 store.localManifest 覆盖成 fresh，
+        // 而删除判定必须拿「上一轮」来比，否则一条 delete 事件都发不出来。
+        const baseline = this.deps.store.localManifest ?? [];
         /**
          * 来源设备合并：`buildManifest` 会把扫到的每个文件都标成本机（它只知道
          * 「我这儿有这个文件」）。但清单要回答的是「谁传上来的」，所以内容哈希
@@ -1423,6 +2371,26 @@ export class Engine {
           /* 忽略 */
         }
         this.deps.store.snapshot.lastSyncTime = Date.now();
+
+        // 0.6.0 / P1：事件发布放在所有内容同步完成、清单回写之后。
+        // 发布失败不能让整轮同步判失败 —— 事件留在 pendingIntents / 下一轮重放，
+        // 已同步的文件不会回滚。
+        try {
+          await this.publishEvents(fresh, baseline);
+        } catch (err) {
+          console.warn('[dsh-nas-sync] 事件发布失败（下轮重放）：' + String(err));
+        }
+        try {
+          await this.gcRemoteObjects();
+        } catch (err) {
+          console.warn('[dsh-nas-sync] 回收对象 GC 失败：' + String(err));
+        }
+        // 0.6.0 / P2：把本机的跨平台会话映射按 sid 汇总到远端账本
+        try {
+          await this.publishBidMap();
+        } catch (err) {
+          console.warn('[dsh-nas-sync] bidmap 发布失败（下轮重试）：' + String(err));
+        }
 
         // 收尾刷新待办：不留「同步成功但仍显示待同步 N 项」的假状态。
         this.deps.store.pendingFiles = [...remaining];
@@ -1470,7 +2438,7 @@ export class Engine {
   private async pushBytes(rel: string, data: Uint8Array): Promise<void> {
     const remote = '/dsh/' + rel;
     const plainHash = sha256Hex(data);
-    const cipher = await Crypto.encrypt(data, this.deps.config.passphrase, this.deps.store.salt());
+    const cipher = await this.seal(data, rel);
 
     if (data.length >= this.deps.config.chunkThreshold) {
       await this.chunker.upload(cipher, plainHash, data.length, remote);
@@ -1893,7 +2861,7 @@ export class Engine {
     //    「本轮运行失败: working-directory does not exist」。而 dsh 明确拒绝
     //    「换一个 cwd 打开已有会话」（ApiSessionCwdConflict），调用方临时指定也没用
     //    —— 唯一可行的是落地时就把记录里的路径改写成本机路径。
-    if (isSessionRel(rel)) {
+    if (this.isSessionBodyRel(rel)) {
       // 同样必须 Buffer.from：rewriteSessionCwd 用的是 readUInt32LE/subarray 这套
       // Buffer 专有 API，直接传 Uint8Array 会在帧解析处抛错并被吞掉。
       const raw = Buffer.from(plain);
@@ -1932,12 +2900,13 @@ export class Engine {
         await mkdir(targetDir, { recursive: true });
       }
 
-      // rel 形如 sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd
-      const parts = rel.split('/');
-      const sid = parts[parts.length - 2] ?? '';
-      const fileName = parts[parts.length - 1] ?? '';
+      // 落地 rel 永远是本机的 `sessions/<cwd编码>/<sid>/<文件>`。
+      // canonical 远端 rel 是 5 段（多一层 vN），不能再靠 parts[length-2] 取 sid；
+      // 统一用 sessionIdFromRel()，两种空间都取得到同一个 sid。
+      const sid = sessionIdFromRel(rel) ?? '';
+      const fileName = rel.split('/').pop() ?? '';
       const wantDir = encodeCwd(targetDir);
-      const targetRel = wantDir === parts[1] ? rel : ['sessions', wantDir, sid, fileName].join('/');
+      const targetRel = ['sessions', wantDir, sid, fileName].join('/');
       const target = this.resolveLocal(targetRel);
 
       /**
@@ -1953,7 +2922,7 @@ export class Engine {
        * 562 字节的表头快照上，侧栏里就是「这条会话没同步过来」
        * （实测 `B站UP主沐白若风`，aa35e064）。追加序前缀相同 = 覆盖不丢历史。
        */
-      const priorRecord = this.deps.store.sessionImports[rel];
+      const priorRecord = this.importRecordFor(rel);
       const isOurMirror = priorRecord?.localRel === targetRel;
       if (crossPlatform && targetRel !== rel && !isOurMirror && existsSync(target)) {
         const cur = await readFile(target);

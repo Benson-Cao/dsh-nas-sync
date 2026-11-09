@@ -8,11 +8,12 @@
  *   设置：ctx.settings.register(ns, schema, { base }) -> SettingsScope{get/watch/update/replace}。
  *   定时：全局 setInterval + ctx.on('dispose') 清理（不依赖 timer 服务注入）。
  *
- * 工具清单（17 个，0.5.9）：
+ * 工具清单（21 个，0.6.0）：
  *   nas_sync_status / nas_sync_subscribe / nas_sync_scope / nas_pending_files_page / nas_get_conflicts
  *   nas_resolve_conflict / nas_skip_pending / nas_plugin_audit / nas_sync / nas_stop_sync / nas_test
  *   nas_set_config / nas_try_merge / nas_get_file_diff
  *   nas_list_removed / nas_restore_session / nas_manage_ignored
+ *   nas_list_events / nas_confirm_delete / nas_session_rel_migrate / nas_publish_plugin_object
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools';
@@ -365,7 +366,7 @@ function apply(ctx: any, config: any): void {
       const allOn = Object.fromEntries(SYNC_CATEGORIES.map((c) => [c.key, true])) as Record<SyncScopeKey, boolean>;
       let summary: Record<string, { files: number; bytes: number }> = {};
       try {
-        summary = await summarizeCategories({ scope: allOn, includeSensitive: cfg.includeSensitive, customFolders: cfg.customFolders });
+        summary = await summarizeCategories({ scope: allOn, includeSensitive: cfg.includeSensitive, customFolders: cfg.customFolders, maxFileBytes: cfg.maxFileBytes });
       } catch (e) {
         warn('分类统计失败：' + (e as Error).message);
       }
@@ -655,7 +656,7 @@ function apply(ctx: any, config: any): void {
   // 8.5 nas_set_config：修改并持久化配置（自管配置层）
   ctx.tools.register(defineTool({
     name: 'nas_set_config',
-    description: '修改 NAS 同步配置并持久化（重启引擎后仍生效）。可改：type(webdav/mount)、webdav.{url,remotePath(共享文件夹),username,password}、mountRoot、passphrase(加密口令)、autoSync.{enabled,mode,intervalMin}、chunkThreshold、chunkSize、concurrency、includeSensitive、'
+    description: '修改 NAS 同步配置并持久化（重启引擎后仍生效）。可改：type(webdav/mount)、webdav.{url,remotePath(共享文件夹),username,password}、mountRoot、passphrase(加密口令)、autoSync.{enabled,mode,intervalMin}、chunkThreshold、chunkSize、concurrency、includeSensitive、retentionDays（删除回收保留天数，0=永久，默认30）、maxFileBytes（单文件扫描上限）、sessionRelMode(legacy/shadow/canonical，默认legacy)、envelopeVersion(1=NSS1兼容/2=NSS2带AAD，默认1)、scanCacheEnabled、scanCacheTtlHours、'
       + `syncScope.{${SYNC_CATEGORIES.map((c) => c.key).join(',')}}（分类勾选，二级合并）。传部分字段即可；只想改勾选请优先用 nas_sync_scope。`,
     parameters: {
       config: {
@@ -888,7 +889,7 @@ function apply(ctx: any, config: any): void {
   //     屏蔽清单在 0.5.8 只能手工写 JSON，且写坏格式会被静默清空。现在有正式入口。
   ctx.tools.register(defineTool({
     name: 'nas_manage_ignored',
-    description: '管理「本机不同步的会话」清单：list 查看、add 屏蔽一条、remove 撤销屏蔽。屏蔽只影响本机，远端原文保留。',
+    description: '管理「不同步的会话」清单：list 查看、add 屏蔽一条、remove 撤销屏蔽。0.6.0 起屏蔽会作为事件同步到对端；远端原文保留、不删除。',
     parameters: {
       action: { type: 'string', enum: ['list', 'add', 'remove'], description: '默认 list' },
       sessionId: { type: 'string', description: 'add/remove 时必填的会话 id' },
@@ -919,6 +920,185 @@ function apply(ctx: any, config: any): void {
       if (action === 'remove' && sid) engine.unignoreSession(sid);
       const state = engine.listIgnoredSessions();
       return { ids: state.ids, error: state.error, changed: action !== 'list', message: null };
+    },
+  }));
+
+  // 18. nas_list_events：事件流回放 / 位点 / 墓碑（0.6.0 / P1）
+  //     排查「一端删除、另一端为什么没跟着删」的第一入口：先看事件流是否完整，
+  //     再看有没有 delete 事件、位点推进到哪了。
+  ctx.tools.register(defineTool({
+    name: 'nas_list_events',
+    description: '查看 NAS 同步事件流：最近事件、完整性判据、墓碑与各设备位点。用于排查删除传播为何没有生效。只读。',
+    parameters: {
+      limit: { type: 'integer', description: '最多返回多少条，默认 50，上限 1000' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          trusted: { type: 'boolean' }, events: { type: 'json' },
+          tombstones: { type: 'json' }, cursors: { type: 'json' },
+        },
+      },
+      render: (_args: any, value: any) => {
+        const evs = Array.isArray(value.events) ? value.events : [];
+        const tombs = Array.isArray(value.tombstones) ? value.tombstones : [];
+        const head = value.trusted
+          ? '事件流完整（允许删除传播）'
+          : '⚠ 事件流不完整，本轮已禁用删除传播';
+        const lines = evs.slice(-20).map((e: any) =>
+          `- ${e.device}:${e.seq} ${e.op} ${e.key}${e.rel ? ' (' + e.rel + ')' : ''}`);
+        return [{
+          type: 'text',
+          text: head + `｜事件 ${evs.length} 条、墓碑 ${tombs.length} 条\n` +
+            (lines.length ? lines.join('\n') : '（暂无事件）') +
+            '\n位点：' + JSON.stringify(value.cursors ?? {}),
+        }];
+      },
+    },
+    async execute(args: any) {
+      const raw = Number(args?.limit ?? 50);
+      const limit = Math.max(1, Math.min(1000, Number.isFinite(raw) ? raw : 50));
+      return await engine.listEvents(limit);
+    },
+  }));
+
+  // 19. nas_confirm_delete：手动确认删除（0.6.0 / P1）
+  //     自动判定被闸门挡住时，给用户一个显式的、仍受完整性约束的手动入口。
+  //     注意它发布的是**删除事件**（各端移进回收站），不是直接 rm 文件。
+  ctx.tools.register(defineTool({
+    name: 'nas_confirm_delete',
+    description: '手动确认删除一条同步内容：发布 delete 事件，各端把对应文件移进回收站（保留期后可恢复）。事件流不完整时会拒绝执行。',
+    parameters: {
+      rel: { type: 'string', required: true, description: '相对 ~/.dsh 的路径，如 attachments/a.png' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          published: { type: 'boolean' }, rel: { type: 'string' }, message: { type: 'json' },
+        },
+      },
+      render: (_args: any, value: any) => [{
+        type: 'text',
+        text: value.published
+          ? `已发布删除事件：${value.rel}。各端下一轮同步会把文件移进回收站。`
+          : '拒绝发布：' + (value.message || '事件流不可信'),
+      }],
+    },
+    async execute(args: any) {
+      const rel = String(args?.rel || '').trim();
+      try {
+        const r = await engine.confirmDelete(rel);
+        return { published: r.published, rel, message: r.reason || null };
+      } catch (e) {
+        return { published: false, rel, message: (e as Error).message };
+      }
+    },
+  }));
+
+  // 20. nas_session_rel_migrate：会话 rel 空间迁移（0.6.0 / 收尾①）
+  //     两阶段：默认只读预演，只有显式 confirm:true 才复制对象、写 bidmap 与标记。
+  //     旧对象只复制不删除，标记里的保留期会挡住 GC。
+  ctx.tools.register(defineTool({
+    name: 'nas_session_rel_migrate',
+    description: '把会话远端 rel 从 cwd 编码目录迁到 sessions/by-id/<sid>/vN 稳定主键。默认只读预演（返回计划与校验结果）；只有 confirm:true 才真正复制对象、写 bidmap 与迁移标记。旧对象只复制不删除，可回滚。',
+    parameters: {
+      // dsh-tools 的 schema 编译器不接受 `required: false`：
+      // 「parameters.confirm.required must be true when present」会让整个插件注册失败
+      // （宿主日志 dsh: warning: nas-sync did not activate），token 与 HTTP 桥全都不起来。
+      // 可选参数一律省略 required 字段，而不是写 false。
+      confirm: {
+        type: 'boolean',
+        description: 'true 才执行写入；缺省或其它值一律只读预演',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ok: { type: 'boolean' }, dryRun: { type: 'boolean' },
+          copied: { type: 'number' }, planCount: { type: 'number' },
+          valid: { type: 'boolean' }, errors: { type: 'json' },
+          hint: { type: 'string' },
+        },
+      },
+      render: (_args: any, value: any) => [{
+        type: 'text',
+        text: (value.dryRun ? '【只读预演】' : '【已执行】') + value.hint
+          + `\n计划 ${value.planCount} 条，校验 ${value.valid ? '通过' : '未通过'}，实际复制 ${value.copied} 个。`
+          + (Array.isArray(value.errors) && value.errors.length
+            ? '\n问题：' + value.errors.slice(0, 5).join('；') : ''),
+      }],
+    },
+    async execute(args: any) {
+      const confirm = args?.confirm === true;
+      const r = await engine.migrateSessionRels({ confirm });
+      let planCount = 0;
+      let valid = true;
+      if (confirm === false || !r.ok) {
+        try {
+          const view = await engine.sessionRelPlan();
+          planCount = view.plan.mappings.length;
+          valid = view.valid;
+        } catch { /* 远端不可达时用执行结果里的错误即可 */ }
+      } else {
+        planCount = r.copied + r.skippedChunks.length;
+      }
+      return {
+        ok: r.ok, dryRun: r.dryRun, copied: r.copied, planCount, valid,
+        errors: r.errors, hint: r.hint,
+      };
+    },
+  }));
+
+  // 21. nas_publish_plugin_object：把本机 .tgz 包体发布进 CAS（0.6.0 / 收尾④）
+  //     与「无 CLI 时从 CAS 解包安装」配套，构成插件包体的跨端闭环。
+  ctx.tools.register(defineTool({
+    name: 'nas_publish_plugin_object',
+    description: '把本机 .tgz 插件包体发布到 CAS（按 sha256 内容地址），并登记到当前平台/架构/Node ABI 的装配清单。另一台设备没有宿主 CLI 时会据此直接解包写 node_modules。',
+    parameters: {
+      name: { type: 'string', required: true, description: '包名，支持 @scope/name' },
+      version: { type: 'string', description: '版本号，缺省 0.0.0' },
+      tgzPath: { type: 'string', required: true, description: '本机 .tgz 文件绝对路径（如 pnpm pack 产物）' },
+    },
+    output: {
+      schema: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          ok: { type: 'boolean' }, objectPath: { type: 'string' },
+          objectExisted: { type: 'boolean' }, assemblies: { type: 'number' },
+          entries: { type: 'number' }, message: { type: 'string' },
+        },
+      },
+      render: (_args: any, value: any) => [{
+        type: 'text',
+        text: value.ok
+          ? `已发布 ${value.objectPath}（${value.objectExisted ? '对象已存在，复用' : '新写入'}），`
+            + `装配清单现有 ${value.assemblies} 个包，包内含 ${value.entries} 个文件。`
+          : '发布失败：' + value.message,
+      }],
+    },
+    async execute(args: any) {
+      try {
+        const r = await engine.publishPluginObject({
+          name: String(args?.name || ''),
+          version: String(args?.version || ''),
+          tgzPath: String(args?.tgzPath || ''),
+        });
+        return {
+          ok: true, objectPath: r.objectPath, objectExisted: r.objectExisted,
+          assemblies: r.assemblies, entries: r.entries, message: '',
+        };
+      } catch (e) {
+        return {
+          ok: false, objectPath: '', objectExisted: false,
+          assemblies: 0, entries: 0, message: (e as Error).message,
+        };
+      }
     },
   }));
 

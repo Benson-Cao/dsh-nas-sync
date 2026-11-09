@@ -150,10 +150,16 @@ registerNasSyncUi(ctx, HostBridge(scope))
 | `chunkSize` | 分块大小，默认 50 MiB |
 | `concurrency` | 上传并发数，1–16 |
 | `includeSensitive` | 同步 `.credentials.yaml`，默认 false，需二次确认 |
+| `retentionDays` | **0.6.0** 删除后回收副本保留天数，默认 30，`0` = 永久保留；到期才真删远端对象 |
+| `maxFileBytes` | **0.6.0** 工作区 / 自定义文件夹单文件扫描上限，默认 64 MiB（此前是写死的硬跳过，配置改不动） |
+| `sessionRelMode` | **0.6.0** 会话 rel 空间：`legacy`（默认，0.5.9 行为）/ `shadow`（双写）/ `canonical`（按 sid 主链）。读侧永远双空间归并，可回滚 |
+| `envelopeVersion` | **0.6.0** 上传密文格式：`1` = NSS1（默认，兼容旧端）/ `2` = NSS2（带版本与 AAD）。解密永远双读，改这个数字不会让历史密文失效 |
+| `scanCacheEnabled` / `scanCacheTtlHours` | **0.6.0** 增量扫描缓存开关与 TTL（默认开 / 24 小时）。配置指纹变化整表失效，mtime/ctime/size 任一变化单条重算 |
+| `retentionDays`（迁移） | 迁移标记里的旧对象保留期也复用它，期内 GC 会跳过 legacy 会话对象 |
 
 ## 4. Host 半暴露的工具
 
-共 **17 个**（与 `src/index.ts` 中 `ctx.tools.register` 实际注册数一致，0.5.9 校准）。
+共 **21 个**（与 `src/index.ts` 中 `ctx.tools.register` 实际注册数一致，0.6.0 收尾校准）。
 
 | 工具 | 用途 |
 |---|---|
@@ -173,10 +179,68 @@ registerNasSyncUi(ctx, HostBridge(scope))
 | `nas_get_file_diff` | 行级 diff 预览 |
 | `nas_list_removed` | **0.5.9** 列出回收目录里的会话（只读） |
 | `nas_restore_session` | **0.5.9** 把回收的会话恢复回原处并重新登记侧栏 |
-| `nas_manage_ignored` | **0.5.9** 查看 / 添加 / 撤销本机屏蔽 |
+| `nas_manage_ignored` | **0.5.9** 查看 / 添加 / 撤销屏蔽（0.6.0 起会作为事件同步到对端） |
+| `nas_list_events` | **0.6.0** 查看事件流、完整性判据、墓碑与各设备位点（排查删除传播首选） |
+| `nas_confirm_delete` | **0.6.0** 手动发布一条 delete 事件；事件流不完整时拒绝执行 |
+| `nas_session_rel_migrate` | **0.6.0** 会话 rel 空间迁移；默认只读预演，`confirm:true` 才复制对象、写 bidmap 与标记 |
+| `nas_publish_plugin_object` | **0.6.0** 把本机 `.tgz` 包体发布进 CAS，并登记当前平台的装配清单 |
 
 对应的 HTTP 桥端点：`GET /nas-sync-api/removed`、`POST /nas-sync-api/removed/restore`、
-`GET|POST /nas-sync-api/ignored`（需页面注入的 `x-nas-sync-token`）。
+`GET|POST /nas-sync-api/ignored`，以及 0.6.0 新增的 `GET /nas-sync-api/events`、
+`GET /nas-sync-api/events/status`、`POST /nas-sync-api/events/delete`、
+`GET|POST /nas-sync-api/rel-migration`、`POST /nas-sync-api/plugins/publish`
+（均需页面注入的 `x-nas-sync-token`）。
+
+**面板入口（0.5.9 面板补齐）**：设置 → NAS 同步 →「回收站与本机屏蔽」卡片，
+可以枚举回收记录并恢复（`restorable` 为 false 的旧记录只展示不给按钮，恢复需点两次确认）、
+查看/添加/撤销本机屏蔽，并直接显示 `/status` 的 `safety`（屏蔽清单异常、设备清单读不全时
+会红条说明「本轮为什么没做删除传播」）。0.5.8 及更早的 host 没有这三个端点，整张卡片自动隐藏。
+
+### 4.1 事件驱动删除传播（0.6.0）
+
+0.5.9 的删除传播靠「远端清单里这条连续两轮消失」推断，只覆盖 `sessionImports` 里的
+跨平台会话镜像和本机屏蔽会话 —— **附件、技能、工作区文件删了对端毫无感知**。
+0.6.0 改为显式事件日志：
+
+- 每台设备只往 `/dsh/events/<设备>/<分片>.jsonl` 追加不可变事件（`upsert` / `delete` /
+  `ignore` / `unignore` / `plugin-install` / `plugin-uninstall`），各写各的分片，不会互相覆盖；
+- 事件带 `(device, seq)`、`ts`、稳定主键 `key` 和自校验签名 `sig`。会话按 **sessionId**
+  归键（两端 cwd 编码不同、rel 永远不等，按 sid 才能对上），插件按
+  `name@platform/abi` 归键，其余按 rel；
+- 读端合并全部分片 → 按时序回放 → 生成墓碑（删除优先，默认保留 30 天）；
+  `/dsh/tombstones.json` 是可重建的缓存，`/dsh/cursors/<设备>.json` 记本机处理位点；
+- 一端删除 → 对端按墓碑把本地文件**移进回收站并写 meta**（不是硬删），30 天后
+  `gcRemoteObjects()` 才真删远端对象与分块残块；
+- 屏蔽清单全局事件化：一端 `ignoreSession()` 记一条待发布意图，下一轮同步广播，
+  升级前已有的存量屏蔽不会补发历史事件。
+
+**三道误删防线**（`src/sync/safety.ts`，均可离线单测）：
+
+1. 事件流只要有一片读失败、一条签名不对、或某台设备 `seq` 有缺口 → 整轮禁止按事件删除；
+2. 本机「上一轮有、这一轮没有」要过六道闸才敢发 delete 事件：事件流可信、远端清单可信、
+   基线非空、rel 安全且落在**启用分类**内、条数 ≤ 50、消失比例 ≤ 0.5。
+   关掉一个分类勾选**不会**变成「把对端该分类全删光」；
+3. 删除只移进回收站，`nas_list_removed` / `nas_restore_session` 可恢复。
+
+排障顺序：`nas_list_events` 先看 `trusted` 与 `gaps`，再看有没有 delete 事件、
+`cursors` 推进到哪；`/status` 的 `safety.eventStream` 也会给出本轮为什么没做删除传播。
+
+### 4.2 迁移窗口已落地的能力（0.6.0 收尾）
+
+第 11 节修复说明里曾列为「需要独立迁移窗口、本轮刻意未做」的五项，现已全部实现，
+但**默认都不改变线上已有字节**，通过模式开关 / 双读单写 / 显式确认来避免迁移风险：
+
+| 能力 | 落点 | 默认行为 |
+|---|---|---|
+| canonical rel 会话主键 | `src/sync/rel-migration.ts`、`engine.ts` 的 `sessionRelPlan()` / `migrateSessionRels()` | `sessionRelMode='legacy'`（0.5.9 行为）。读侧永远双空间归并，`canonical` 缺 `/dsh/migration.json` 时自动降级 legacy；只有 `confirm:true` 才复制对象、写 `/dsh/bidmap.json` 与 marker，旧对象**只复制不删除**；同名不同 hash 整批拒绝 |
+| 插件 CAS 解包写 `node_modules` | `src/sync/tgz.ts`、`installer.ts` 的 `installFromCas()` / `startCas()` | CLI 优先；无 CLI（手机端）自动从 `/dsh/objects/<sha前2位>/<sha>` 校验后零依赖解 USTAR/PAX/GNU longname `.tgz`，临时目录 + 原子重命名 + 失败回滚。拒绝路径穿越、符号/硬链接、设备文件与解压炸弹 |
+| NSS2 信封 + 流式分块加密 | `src/sync/crypto.ts`、`engine.ts` 的 `seal()` | `envelopeVersion=1`（NSS1）继续写，兼容旧端；设成 `2` 才写带版本 + AAD 的 NSS2。`decrypt()` 永远双读，历史密文不会失效；`sealStream()` / `openStream()` 用 `NSS2C` 帧绑定 `(aad, index, final)`，防重排 / 复制 / 截断 / 篡改 |
+| 增量扫描缓存 | `src/sync/scan-cache.ts`、`scanner.ts` 的 `toEntry()` | 默认开、TTL 24h（`$DSH_HOME/nas-sync/scan-cache.json`）。按 `mtimeMs/ctimeMs/size` 三元组命中即跳过 `readFile` + sha256；配置指纹变化整表失效，坏缓存降级为全量扫描并告警 |
+| 完整质量体系 | `.github/workflows/ci.yml`、`scripts/coverage.mjs` / `mutation.mjs` / `security-audit.mjs` / `device-e2e.*`、`test/*` | `npm run verify` = build + 232 单测 + 覆盖率（门槛 40%，实测 73.56%）+ 10 个变异体全杀死 + SAST/SCA（high/medium 0）。真机 E2E 已在物理设备上实跑通过（`reports/device-e2e.json`：`ok:true`、6 个端点全 200），可复跑 `npm run device:e2e` |
+
+仍诚实保留的边界：**凭据仍拆在 0600 的 `credentials.json` 里但为明文**，真正的系统
+keyring 需要宿主接口；`scan()` 仍无并发锁；`DefaultBridge` 仍是骨架；工作区文件按目录
+基名做 rel 前缀，同名工作区会撞车。这些不因本轮收尾而消失。
 
 ## 5. 同步规则
 
@@ -306,8 +370,9 @@ registerNasSyncUi(ctx, HostBridge(scope))
 > ["session-23009990-3a0e-42b1-a5f5-071147fe3dac"]
 > ```
 >
-> **0.5.9 起不必手写文件**：用 `nas_manage_ignored`（`action: list|add|remove`）或
-> `GET|POST /nas-sync-api/ignored` 即可。插件每轮扫描开头重读这个文件：命中的会话
+> **0.5.9 起不必手写文件**：设置面板「NAS 同步 → 回收站与本机屏蔽」可直接查看、
+> 添加、撤销屏蔽，并恢复回收的会话；脚本侧用 `nas_manage_ignored`（`action: list|add|remove`）
+> 或 `GET|POST /nas-sync-api/ignored`。插件每轮扫描开头重读这个文件：命中的会话
 > **不下载、不上传**，本地已有的副本连同 `sessionIds` 登记一起移进 `nas-sync/removed/`。
 > 远端原文不动，手机上的那份照旧。
 >
@@ -498,7 +563,14 @@ ctx.on('webserver/index-inject', (table) => {
 ## 7. 已知限制
 
 - 分块合并采用“清单 + 独立分块文件”方案，**不依赖** NAS 支持 WebDAV PATCH；
-  读取方（下载）会按清单重组并校验整体 sha256。
+  读取方（下载）按清单重组，**0.6.0 起逐块校验密文 sha256**（坏块直接报到块序号），
+  再校验整体明文 sha256。旧清单没有 `chunkHashes` 时退回整体校验，升级不会把历史
+  分块判成损坏。内容变小后会主动清理多余的 `.partNNNN` 残块。
+- 会话在不同设备上的 rel 永远不相等（目录名是 cwd 编码）。0.6.0 的删除/屏蔽事件
+  按 sessionId 归并解决跨端对齐。0.6.0 已提供 canonical rel
+  （`sessions/by-id/<sid>/vN/<file>`）的双读 + `sessionRelMode` 模式开关 + `confirm:true`
+  迁移编排，但**默认仍是 legacy**：旧 rel 的线上对象不动，切换要管理员显式执行
+  `nas_session_rel_migrate` 并写 `/dsh/migration.json` 才生效（见 4.2），不是升级即变。
 - 行级 diff 用 LCS，超大文件（>5000 行级对比单元）会退化为“整段标为变更”，
   避免 UI 卡顿。
 - 三路合并的 base 来自上一次成功同步时的备份（`<file>.base`），首次同步无 base，

@@ -1,0 +1,51 @@
+# 0.6.0 / 收尾⑤：完整质量门禁
+# 顺序与 npm run verify 一致：编译 → 单测 → 覆盖率 → 变异 → 安全审计。
+# 真机 E2E 不在 CI 里跑（需要物理设备与无线调试），由 scripts/device-e2e.sh
+# 在装机后手动执行，报告落到 reports/device-e2e.json。
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # 仓库刻意不提交 package-lock.json（插件要随宿主 Node 走，锁版本反而会
+      # 把宿主拖进依赖冲突），所以用 npm install 而不是 npm ci。
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit / integration tests
+        run: npm test
+
+      - name: Coverage gate (>= 40% lines)
+        run: npm run coverage
+
+      - name: Mutation testing (critical predicates)
+        run: npm run mutation
+
+      - name: SAST + dependency audit
+        run: npm run audit:security
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports
+          path: reports/
+          if-no-files-found: warn

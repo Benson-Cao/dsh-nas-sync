@@ -13,7 +13,7 @@
  */
 
 import { createClient, type WebDAVClient } from 'webdav';
-import type { NasEntry, NasTransport, PutBufferOptions } from './transport.js';
+import type { CasResult, NasEntry, NasTransport, PutBufferOptions } from './transport.js';
 
 export interface WebdavOptions {
   url: string;
@@ -147,6 +147,108 @@ export function createWebdavTransport(opts: WebdavOptions): NasTransport {
     }
   };
 
+  /** HTTP 404 = 目标不存在；其它错误（超时 / 401 / 5xx）必须冒泡，不能被当成「不存在」。 */
+  function isNotFound(e: any): boolean {
+    const s = Number(e?.status ?? e?.response?.status ?? 0);
+    return s === 404;
+  }
+
+  /**
+   * 强校验子（0.6.0 / P0）。
+   *
+   * 服务器不给 ETag 时退回 `weak:<mtime>:<size>` —— 它不如 ETag 强，但至少
+   * 内容/时间变化会变，配合下面的「读-比较-写」仍能挡住大部分并发覆盖。
+   * 与 `stat()` 不同，这里**不吞**超时/网络错误：把「暂时读不到」当成「目标不存在」
+   * 会让 CAS 直接覆盖掉别人刚写的内容。
+   */
+  const etagOf = async (remote: string): Promise<string | null> => {
+    const target = p(remote);
+    try {
+      const s = await guarded('etag ' + target, META_TIMEOUT_MS, (signal) =>
+        client.stat(target, { signal })) as any;
+      if (typeof s?.etag === 'string' && s.etag) return s.etag;
+      return 'weak:' + new Date(s?.lastmod).getTime() + ':' + Number(s?.size ?? 0);
+    } catch (e) {
+      if (isNotFound(e)) return null;
+      throw e;
+    }
+  };
+
+  /**
+   * 比较并交换。
+   *
+   * 有强 ETag 时用 `If-Match` / `If-None-Match` 交给服务器做原子判定（412 即冲突）；
+   * 只有弱校验子时退回「先读、比对、再写」，并在注释里如实标注这不是严格原子 ——
+   * 共享文件（墓碑总表 / 位点）本来就应由单台设备写，弱路径只是兜底。
+   */
+  const putIfMatchImpl = async (
+    data: Uint8Array,
+    remote: string,
+    expectEtag: string | null,
+    opts?: PutBufferOptions,
+  ): Promise<CasResult> => {
+    const target = p(remote);
+    if (opts?.mkdirs) await ensureParent(target);
+    const buf = toBuffer(data);
+    const weak = expectEtag !== null && expectEtag.startsWith('weak:');
+
+    if (expectEtag === null || weak) {
+      const cur = await etagOf(remote);
+      if (cur !== expectEtag) return { ok: false, etag: cur, reason: 'conflict' };
+    }
+
+    const headers: Record<string, string> = {};
+    if (expectEtag === null) headers['If-None-Match'] = '*';
+    else if (!weak) headers['If-Match'] = expectEtag;
+
+    try {
+      await guarded('CAS 写入 ' + target, fileTimeoutMs(buf.byteLength), (signal) =>
+        client.putFileContents(target, buf, {
+          overwrite: true,
+          contentLength: buf.byteLength,
+          signal,
+          ...(Object.keys(headers).length ? { headers } : {}),
+        }));
+    } catch (e: any) {
+      const s = Number(e?.status ?? e?.response?.status ?? 0);
+      // 412 Precondition Failed / 428 / 409：条件不满足，远端已被别人改过
+      if (s === 412 || s === 428 || s === 409) {
+        return { ok: false, etag: await etagOf(remote), reason: 'conflict' };
+      }
+      throw e;
+    }
+    return { ok: true, etag: await etagOf(remote) };
+  };
+
+  const delAbs = async (t: string): Promise<void> => {
+    try {
+      await guarded('删除 ' + t, META_TIMEOUT_MS, (signal) => client.deleteFile(t, { signal }));
+    } catch (e) {
+      if (!isNotFound(e)) throw e;
+    }
+  };
+
+  /** 递归删：先列目录，逐个子项下钻，最后删自身；非目录就当单文件删。 */
+  const deleteTreeAbs = async (t: string): Promise<void> => {
+    let items: any[] | null = null;
+    try {
+      const raw = await guarded('列目录 ' + t, META_TIMEOUT_MS, (signal) =>
+        client.getDirectoryContents(t, { signal }));
+      items = Array.isArray(raw) ? raw : [raw];
+    } catch (e) {
+      if (isNotFound(e)) return;
+      items = null; // 可能不是目录（列目录失败）→ 按单文件处理
+    }
+    if (items !== null) {
+      for (const it of items) {
+        const child = t.replace(/\/+$/, '') + '/' + String(it.basename);
+        if (it.type === 'directory') await deleteTreeAbs(child);
+        else await delAbs(child);
+      }
+    }
+    await delAbs(t);
+  };
+
   return {
     async test() {
       try {
@@ -237,6 +339,18 @@ export function createWebdavTransport(opts: WebdavOptions): NasTransport {
       } catch {
         // 已存在视为成功
       }
+    },
+
+    // ---- 0.6.0 / P0：CAS / 递归删 / 原子重命名 ----
+    etag: etagOf,
+    putIfMatch: putIfMatchImpl,
+    deleteTree: async (remote) => deleteTreeAbs(p(remote)),
+    async rename(from, to) {
+      const a = p(from);
+      const b = p(to);
+      await ensureParent(b);
+      await guarded('移动 ' + a + ' → ' + b, META_TIMEOUT_MS, (signal) =>
+        client.moveFile(a, b, { signal }));
     },
   };
 }

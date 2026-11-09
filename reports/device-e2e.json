@@ -1,0 +1,98 @@
+{
+  "ok": true,
+  "failures": [],
+  "at": "2026-11-09T07:24:06.151Z",
+  "tokenPresent": true,
+  "prefix": "/nas-sync-api",
+  "status": {
+    "http": 200,
+    "ok": true,
+    "hasSafety": true,
+    "safety": {
+      "ignoredFileError": null,
+      "manifestTrustFailed": [],
+      "destructiveBlocked": false,
+      "eventStream": {
+        "trusted": true,
+        "events": 0,
+        "tombstones": 0,
+        "failed": [],
+        "gaps": 0,
+        "published": 0,
+        "lastError": null
+      },
+      "scanCache": {
+        "enabled": true,
+        "hits": 0,
+        "misses": 163,
+        "changed": 0,
+        "expired": 0,
+        "invalidated": false,
+        "warning": null
+      }
+    },
+    "storeError": null,
+    "snapshot": {
+      "lastSyncTime": 1794208029853,
+      "phase": "scanning",
+      "progress": {
+        "total": 0,
+        "done": 0,
+        "errors": 0
+      },
+      "pendingCount": 0,
+      "conflictCount": 0,
+      "running": false
+    },
+    "configKeys": [
+      "type",
+      "webdav",
+      "mountRoot",
+      "passphraseSet",
+      "autoSync",
+      "includeSensitive",
+      "syncScope",
+      "skillFilter",
+      "chunkThreshold",
+      "chunkSize",
+      "concurrency",
+      "retentionDays",
+      "maxFileBytes",
+      "sessionRelMode",
+      "envelopeVersion",
+      "scanCacheEnabled",
+      "scanCacheTtlHours"
+    ]
+  },
+  "events": {
+    "http": 200,
+    "ok": true,
+    "trusted": true,
+    "count": 0,
+    "tombstones": 0
+  },
+  "relMigration": {
+    "http": 200,
+    "ok": true,
+    "mode": "legacy",
+    "effectiveMode": "legacy",
+    "valid": true,
+    "mappings": 55
+  },
+  "plugins": {
+    "http": 200,
+    "ok": true,
+    "canInstall": false,
+    "casAssemblies": 0
+  },
+  "ignored": {
+    "http": 200,
+    "ok": true,
+    "ids": []
+  },
+  "removed": {
+    "http": 200,
+    "ok": true,
+    "count": 0
+  }
+}

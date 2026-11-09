@@ -7,7 +7,8 @@
  * 拆开后测试能直接覆盖「补回 / 不复活」这类语义。
  */
 
-import type { ManifestEntry } from '../data/models.js';
+import type { ManifestEntry, Tombstone } from '../data/models.js';
+import { stableKeyOf, sessionIdFromRel, isDeleted, tombstoneTargets } from './events.js';
 
 /**
  * 合并清单的来源设备：`fresh` 里的条目都被 scanner 标成了本机，但只有**内容真的
@@ -121,4 +122,102 @@ export function ownManifestEntries(
     const o = prev.get(e.rel);
     return o !== undefined && o.hash === e.hash;
   });
+}
+
+// ---------------------------------------------------------------------------
+// 0.6.0 / P0：v2 事件协议在清单层的适配
+// ---------------------------------------------------------------------------
+//
+// 事件流是「真相」，设备清单降级为「可重建的缓存」。这里只放清单侧的纯函数，
+// 事件流的构造 / 校验 / 回放全部在 events.ts，避免两套规则各写一遍。
+
+export {
+  EVENTS_DIR, TOMBSTONES_FILE, CURSORS_DIR, OBJECTS_DIR, TRASH_DIR, BIDMAP_FILE,
+  DEFAULT_RETENTION_DAYS, EVENT_SHARD_SIZE,
+  eventLogFileOf, eventShardOf, cursorFileOf, objectPathOf, trashPathOf,
+  tombstoneTargets,
+} from './events.js';
+
+/** 一个清单条目的稳定主键（会话按 sid，其余按 rel）。 */
+export function manifestEntryKey(e: ManifestEntry): string {
+  return stableKeyOf(e.rel);
+}
+
+/**
+ * 合并 v2 设备清单。
+ *
+ * 与 v1 的 `mergeDeviceManifests()` 差别在两条：
+ *   - 带 `deletedAt` 的软删除条目优先（删除优先）；
+ *   - 双方都是普通条目时，`version` 大者胜，相同再按 mtime / device 兜底，
+ *     结果与读入顺序无关。
+ *
+ * v1 条目没有 version，按 0 处理，所以新旧清单混读时旧条目不会盖掉新条目。
+ */
+export function mergeV2Manifests(parts: ManifestEntry[][]): ManifestEntry[] {
+  const byRel = new Map<string, ManifestEntry>();
+  const rank = (e: ManifestEntry): number =>
+    (e.deletedAt ? 1_000_000 : 0) + (Number.isFinite(e.version) ? Math.floor(e.version as number) : 0);
+  for (const list of parts) {
+    if (!Array.isArray(list)) continue;
+    for (const e of list) {
+      if (!e || typeof e.rel !== 'string') continue;
+      const cur = byRel.get(e.rel);
+      if (!cur) {
+        byRel.set(e.rel, e);
+        continue;
+      }
+      if (rank(e) !== rank(cur)) {
+        if (rank(e) > rank(cur)) byRel.set(e.rel, e);
+        continue;
+      }
+      if (e.hash !== cur.hash && (e.mtime ?? 0) > (cur.mtime ?? 0)) {
+        byRel.set(e.rel, e);
+        continue;
+      }
+      if (e.hash === cur.hash && String(e.device ?? '') < String(cur.device ?? '')) {
+        byRel.set(e.rel, e);
+      }
+    }
+  }
+  return [...byRel.values()];
+}
+
+/**
+ * 按墓碑过滤清单条目。
+ *
+ * 会话墓碑的 key 是 `session:<sid>`，而同一会话在两端 rel 不同（cwd 编码不同），
+ * 所以必须对每条 rel 反查 sid 再比对 —— 只按 `tombstone.rel` 精确匹配会漏掉另一半，
+ * 那正是 0.5.9 删除传播只覆盖镜像会话的根因。
+ */
+export function stripDeletedEntries(
+  entries: ManifestEntry[],
+  tombstones: ReadonlyArray<Tombstone>,
+  now: number = Date.now(),
+): ManifestEntry[] {
+  const active = tombstones.filter((t) => isDeleted(t.key, tombstones, now));
+  if (active.length === 0) return [...entries];
+  const exactRel = new Set<string>();
+  const deletedSids = new Set<string>();
+  for (const t of active) {
+    // 只按 key 语义推导影响范围，绝不拿 t.rel 直接删（见 tombstoneTargets 注释）
+    const { rels, sid } = tombstoneTargets(t);
+    for (const r of rels) exactRel.add(r);
+    if (sid) deletedSids.add(sid);
+  }
+  return entries.filter((e) => {
+    if (e.deletedAt) return false;
+    if (exactRel.has(e.rel)) return false;
+    if (deletedSids.size > 0 && deletedSids.has(sessionIdFromRel(e.rel) ?? '')) return false;
+    return true;
+  });
+}
+
+/** 把 v1 清单补成带版本号 / CAS 的 v2 条目（迁移时写一次，不改变语义）。 */
+export function toV2Manifest(entries: ManifestEntry[], device: string): ManifestEntry[] {
+  return entries.map((e) => ({
+    ...e,
+    version: 2,
+    device: e.device ?? device,
+    cas: e.cas ?? e.hash,
+  }));
 }
