@@ -8,9 +8,11 @@
  *   设置：ctx.settings.register(ns, schema, { base }) -> SettingsScope{get/watch/update/replace}。
  *   定时：全局 setInterval + ctx.on('dispose') 清理（不依赖 timer 服务注入）。
  *
- * 工具清单（12 个）：
+ * 工具清单（17 个，0.5.9）：
  *   nas_sync_status / nas_sync_subscribe / nas_sync_scope / nas_pending_files_page / nas_get_conflicts
- *   nas_resolve_conflict / nas_skip_pending / nas_sync / nas_stop_sync / nas_test / nas_try_merge / nas_get_file_diff
+ *   nas_resolve_conflict / nas_skip_pending / nas_plugin_audit / nas_sync / nas_stop_sync / nas_test
+ *   nas_set_config / nas_try_merge / nas_get_file_diff
+ *   nas_list_removed / nas_restore_session / nas_manage_ignored
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools';
@@ -25,6 +27,7 @@ import {
   type NasSyncConfig, type SyncScopeKey,
 } from './config.js';
 import { localOf } from './paths.js';
+import { zstdCapabilities } from './sync/portable.js';
 import { createBridge } from './bridge.js';
 import type { ConflictItem, DiffLine, MergeResult, PendingFile, SyncSnapshot } from './data/models.js';
 
@@ -111,6 +114,14 @@ function apply(ctx: any, config: any): void {
   };
 
   const store = new Store();
+
+  // 0.5.9：把「静默降级」变成显式告警。宿主 Node < 22.15 没有 zstd 同步 API，
+  // 跨平台会话的 cwd 改写会整体失效；以前面板上看不出任何异常。
+  const zstd = zstdCapabilities();
+  if (!zstd.compress || !zstd.decompress) {
+    warn('宿主 Node ' + zstd.node + ' 缺少 zlib.zstd*Sync（需要 >= 22.15.0）：'
+      + '跨平台会话 cwd 改写已禁用，相关会话会被跳过导入，请升级宿主 Node。');
+  }
 
   // ---- 配置（自管，不依赖宿主 settings 服务） ----
   // 优先级：schema 默认 < patch entry config（base） < store.json 里的用户层
@@ -809,6 +820,105 @@ function apply(ctx: any, config: any): void {
       } catch { /* 远端不存在 */ }
       const lines = diffLines(local.split(/\r?\n/), remote.split(/\r?\n/));
       return { file: rel, lines: lines.slice(0, 1000) };
+    },
+  }));
+
+  // 15. nas_list_removed：列出回收目录（0.5.9）
+  //     0.5.8 只把会话搬进 removed/，没有任何枚举/恢复入口，README 的「随时捞回来」
+  //     是口头承诺。这里是恢复流程的第一步。
+  ctx.tools.register(defineTool({
+    name: 'nas_list_removed',
+    description: '列出被同步回收到本机回收目录的会话（含原始 rel、时间、原因、是否可自动恢复）。只读。',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { items: { type: 'json' }, root: { type: 'string' } },
+      },
+      render: (_args: any, value: any) => {
+        const items = Array.isArray(value.items) ? value.items : [];
+        if (items.length === 0) return [{ type: 'text', text: '回收目录是空的。' }];
+        return [{ type: 'text', text: `回收记录 ${items.length} 条（${value.root}）：\n` +
+          items.map((e: any) =>
+            `- ${e.id}｜${e.restorable ? '可恢复' : '仅手工'}` +
+            `\n  rel=${e.rel ?? '(未知)'} 原因=${e.reason ?? '?'} 时间=${e.retiredAt ?? '?'}`).join('\n') }];
+      },
+    },
+    async execute() {
+      return {
+        items: engine.listRemovedSessions(),
+        root: localOf('nas-sync/removed'),
+      };
+    },
+  }));
+
+  // 16. nas_restore_session：把回收目录里的会话放回原处（0.5.9）
+  ctx.tools.register(defineTool({
+    name: 'nas_restore_session',
+    description: '把回收目录里的一条会话恢复回原来的 sessions 目录、重新登记到侧栏，并自动撤销本机屏蔽。目标已存在时拒绝覆盖。',
+    parameters: {
+      key: { type: 'string', required: true, description: 'nas_list_removed 返回的 id，或原始 rel' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          success: { type: 'boolean' }, rel: { type: 'string' },
+          restoredTo: { type: 'string' }, message: { type: 'json' },
+        },
+      },
+      render: (_args: any, value: any) => [{
+        type: 'text',
+        text: value.success ? `已恢复 ${value.rel} → ${value.restoredTo}` : '恢复失败：' + value.message,
+      }],
+    },
+    async execute(args: any) {
+      try {
+        const r = await engine.restoreRemovedSession(String(args.key || ''));
+        return { success: true, rel: r.rel, restoredTo: r.restoredTo, message: null };
+      } catch (e) {
+        return { success: false, rel: '', restoredTo: '', message: (e as Error).message };
+      }
+    },
+  }));
+
+  // 17. nas_manage_ignored：查看 / 添加 / 撤销本机屏蔽（0.5.9）
+  //     屏蔽清单在 0.5.8 只能手工写 JSON，且写坏格式会被静默清空。现在有正式入口。
+  ctx.tools.register(defineTool({
+    name: 'nas_manage_ignored',
+    description: '管理「本机不同步的会话」清单：list 查看、add 屏蔽一条、remove 撤销屏蔽。屏蔽只影响本机，远端原文保留。',
+    parameters: {
+      action: { type: 'string', enum: ['list', 'add', 'remove'], description: '默认 list' },
+      sessionId: { type: 'string', description: 'add/remove 时必填的会话 id' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ids: { type: 'json' }, error: { type: 'json' },
+          changed: { type: 'boolean' }, message: { type: 'json' },
+        },
+      },
+      render: (_args: any, value: any) => [{
+        type: 'text',
+        text: (value.changed ? '已更新。' : '') +
+          `本机屏蔽 ${value.ids.length} 条：\n` + value.ids.map((s: string) => '- ' + s).join('\n') +
+          (value.error ? '\n⚠ ' + value.error : ''),
+      }],
+    },
+    async execute(args: any) {
+      const action = String(args.action || 'list');
+      const sid = String(args.sessionId || '').trim();
+      if (action === 'add' && !sid) {
+        return { ids: [], error: 'add 需要 sessionId', changed: false, message: 'add 需要 sessionId' };
+      }
+      if (action === 'add') await engine.ignoreSession(sid);
+      if (action === 'remove' && sid) engine.unignoreSession(sid);
+      const state = engine.listIgnoredSessions();
+      return { ids: state.ids, error: state.error, changed: action !== 'list', message: null };
     },
   }));
 

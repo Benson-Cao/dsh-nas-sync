@@ -25,6 +25,8 @@ import {
   registerSessionForRel,
   unregisterSessionFromRel,
   localIsStaleSnapshot,
+  sessionHeaderIdentity,
+  zstdCapabilities,
 } from '../dist-test/portable.mjs';
 
 function home() {
@@ -182,6 +184,41 @@ test('localIsStaleSnapshot：本机是旧快照 → true，历史分叉 → fals
 
   // 表头相同（未改写的同平台副本）也允许，属于幂等覆盖
   assert.equal(localIsStaleSnapshot(Buffer.concat([head('/data/user/0/x/wstest'), ev(1)]), remote), true);
+});
+
+test('0.5.9 localIsStaleSnapshot：单帧必须核首帧身份，不能无条件判旧快照', () => {
+  const head = (cwd, id = 's-9', rest = '') => zlib.zstdCompressSync(
+    Buffer.from(JSON.stringify({ type: 'session', id, cwd }) + '\n' + rest, 'utf8'));
+  const ev = (n) => zlib.zstdCompressSync(Buffer.from('{"seq":' + n + '}\n', 'utf8'));
+  const remote = Buffer.concat([head('/data/user/0/x/wstest'), ev(1)]);
+
+  // 同一条会话、只差 cwd：仍然允许判为旧快照（保住 0.5.8 修 aa35e064 的能力）
+  assert.equal(localIsStaleSnapshot(head('C:\\Users\\x\\wstest'), remote), true);
+
+  // 0.5.8 的 bug：本地只有 1 帧时 for(i=1..0) 不执行，直接 return true。
+  // 下面三种「其实不是同一条会话」的情况都必须挡住。
+  const otherHeader = zlib.zstdCompressSync(Buffer.from(
+    JSON.stringify({ type: 'session', id: 's-9', cwd: 'C:\\Users\\x\\wstest', createdAt: 999 }) + '\n', 'utf8'));
+  assert.equal(localIsStaleSnapshot(otherHeader, remote), false);
+  assert.equal(localIsStaleSnapshot(head('C:\\Users\\x\\wstest', 'another-session'), remote), false);
+  assert.equal(localIsStaleSnapshot(head('C:\\Users\\x\\wstest', 's-9', '{"hello":1}\n'), remote), false);
+
+  // 多帧历史分叉依旧拒绝（回归 0.5.8 的原语义）
+  assert.equal(
+    localIsStaleSnapshot(Buffer.concat([head('C:\\Users\\x\\wstest'), ev(9)]), remote), false);
+});
+
+test('0.5.9 sessionHeaderIdentity：忽略 cwd，其余字段与首帧正文逐字比较', () => {
+  const mk = (cwd, extra = {}) => zlib.zstdCompressSync(Buffer.from(
+    JSON.stringify({ cwd, id: 's-1', type: 'session', ...extra }) + '\n{"e":1}\n', 'utf8'));
+  assert.equal(sessionHeaderIdentity(mk('/phone/wstest')), sessionHeaderIdentity(mk('C:\\pc\\wstest')));
+  // key 顺序不同不影响
+  const reordered = zlib.zstdCompressSync(Buffer.from(
+    '{"type":"session","id":"s-1","cwd":"/phone/wstest"}\n{"e":1}\n', 'utf8'));
+  assert.equal(sessionHeaderIdentity(mk('/phone/wstest')), sessionHeaderIdentity(reordered));
+  assert.notEqual(sessionHeaderIdentity(mk('/phone/wstest', { v: 2 })), sessionHeaderIdentity(mk('/phone/wstest')));
+  assert.equal(sessionHeaderIdentity(Buffer.from('not-a-zstd-frame')), null);
+  assert.equal(typeof zstdCapabilities().compress, 'boolean');
 });
 
 test('unregisterSessionFromRel：摘掉登记，清单里没有则返回 false', async () => {

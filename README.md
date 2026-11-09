@@ -153,18 +153,30 @@ registerNasSyncUi(ctx, HostBridge(scope))
 
 ## 4. Host 半暴露的工具
 
+共 **17 个**（与 `src/index.ts` 中 `ctx.tools.register` 实际注册数一致，0.5.9 校准）。
+
 | 工具 | 用途 |
 |---|---|
 | `nas_sync_status` | 完整快照（兼容旧调用方） |
 | `nas_sync_subscribe` | 轻量快照，客户端 3s 轮询 |
+| `nas_sync_scope` | 查看 / 设置同步分类勾选 |
 | `nas_pending_files_page` | 待同步文件分页 |
 | `nas_get_conflicts` | 冲突列表分页 |
 | `nas_resolve_conflict` | 解决单条冲突（local/remote/skip） |
+| `nas_skip_pending` | 把待同步文件移出待办 |
+| `nas_plugin_audit` | 插件对账（只读，不安装） |
 | `nas_sync` | 触发同步（push/pull/mirror） |
 | `nas_stop_sync` | 中断同步（AbortController） |
 | `nas_test` | 连通性自检 |
+| `nas_set_config` | 修改并持久化运行期配置 |
 | `nas_try_merge` | 三路合并（文本文件） |
 | `nas_get_file_diff` | 行级 diff 预览 |
+| `nas_list_removed` | **0.5.9** 列出回收目录里的会话（只读） |
+| `nas_restore_session` | **0.5.9** 把回收的会话恢复回原处并重新登记侧栏 |
+| `nas_manage_ignored` | **0.5.9** 查看 / 添加 / 撤销本机屏蔽 |
+
+对应的 HTTP 桥端点：`GET /nas-sync-api/removed`、`POST /nas-sync-api/removed/restore`、
+`GET|POST /nas-sync-api/ignored`（需页面注入的 `x-nas-sync-token`）。
 
 ## 5. 同步规则
 
@@ -265,10 +277,27 @@ registerNasSyncUi(ctx, HostBridge(scope))
   | 字节哈希守卫挡住「更新更全的远端」 | 电脑上那条会话永远停在 562 字节的表头快照，手机已经 579570 字节 | `localIsStaleSnapshot()`：两端第 1..n 帧逐字节相同 = 本地只是更早的快照，允许覆盖（`B站UP主沐白若风` 即此例） |
   | 对端删了会话，本机反而把它传回去 | 手机上删掉的会话在电脑上反复复活 | 远端清单连续两轮都没有这条原文 → `retireImport()` 把本地镜像移进 `$DSH_HOME/nas-sync/removed/<时间戳>/`、清 `sessionIds`、销账 |
 
-  删除传播有三重保险，因为「清单里没有」和「清单读失败」在数据上长得一模一样：
-  ① 本轮至少有一份设备清单**解密成功**（`remoteManifestTrusted`）才允许据此判定；
-  ② 必须**连续两轮**都缺（`missingRounds`）；
-  ③ 回收是**移进回收目录**而不是硬删，随时可以捞回来。
+  删除传播有三重保险，因为「清单里没有」和「清单读失败」在数据上长得一模一样。
+  **0.5.9 收紧了前两条**（0.5.8 的「至少一份」与「累计两轮」都不足以防误删）：
+  ① 本轮**每一份**设备清单都解密成功（`evaluateManifestTrust()`），任何一份读失败
+     整轮禁用删除传播；空清单算读成；
+  ② `advanceMissingRounds()` 实现严格**连续两轮**：中间夹一轮不可信、或本轮又出现，
+     计数立刻归零；
+  ③ 回收是**移进回收目录**而不是硬删。0.5.9 起 `nas_list_removed` /
+     `nas_restore_session` 可以真正枚举并恢复（0.5.8 只是口头承诺「随时捞回来」）。
+
+- **0.5.9 修的全栈审查发现**（详见 `dsh-nas-sync-0.5.8-审查报告.md` 的 P0 条目）：
+
+  | 问题 | 0.5.8 的行为 | 0.5.9 的修法 |
+  |---|---|---|
+  | 读到 1 份 / 共 3 份清单就当「清单可信」 | 另 2 份里的会话会被当成「对端删了」，两轮后回收 | `evaluateManifestTrust()`：必须全部读成 |
+  | `missingRounds` 在不可信轮不复位 | 「连续两轮」实为「累计两轮」 | 纯函数 `advanceMissingRounds()`，任何打断归零 |
+  | 本地只有 1 帧时 `localIsStaleSnapshot()` 直接 `return true` | 任何单帧会话都被当旧快照覆盖 | 新增 `sessionHeaderIdentity()`：忽略 cwd 比对首帧身份 |
+  | 远端 `rel` 未校验即进文件系统路径 | `../` / 绝对路径可被诱导读写 | `isSafeRel()` 卡在清单合并、下载入口与 `resolveLocal()` 三层 |
+  | `ignored-sessions.json` 写坏就静默清空 | 屏蔽被撤销，撤掉的会话复活 | 原子写 + `.bak` 自动恢复 + 无备份时 fail-closed 并禁用本轮回收 |
+  | `store.json` 非原子写、解析失败整份重置 | 半截 JSON；连 scrypt salt 一起丢，历史密文解不开 | 原子写 0600；salt 独立存 `salt.hex`；逐字段恢复不整份重置 |
+  | 口令类字段整份明文写在 `store.json` | 排障贴一次状态文件就泄密 | 拆到独立 0600 文件 `credentials.json`，自动从老格式迁移（**仍是明文，不是加密；keyring 迁移列为后续项**） |
+  | Node 版本契约 18/20/22 三方冲突 | 低版本 zstd 降级静默失效，跨平台会话永远导不进来 | `engines.node >= 22.15.0`、构建 target 对齐、加载时 `zstdCapabilities()` 显式告警 |
 
 > **只想让某条会话「不到这台机器」怎么办**：那是**单侧**需求，不是删除。
 > 编辑 `$DSH_HOME/nas-sync/ignored-sessions.json`，写一个 sessionId 数组即可：
@@ -277,8 +306,14 @@ registerNasSyncUi(ctx, HostBridge(scope))
 > ["session-23009990-3a0e-42b1-a5f5-071147fe3dac"]
 > ```
 >
-> 插件每轮扫描开头重读这个文件：命中的会话**不下载、不上传**，本地已有的副本
-> 连同 `sessionIds` 登记一起移进 `nas-sync/removed/`。远端原文不动，手机上的那份照旧。
+> **0.5.9 起不必手写文件**：用 `nas_manage_ignored`（`action: list|add|remove`）或
+> `GET|POST /nas-sync-api/ignored` 即可。插件每轮扫描开头重读这个文件：命中的会话
+> **不下载、不上传**，本地已有的副本连同 `sessionIds` 登记一起移进 `nas-sync/removed/`。
+> 远端原文不动，手机上的那份照旧。
+>
+> 写盘走原子写并同步刷新 `.bak`。文件损坏时**不会**静默清空：优先从 `.bak` 恢复；
+> 连备份都不可用就置错误位、本轮禁用全部回收动作，并在 `/status` 的 `safety` 里报出来，
+> 坏文件另存 `.corrupt-<时间戳>` 留证。
 > 按 **sessionId** 而不是路径记 —— 同一条会话在 NAS 上可能有两份 rel（手机原文
 > `sessions/--data-user-…` 和本机镜像曾被传上去的 `sessions/--C-Users-…`），
 > 按路径记会漏掉另一半，会话照样被拉回来。

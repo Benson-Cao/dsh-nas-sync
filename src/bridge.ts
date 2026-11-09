@@ -36,6 +36,9 @@ import { Installer, resolveCliScript } from './sync/installer.js';
 
 export const BRIDGE_PREFIX = '/nas-sync-api';
 
+/** 请求体上限（0.5.9）：这些都是控制类接口，256 KB 足够，避免无界缓冲打爆内存。 */
+const MAX_BODY_BYTES = 256 * 1024;
+
 function sendJson(res: any, status: number, body: unknown): void {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -160,7 +163,13 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
 
     const readBody = async (): Promise<any> => {
       const chunks: Buffer[] = [];
-      for await (const c of req) chunks.push(c as Buffer);
+      let total = 0;
+      for await (const c of req) {
+        const buf = c as Buffer;
+        total += buf.length;
+        if (total > MAX_BODY_BYTES) throw new Error('请求体过大（上限 256 KB）');
+        chunks.push(buf);
+      }
       const raw = Buffer.concat(chunks).toString('utf-8');
       return raw ? JSON.parse(raw) : {};
     };
@@ -180,6 +189,9 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
             running: s.running,
           },
           config: publicConfig(deps.getConfig()),
+          // 0.5.9：把「本轮为什么没做删除传播」「状态文件是否异常」显式暴露给面板
+          safety: engine.safetyStatus(),
+          storeError: deps.store.lastError,
         });
       }
 
@@ -324,6 +336,36 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
         const job = installer.get(id);
         if (!job) return fail(res, 'not_found', '没有这个安装任务');
         return ok(res, job);
+      }
+
+      // ---- 回收目录 / 本机屏蔽清单（0.5.9）----
+      // 0.5.8 的 README 承诺「回收目录随时捞回来」，但既没有枚举也没有恢复入口；
+      // 屏蔽清单也只能靠手写 JSON。这里把两者做成真正可用的用户路径。
+      if (sub === '/removed' && method === 'GET') {
+        return ok(res, { items: engine.listRemovedSessions(), root: join(dshHome(), 'nas-sync', 'removed') });
+      }
+      if (sub === '/removed/restore' && method === 'POST') {
+        const body = await readBody();
+        const key = String(body?.key ?? body?.id ?? body?.rel ?? '').trim();
+        if (!key) return fail(res, 'bad_request', 'key 不能为空（回收记录 id 或原始 rel）');
+        return ok(res, await engine.restoreRemovedSession(key));
+      }
+      if (sub === '/ignored' && method === 'GET') {
+        return ok(res, engine.listIgnoredSessions());
+      }
+      if (sub === '/ignored' && method === 'POST') {
+        const body = await readBody();
+        const sid = String(body?.sessionId ?? '').trim();
+        const action = String(body?.action ?? 'remove');
+        if (!sid) return fail(res, 'bad_request', 'sessionId 不能为空');
+        if (action === 'add') {
+          await engine.ignoreSession(sid);
+          return ok(res, { sessionId: sid, ignored: true });
+        }
+        if (action === 'remove') {
+          return ok(res, { sessionId: sid, ignored: false, removed: engine.unignoreSession(sid) });
+        }
+        return fail(res, 'bad_request', 'action 只能是 add 或 remove');
       }
 
       return fail(res, 'not_found', '未知端点: ' + method + ' ' + sub);

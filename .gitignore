@@ -19,3 +19,16 @@ Thumbs.db
 
 # 测试构建产物（node scripts/build-test.mjs 可重建）
 dist-test/
+
+# 0.5.9：本地状态文件与一次性诊断脚本，绝不入库
+# 注意 /_*.mjs 必须锚定仓库根目录，否则会把 scripts/_test-*-stub.mjs
+# 这类**单测必需**的替身一起忽略掉，提交后别人 npm test 直接缺文件。
+*.bak
+*.tgz
+/_*.mjs
+.tmp*_local/
+*.tmp-*
+*.corrupt-*
+credentials.json
+salt.hex
+ignored-sessions.json.bak

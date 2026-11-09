@@ -17288,10 +17288,10 @@ function createWebdavTransport(opts) {
     async get(remote, local) {
       const target = p(remote);
       const buf = await guarded("\u4E0B\u8F7D " + target, FILE_TIMEOUT_FLOOR_MS, (signal) => client.getFileContents(target, { signal }));
-      const { writeFileSync: writeFileSync4, mkdirSync: mkdirSync3 } = await import("node:fs");
+      const { writeFileSync: writeFileSync3, mkdirSync: mkdirSync2 } = await import("node:fs");
       const path4 = await import("node:path");
-      mkdirSync3(path4.dirname(local), { recursive: true });
-      writeFileSync4(local, buf);
+      mkdirSync2(path4.dirname(local), { recursive: true });
+      writeFileSync3(local, buf);
     },
     async getBuffer(remote) {
       const target = p(remote);
@@ -17435,7 +17435,7 @@ __export(paths_exports, {
   relOf: () => relOf
 });
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
-import { join as join2, relative } from "node:path";
+import { join as join3, relative } from "node:path";
 function dshHome() {
   return resolveDshHome();
 }
@@ -17443,7 +17443,7 @@ function localOf(rel) {
   if (rel.includes("..") || rel.startsWith("/")) {
     throw new Error("\u975E\u6CD5\u7684\u76F8\u5BF9\u8DEF\u5F84: " + rel);
   }
-  return join2(dshHome(), rel);
+  return join3(dshHome(), rel);
 }
 function relOf(abs) {
   const base = dshHome();
@@ -20265,23 +20265,161 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { readFile as readFile5, writeFile as writeFile4, mkdir as mkdir4 } from "node:fs/promises";
 
 // src/sync/engine.ts
-import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3, rm as rm3, cp, rename as rename2 } from "node:fs/promises";
-import { readFileSync as readFileSync3, readdirSync, existsSync as existsSync3, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
+import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3, rm as rm3, cp, rename as rename2, readdir as readdirAsync } from "node:fs/promises";
+import { readFileSync as readFileSync3, readdirSync as readdirSync2, existsSync as existsSync3 } from "node:fs";
 import { stat as stat5 } from "node:fs/promises";
+
+// src/sync/safety.ts
+function isSafeRel(rel) {
+  if (typeof rel !== "string" || rel.length === 0 || rel.length > 1024) return false;
+  if (rel.startsWith("/") || rel.startsWith("\\")) return false;
+  if (/^[A-Za-z]:[\\/]/.test(rel)) return false;
+  if (rel.includes("\\")) return false;
+  if (/[\x00-\x1f\x7f]/.test(rel)) return false;
+  if (/%(?:2e|2f|5c|00)/i.test(rel)) return false;
+  const segments = rel.split("/");
+  for (const s2 of segments) {
+    if (!s2 || s2 === "." || s2 === "..") return false;
+    if (s2.endsWith(".") || s2.endsWith(" ")) return false;
+  }
+  return true;
+}
+function evaluateManifestTrust(reads) {
+  const failed = reads.filter((r2) => r2.entries === null).map((r2) => r2.name);
+  return {
+    trusted: reads.length > 0 && failed.length === 0,
+    failed,
+    okCount: reads.length - failed.length
+  };
+}
+var RETIRE_AFTER_MISSING_ROUNDS = 2;
+function advanceMissingRounds(input) {
+  const prev = Number.isFinite(input.previous) && (input.previous ?? 0) > 0 ? Math.floor(input.previous) : 0;
+  if (!input.trusted || input.present) return 0;
+  return prev + 1;
+}
+function shouldRetire(rounds) {
+  return (rounds ?? 0) >= RETIRE_AFTER_MISSING_ROUNDS;
+}
+
+// src/sync/state-file.ts
+import {
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  mkdirSync,
+  chmodSync,
+  existsSync,
+  copyFileSync,
+  unlinkSync,
+  readdirSync
+} from "node:fs";
+import { dirname as dirname2, basename, join as join2 } from "node:path";
+var PRIVATE_FILE_MODE = 384;
+var PRIVATE_DIR_MODE = 448;
+function isMissing(err) {
+  return err?.code === "ENOENT";
+}
+function stamp() {
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+}
+function ensurePrivateDir(dir) {
+  mkdirSync(dir, { recursive: true });
+  try {
+    chmodSync(dir, PRIVATE_DIR_MODE);
+  } catch {
+  }
+}
+function writeTextAtomic(path4, text, mode = PRIVATE_FILE_MODE) {
+  const dir = dirname2(path4);
+  ensurePrivateDir(dir);
+  const tmp = path4 + ".tmp-" + process.pid;
+  try {
+    writeFileSync(tmp, text, { encoding: "utf8", mode });
+    try {
+      chmodSync(tmp, mode);
+    } catch {
+    }
+    renameSync(tmp, path4);
+    try {
+      chmodSync(path4, mode);
+    } catch {
+    }
+  } catch (err) {
+    try {
+      if (existsSync(tmp)) unlinkSync(tmp);
+    } catch {
+    }
+    throw err;
+  }
+}
+function writeJsonAtomic(path4, data, mode = PRIVATE_FILE_MODE) {
+  writeTextAtomic(path4, JSON.stringify(data, null, 2) + "\n", mode);
+}
+function quarantine(path4) {
+  try {
+    const raw = readFileSync(path4);
+    const dir = dirname2(path4);
+    const prefix = basename(path4) + ".corrupt-";
+    let existing = [];
+    try {
+      existing = readdirSync(dir).filter((n) => n.startsWith(prefix)).slice(-5);
+    } catch {
+    }
+    for (const name2 of existing) {
+      try {
+        if (readFileSync(join2(dir, name2)).equals(raw)) return join2(dir, name2);
+      } catch {
+      }
+    }
+    const target = path4 + ".corrupt-" + stamp();
+    writeFileSync(target, raw);
+    return target;
+  } catch {
+    return void 0;
+  }
+}
+function readJsonFile(path4) {
+  try {
+    const raw = readFileSync(path4, "utf8");
+    return { data: JSON.parse(raw), missing: false, corrupted: false };
+  } catch (err) {
+    if (isMissing(err)) return { data: null, missing: true, corrupted: false };
+    return { data: null, missing: false, corrupted: true, quarantinedTo: quarantine(path4) };
+  }
+}
+function readTextFile(path4) {
+  try {
+    return { data: readFileSync(path4, "utf8"), missing: false, corrupted: false };
+  } catch (err) {
+    if (isMissing(err)) return { data: null, missing: true, corrupted: false };
+    return { data: null, missing: false, corrupted: true, quarantinedTo: quarantine(path4) };
+  }
+}
+function writeBackup(path4) {
+  try {
+    if (!existsSync(path4)) return false;
+    copyFileSync(path4, path4 + ".bak");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// src/sync/engine.ts
 import { createHash as createHash2 } from "node:crypto";
 
 // src/sync/scanner.ts
 init_paths();
 import { readdir as readdir3, stat as stat4, readFile as readFile3 } from "node:fs/promises";
 import { statSync as statSync2 } from "node:fs";
-import { join as join5, resolve as resolve2 } from "node:path";
+import { join as join6, resolve as resolve2 } from "node:path";
 import { createHash } from "node:crypto";
 
 // src/config.ts
 init_paths();
 import z from "@deepseek-ai/schemastery";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join as join3, dirname as dirname2 } from "node:path";
+import { join as join4 } from "node:path";
 import { randomBytes } from "node:crypto";
 var NS_NAS_SYNC = "nas-sync";
 var DEFAULT_SYNC_SCOPE = {
@@ -20431,12 +20569,60 @@ var DEFAULT_SNAPSHOT = {
   running: false
 };
 function storeDir() {
-  return join3(dshHome(), "nas-sync");
+  return join4(dshHome(), "nas-sync");
+}
+function splitSecrets(uc) {
+  const secrets = {};
+  if (!uc || typeof uc !== "object") return { publicPart: uc, secrets };
+  const publicPart = { ...uc };
+  if (typeof uc["passphrase"] === "string") {
+    secrets["passphrase"] = uc["passphrase"];
+    delete publicPart["passphrase"];
+  }
+  const wd = uc["webdav"];
+  if (wd && typeof wd === "object" && !Array.isArray(wd)) {
+    const w = wd;
+    if (typeof w["password"] === "string") {
+      secrets["webdav"] = { password: w["password"] };
+      const clean = { ...w };
+      delete clean["password"];
+      publicPart["webdav"] = clean;
+    }
+  }
+  return { publicPart, secrets };
+}
+function mergeSecrets(uc, secrets) {
+  const out = { ...uc ?? {} };
+  if (secrets && typeof secrets === "object") {
+    if (typeof secrets["passphrase"] === "string") out["passphrase"] = secrets["passphrase"];
+    const w = secrets["webdav"];
+    if (w && typeof w === "object" && !Array.isArray(w)) {
+      const pwd = w["password"];
+      if (typeof pwd === "string") {
+        const base = out["webdav"] && typeof out["webdav"] === "object" ? { ...out["webdav"] } : {};
+        base["password"] = pwd;
+        out["webdav"] = base;
+      }
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 var Store = class {
-  storePath = join3(storeDir(), "store.json");
+  storePath = join4(storeDir(), "store.json");
+  /**
+   * salt 单独存一份（0.5.9）。它进每个密文的文件头，丢了 = NAS 上所有历史密文
+   * 永久解不开。以前只写在 store.json 里，那份文件一坏就被构造函数的 catch 整份
+   * 重置，等于把钥匙一起扔了。现在独立、原子、只读一次。
+   */
+  saltPath = join4(storeDir(), "salt.hex");
+  /** 口令类字段单独落 0600 文件，不进 store.json（0.5.9）。 */
+  credentialsPath = join4(storeDir(), "credentials.json");
   /** 固定 scrypt salt（16B hex）。首次生成后持久化；进每个密文文件头，跨机可解。 */
   saltHex;
+  /** 上次状态文件异常，供状态面板/日志显示；不再静默吞掉。 */
+  lastError = null;
+  /** 避免每轮同步都重写凭据文件（save() 调用非常频繁）。 */
+  lastCredentialsJson = "";
   snapshot = { ...DEFAULT_SNAPSHOT };
   pendingFiles = [];
   conflicts = [];
@@ -20456,46 +20642,78 @@ var Store = class {
    */
   sessionImports = {};
   constructor() {
+    const stored = readJsonFile(this.storePath);
+    const data = stored.data;
+    if (stored.corrupted) {
+      this.lastError = "\u72B6\u6001\u6587\u4EF6\u635F\u574F\uFF0C\u5DF2\u5907\u4EFD\u5230 " + (stored.quarantinedTo ?? "(\u5907\u4EFD\u5931\u8D25)");
+      console.error("[dsh-nas-sync] " + this.lastError);
+    }
     let salt = null;
-    try {
-      if (existsSync(this.storePath)) {
-        const data = JSON.parse(readFileSync(this.storePath, "utf-8"));
-        if (data.snapshot) {
-          this.snapshot = { ...DEFAULT_SNAPSHOT, ...data.snapshot };
-          this.snapshot.running = false;
-          this.snapshot.phase = "idle";
-        }
-        if (Array.isArray(data.pendingFiles)) this.pendingFiles = data.pendingFiles;
-        if (Array.isArray(data.conflicts)) this.conflicts = data.conflicts;
-        if (Array.isArray(data.localManifest)) this.localManifest = data.localManifest;
-        if (data.userConfig && typeof data.userConfig === "object") this.userConfig = data.userConfig;
-        if (data.sessionImports && typeof data.sessionImports === "object") {
-          this.sessionImports = data.sessionImports;
-        }
-        if (typeof data.saltHex === "string" && data.saltHex.length === 32) salt = data.saltHex;
-      }
-    } catch {
-      this.snapshot = { ...DEFAULT_SNAPSHOT };
-      this.pendingFiles = [];
-      this.conflicts = [];
+    const saltFile = readTextFile(this.saltPath);
+    if (saltFile.data && /^[0-9a-f]{32}$/i.test(saltFile.data.trim())) {
+      salt = saltFile.data.trim().toLowerCase();
+    } else if (typeof data?.saltHex === "string" && /^[0-9a-f]{32}$/i.test(data.saltHex)) {
+      salt = data.saltHex.toLowerCase();
     }
     if (!salt) salt = randomBytes(16).toString("hex");
     this.saltHex = salt;
+    try {
+      writeTextAtomic(this.saltPath, this.saltHex + "\n");
+    } catch (err) {
+      this.lastError = "salt \u6301\u4E45\u5316\u5931\u8D25\uFF08\u5386\u53F2\u5BC6\u6587\u53EF\u80FD\u65E0\u6CD5\u89E3\u5F00\uFF09\uFF1A" + String(err);
+      console.error("[dsh-nas-sync] " + this.lastError);
+    }
+    if (data && typeof data === "object") {
+      if (data.snapshot && typeof data.snapshot === "object") {
+        this.snapshot = {
+          ...DEFAULT_SNAPSHOT,
+          ...data.snapshot,
+          running: false,
+          phase: "idle"
+        };
+      }
+      if (Array.isArray(data.pendingFiles)) this.pendingFiles = data.pendingFiles;
+      if (Array.isArray(data.conflicts)) this.conflicts = data.conflicts;
+      if (Array.isArray(data.localManifest)) this.localManifest = data.localManifest;
+      if (data.userConfig && typeof data.userConfig === "object") this.userConfig = data.userConfig;
+      if (data.sessionImports && typeof data.sessionImports === "object") {
+        this.sessionImports = data.sessionImports;
+      }
+    }
+    const credFile = readJsonFile(this.credentialsPath);
+    if (credFile.corrupted) {
+      this.lastError = "\u51ED\u636E\u6587\u4EF6\u635F\u574F\uFF0C\u5DF2\u5907\u4EFD\u5230 " + (credFile.quarantinedTo ?? "(\u5907\u4EFD\u5931\u8D25)") + "\uFF1B\u8BF7\u91CD\u65B0\u6267\u884C nas_set_config \u8BBE\u7F6E\u53E3\u4EE4";
+      console.error("[dsh-nas-sync] " + this.lastError);
+    }
+    let secrets = credFile.data;
+    if (!secrets && this.userConfig) {
+      const migrated = splitSecrets(this.userConfig);
+      secrets = migrated.secrets;
+      this.userConfig = migrated.publicPart;
+    }
+    this.userConfig = mergeSecrets(this.userConfig, secrets);
     this.save();
   }
   save() {
     try {
-      mkdirSync(dirname2(this.storePath), { recursive: true });
-      writeFileSync(this.storePath, JSON.stringify({
+      const { publicPart, secrets } = splitSecrets(this.userConfig);
+      writeJsonAtomic(this.storePath, {
         saltHex: this.saltHex,
         snapshot: this.snapshot,
         pendingFiles: this.pendingFiles,
         conflicts: this.conflicts,
         localManifest: this.localManifest,
-        userConfig: this.userConfig,
+        userConfig: publicPart,
         sessionImports: this.sessionImports
-      }, null, 2), "utf-8");
-    } catch {
+      });
+      const credJson = JSON.stringify(secrets);
+      if (credJson !== this.lastCredentialsJson) {
+        writeJsonAtomic(this.credentialsPath, secrets);
+        this.lastCredentialsJson = credJson;
+      }
+    } catch (err) {
+      this.lastError = "\u72B6\u6001\u6587\u4EF6\u5199\u5165\u5931\u8D25\uFF1A" + String(err);
+      console.error("[dsh-nas-sync] " + this.lastError);
     }
   }
   salt() {
@@ -20508,11 +20726,18 @@ init_paths();
 import * as zlib2 from "node:zlib";
 import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mkdir as mkdir2, stat as stat3, rename, rm as rm2 } from "node:fs/promises";
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { join as join4, resolve, sep as sep3 } from "node:path";
+import { join as join5, resolve, sep as sep3 } from "node:path";
 import * as os from "node:os";
 var zstdImpl = zlib2;
 var zstdCompress = zstdImpl.zstdCompressSync ?? null;
 var zstdDecompress = zstdImpl.zstdDecompressSync ?? null;
+function zstdCapabilities() {
+  return {
+    compress: zstdCompress !== null,
+    decompress: zstdDecompress !== null,
+    node: process.version
+  };
+}
 var WORKSPACE_REGISTRY_REL = "storages/workspace.json";
 var WORKSPACES_DIR = "nassyncworkspaces";
 var WORKSPACE_FILES_PREFIX = "workspaces";
@@ -20538,16 +20763,16 @@ function mapRemotePath(remotePath, home = dshHome()) {
     } catch {
     }
   }
-  return { local: join4(home, WORKSPACES_DIR, safeName(remotePath)), mapped: true };
+  return { local: join5(home, WORKSPACES_DIR, safeName(remotePath)), mapped: true };
 }
 async function resolveNewWorkspaceDir(remotePath, home) {
   const name2 = safeName(remotePath);
-  const target = join4(home, WORKSPACES_DIR, name2);
-  const legacy = join4(home, WORKSPACE_FILES_PREFIX, name2);
+  const target = join5(home, WORKSPACES_DIR, name2);
+  const legacy = join5(home, WORKSPACE_FILES_PREFIX, name2);
   if (name2 !== "workspace") {
     try {
       if (existsSync2(legacy) && !existsSync2(target)) {
-        await mkdir2(join4(home, WORKSPACES_DIR), { recursive: true });
+        await mkdir2(join5(home, WORKSPACES_DIR), { recursive: true });
         try {
           await rename(legacy, target);
         } catch {
@@ -20604,7 +20829,7 @@ async function collectWorkspaceDirs(home = dshHome()) {
   };
   let parsed;
   try {
-    parsed = JSON.parse(await readFile2(join4(home, WORKSPACE_REGISTRY_REL), "utf8"));
+    parsed = JSON.parse(await readFile2(join5(home, WORKSPACE_REGISTRY_REL), "utf8"));
   } catch {
     parsed = null;
   }
@@ -20615,13 +20840,13 @@ async function collectWorkspaceDirs(home = dshHome()) {
   }
   let names = [];
   try {
-    names = await readdir2(join4(home, WORKSPACES_DIR));
+    names = await readdir2(join5(home, WORKSPACES_DIR));
   } catch {
     names = [];
   }
   for (const name2 of names) {
     if (name2.startsWith(".")) continue;
-    await push("", name2, join4(home, WORKSPACES_DIR, name2));
+    await push("", name2, join5(home, WORKSPACES_DIR, name2));
   }
   return out;
 }
@@ -20659,7 +20884,7 @@ async function* walkInto(dir, relBase, depth, maxBytes) {
     return;
   }
   for (const name2 of names) {
-    const full = join4(dir, name2);
+    const full = join5(dir, name2);
     let st;
     try {
       st = await stat3(full);
@@ -20693,7 +20918,7 @@ function customFolderLocalOf(rel, folders) {
   const folder = folders.find((f3) => f3.name === name2);
   if (!folder || folder.path.length === 0) return null;
   if (sub.split("/").some((seg) => seg === ".." || seg === "")) return null;
-  return { local: sub.length === 0 ? folder.path : join4(folder.path, sub), folder };
+  return { local: sub.length === 0 ? folder.path : join5(folder.path, sub), folder };
 }
 async function* walkCustomFolder(folder, maxBytes = DEFAULT_MAX_FILE_BYTES) {
   yield* walkInto(folder.path, customFolderRelOf(folder.name), 0, maxBytes);
@@ -20804,11 +21029,34 @@ function sessionFrameOffsets(buf) {
   }
   return out;
 }
+function sessionHeaderIdentity(buf) {
+  const text = decodeFirstFrame(buf);
+  if (text === null) return null;
+  const nl = text.indexOf("\n");
+  const headLine = nl === -1 ? text : text.slice(0, nl);
+  let parsed;
+  try {
+    parsed = JSON.parse(headLine);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const header = { ...parsed };
+  delete header["cwd"];
+  const stable = {};
+  for (const k of Object.keys(header).sort()) stable[k] = header[k];
+  return JSON.stringify(stable) + "\n" + (nl === -1 ? "" : text.slice(nl));
+}
 function localIsStaleSnapshot(local, remote) {
   const a = sessionFrameOffsets(local);
   const b = sessionFrameOffsets(remote);
   if (a.length === 0 || b.length === 0) return false;
   if (a.length > b.length) return false;
+  const la = sessionHeaderIdentity(local);
+  const rb = sessionHeaderIdentity(remote);
+  const identityKnown = la !== null && rb !== null;
+  if (a.length === 1) return identityKnown && la === rb;
+  if (identityKnown && la !== rb) return false;
   for (let i2 = 1; i2 < a.length; i2++) {
     const ae = i2 + 1 < a.length ? a[i2 + 1] : local.length;
     const be = i2 + 1 < b.length ? b[i2 + 1] : remote.length;
@@ -20950,7 +21198,7 @@ async function registerSessionForRel(rel, home = dshHome()) {
   const enc = parts[1];
   const sid = parts[parts.length - 2];
   if (!enc || !sid) return false;
-  const p = join4(home, WORKSPACE_REGISTRY_REL);
+  const p = join5(home, WORKSPACE_REGISTRY_REL);
   let reg;
   try {
     reg = JSON.parse(await readFile2(p, "utf8"));
@@ -20973,7 +21221,7 @@ async function registerSessionForRel(rel, home = dshHome()) {
   hit["sessionIds"] = [...ids, sid];
   hit["updatedAt"] = (/* @__PURE__ */ new Date()).toISOString();
   normalizeWorkspaceRegistry(reg);
-  await mkdir2(join4(home, "storages"), { recursive: true });
+  await mkdir2(join5(home, "storages"), { recursive: true });
   const tmp = p + ".nas-sync.tmp";
   await writeFile2(tmp, JSON.stringify(reg, null, 2) + "\n");
   await rename(tmp, p);
@@ -20985,7 +21233,7 @@ async function unregisterSessionFromRel(rel, home = dshHome()) {
   const enc = parts[1];
   const sid = parts[parts.length - 2];
   if (!enc || !sid) return false;
-  const p = join4(home, WORKSPACE_REGISTRY_REL);
+  const p = join5(home, WORKSPACE_REGISTRY_REL);
   let reg;
   try {
     reg = JSON.parse(await readFile2(p, "utf8"));
@@ -21005,14 +21253,14 @@ async function unregisterSessionFromRel(rel, home = dshHome()) {
     changed = true;
   }
   if (!changed) return false;
-  await mkdir2(join4(home, "storages"), { recursive: true });
+  await mkdir2(join5(home, "storages"), { recursive: true });
   const tmp = p + ".nas-sync.tmp";
   await writeFile2(tmp, JSON.stringify(reg, null, 2) + "\n");
   await rename(tmp, p);
   return true;
 }
 async function repairWorkspaceRegistry(home = dshHome()) {
-  const localPath = join4(home, WORKSPACE_REGISTRY_REL);
+  const localPath = join5(home, WORKSPACE_REGISTRY_REL);
   let text;
   try {
     text = await readFile2(localPath, "utf8");
@@ -21072,7 +21320,7 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome(), dropSessionI
   } catch {
     return { added: 0, remapped: 0, total: 0, deduped: 0 };
   }
-  const localPath = join4(home, WORKSPACE_REGISTRY_REL);
+  const localPath = join5(home, WORKSPACE_REGISTRY_REL);
   let local;
   try {
     const parsed = JSON.parse(await readFile2(localPath, "utf8"));
@@ -21145,7 +21393,7 @@ async function mergeWorkspaceRegistry(remoteText, home = dshHome(), dropSessionI
   if (added === 0 && remapped === 0 && deduped === 0 && norm.orderFixed === 0 && pruned === 0) {
     return { added: 0, remapped: 0, total: Object.keys(workspaces).length, deduped: 0 };
   }
-  await mkdir2(join4(home, "storages"), { recursive: true });
+  await mkdir2(join5(home, "storages"), { recursive: true });
   const tmp = localPath + ".nas-sync.tmp";
   await writeFile2(tmp, JSON.stringify(local, null, 2) + "\n");
   await rename(tmp, localPath);
@@ -21177,7 +21425,7 @@ function platformMismatch(p) {
   return looksWindows;
 }
 async function repairSessionCwd(home = dshHome()) {
-  const root = join4(home, "sessions");
+  const root = join5(home, "sessions");
   let workspaceDirs;
   try {
     workspaceDirs = await readdir2(root);
@@ -21188,7 +21436,7 @@ async function repairSessionCwd(home = dshHome()) {
   let scanned = 0;
   for (const dir of workspaceDirs) {
     if (!dir.startsWith("--")) continue;
-    const wdir = join4(root, dir);
+    const wdir = join5(root, dir);
     let sessionDirs;
     try {
       sessionDirs = await readdir2(wdir);
@@ -21196,7 +21444,7 @@ async function repairSessionCwd(home = dshHome()) {
       continue;
     }
     for (const sid of sessionDirs) {
-      const sdir = join4(wdir, sid);
+      const sdir = join5(wdir, sid);
       let files;
       try {
         files = await readdir2(sdir);
@@ -21205,7 +21453,7 @@ async function repairSessionCwd(home = dshHome()) {
       }
       for (const name2 of files) {
         if (!SESSION_FILE_RE.test(name2)) continue;
-        const file = join4(sdir, name2);
+        const file = join5(sdir, name2);
         let buf;
         try {
           buf = await readFile2(file);
@@ -21217,13 +21465,13 @@ async function repairSessionCwd(home = dshHome()) {
         if (!out) continue;
         await mkdir2(out.dir, { recursive: true });
         const wantDir = encodeCwd(out.dir);
-        const target = join4(root, wantDir, sid, name2);
+        const target = join5(root, wantDir, sid, name2);
         if (target === file) {
           await writeFile2(file, out.buf);
           fixed += 1;
           continue;
         }
-        await mkdir2(join4(root, wantDir, sid), { recursive: true });
+        await mkdir2(join5(root, wantDir, sid), { recursive: true });
         await writeFile2(target, out.buf);
         try {
           await rm2(sdir, { recursive: true, force: true });
@@ -21236,7 +21484,7 @@ async function repairSessionCwd(home = dshHome()) {
   return { fixed, scanned };
 }
 async function dedupeSessionDirs(home = dshHome()) {
-  const root = join4(home, "sessions");
+  const root = join5(home, "sessions");
   const result = { scanned: 0, duplicates: 0, isolated: 0 };
   let projectDirs;
   try {
@@ -21246,7 +21494,7 @@ async function dedupeSessionDirs(home = dshHome()) {
   }
   const preferred = /* @__PURE__ */ new Set();
   try {
-    const reg = JSON.parse(await readFile2(join4(home, WORKSPACE_REGISTRY_REL), "utf8"));
+    const reg = JSON.parse(await readFile2(join5(home, WORKSPACE_REGISTRY_REL), "utf8"));
     const table = reg?.tables?.workspaces ?? {};
     for (const w of Object.values(table)) {
       if (typeof w?.path === "string") preferred.add(encodeCwd(w.path));
@@ -21255,7 +21503,7 @@ async function dedupeSessionDirs(home = dshHome()) {
   }
   const bySid = /* @__PURE__ */ new Map();
   for (const dir of projectDirs) {
-    const wdir = join4(root, dir);
+    const wdir = join5(root, dir);
     let sessionDirs;
     try {
       sessionDirs = await readdir2(wdir);
@@ -21265,7 +21513,7 @@ async function dedupeSessionDirs(home = dshHome()) {
     for (const sid of sessionDirs) {
       let files;
       try {
-        files = await readdir2(join4(wdir, sid));
+        files = await readdir2(join5(wdir, sid));
       } catch {
         continue;
       }
@@ -21276,7 +21524,7 @@ async function dedupeSessionDirs(home = dshHome()) {
     }
   }
   const rank = (e2) => preferred.has(e2.dir) ? 0 : e2.hasLock ? 1 : 2;
-  let quarantine = "";
+  let quarantine2 = "";
   for (const [sid, entries] of bySid) {
     if (entries.length < 2) continue;
     result.duplicates += 1;
@@ -21284,13 +21532,13 @@ async function dedupeSessionDirs(home = dshHome()) {
       (a, b) => rank(a) - rank(b) || a.dir.localeCompare(b.dir)
     );
     for (const loser of sorted.slice(1)) {
-      if (!quarantine) {
-        quarantine = join4(home, ".suspect-quarantine", "sessions-dup-" + Date.now());
-        await mkdir2(quarantine, { recursive: true });
+      if (!quarantine2) {
+        quarantine2 = join5(home, ".suspect-quarantine", "sessions-dup-" + Date.now());
+        await mkdir2(quarantine2, { recursive: true });
       }
       try {
-        await mkdir2(join4(quarantine, loser.dir), { recursive: true });
-        await rename(join4(root, loser.dir, sid), join4(quarantine, loser.dir, sid));
+        await mkdir2(join5(quarantine2, loser.dir), { recursive: true });
+        await rename(join5(root, loser.dir, sid), join5(quarantine2, loser.dir, sid));
         result.isolated += 1;
       } catch {
       }
@@ -21337,7 +21585,7 @@ async function* walkFiles(dir) {
     return;
   }
   for (const name2 of names) {
-    const full = join5(dir, name2);
+    const full = join6(dir, name2);
     let st;
     try {
       st = await stat4(full);
@@ -21576,7 +21824,7 @@ async function listSkills() {
   const out = [];
   for (const name2 of names) {
     if (name2.startsWith(".")) continue;
-    const full = join5(dir, name2);
+    const full = join6(dir, name2);
     let st;
     try {
       st = await stat4(full);
@@ -21976,7 +22224,7 @@ function ownManifestEntries(fresh, prevOwn, pushedOk) {
 }
 
 // src/sync/engine.ts
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 var DEVICES_REMOTE = "/dsh/devices";
 var deviceClaimFile = (device) => DEVICES_REMOTE + "/" + device.replace(/[^A-Za-z0-9._-]/g, "_") + ".json";
 function sha256Hex(data) {
@@ -21992,14 +22240,14 @@ function readInstalled(nodeModulesDir) {
   const out = {};
   const versionOf = (p) => {
     try {
-      return String(JSON.parse(readFileSync3(join6(p, "package.json"), "utf8")).version ?? "");
+      return String(JSON.parse(readFileSync3(join7(p, "package.json"), "utf8")).version ?? "");
     } catch {
       return "";
     }
   };
   let entries = [];
   try {
-    entries = readdirSync(nodeModulesDir, { withFileTypes: true });
+    entries = readdirSync2(nodeModulesDir, { withFileTypes: true });
   } catch {
     return out;
   }
@@ -22008,20 +22256,20 @@ function readInstalled(nodeModulesDir) {
     if (name2.startsWith(".")) continue;
     if (name2.startsWith("@")) {
       try {
-        for (const s2 of readdirSync(join6(nodeModulesDir, name2), { withFileTypes: true })) {
-          out[name2 + "/" + s2.name] = versionOf(join6(nodeModulesDir, name2, s2.name));
+        for (const s2 of readdirSync2(join7(nodeModulesDir, name2), { withFileTypes: true })) {
+          out[name2 + "/" + s2.name] = versionOf(join7(nodeModulesDir, name2, s2.name));
         }
       } catch {
       }
       continue;
     }
-    out[name2] = versionOf(join6(nodeModulesDir, name2));
+    out[name2] = versionOf(join7(nodeModulesDir, name2));
   }
   return out;
 }
 function declaredPlugins(profileDir) {
   try {
-    const parsed = parseProfilePackage(readFileSync3(join6(profileDir, "package.json"), "utf8"));
+    const parsed = parseProfilePackage(readFileSync3(join7(profileDir, "package.json"), "utf8"));
     if (!parsed) return [];
     return declaredPluginNames(parsed.deps);
   } catch {
@@ -22080,6 +22328,21 @@ var Engine = class {
    */
   ignoredFromFile = /* @__PURE__ */ new Set();
   /**
+   * 屏蔽清单读坏了（0.5.9）。此时**不**清空 `ignoredFromFile`，并且禁止本轮所有
+   * 破坏性回收动作 —— 0.5.8 在这里 fail-open，用户手写坏一次 JSON 就等于撤销屏蔽。
+   */
+  ignoredFileError = null;
+  /** 本轮读失败的设备清单名（0.5.9），供状态面板解释「为什么这轮没有删除传播」。 */
+  manifestTrustFailed = [];
+  /** 面板/诊断用：当前安全开关的状态。 */
+  safetyStatus() {
+    return {
+      ignoredFileError: this.ignoredFileError,
+      manifestTrustFailed: [...this.manifestTrustFailed],
+      destructiveBlocked: this.ignoredFileError !== null
+    };
+  }
+  /**
    * 已经提示过「导入被跳过」的 rel（0.5.6）。
    * 这种跳过每轮都会发生（本机有同 id 会话就一直跳过），不记一下就变成每轮刷日志。
    */
@@ -22101,6 +22364,9 @@ var Engine = class {
    * 这种一半对一半错的状态。
    */
   resolveLocal(rel) {
+    if (typeof rel !== "string" || rel.length === 0 || rel.startsWith("/") || rel.startsWith("\\") || rel.includes("\\") || rel.includes("\0") || rel.split("/").some((s2) => s2 === ".." || s2 === ".")) {
+      throw new Error("\u62D2\u7EDD\u4E0D\u5B89\u5168\u7684 rel\uFF1A" + String(rel).slice(0, 120));
+    }
     const hit = customFolderLocalOf(rel, this.deps.config.customFolders ?? []);
     if (hit) return hit.local;
     const PREFIX = "workspaces/";
@@ -22110,7 +22376,7 @@ var Engine = class {
       const name2 = slash < 0 ? rest : rest.slice(0, slash);
       const tail = slash < 0 ? "" : rest.slice(slash + 1);
       const dir = this.workspaceDirs.get(name2);
-      if (dir) return tail ? join6(dir, ...tail.split("/")) : dir;
+      if (dir) return tail ? join7(dir, ...tail.split("/")) : dir;
     }
     return localOf(rel);
   }
@@ -22118,7 +22384,7 @@ var Engine = class {
   loadWorkspaceDirs() {
     this.workspaceDirs.clear();
     try {
-      const raw = JSON.parse(readFileSync3(join6(dshHome(), "storages", "workspace.json"), "utf8"));
+      const raw = JSON.parse(readFileSync3(join7(dshHome(), "storages", "workspace.json"), "utf8"));
       for (const w of Object.values(raw?.tables?.workspaces ?? {})) {
         const p = String(w?.path ?? "");
         if (!p) continue;
@@ -22250,44 +22516,67 @@ var Engine = class {
    */
   async readRemoteManifest() {
     this.remoteManifestTrusted = false;
+    this.manifestTrustFailed = [];
     let names = [];
     try {
       names = await this.deps.transport.list(MANIFESTS_DIR);
-    } catch {
+    } catch (err) {
+      console.warn("[dsh-nas-sync] \u8BBE\u5907\u6E05\u5355\u76EE\u5F55\u8BFB\u53D6\u5931\u8D25\uFF0C\u672C\u8F6E\u7981\u7528\u5220\u9664\u4F20\u64AD\uFF1A" + String(err));
       names = [];
     }
     const files = names.filter(
-      (n) => n.type === "file" && n.name.endsWith(".json") && n.name !== "_legacy.json"
+      (n) => n.type === "file" && n.name.endsWith(".json") && n.name !== "_legacy.json" && /^[A-Za-z0-9._-]+$/.test(n.name) && !n.name.includes("..")
     );
+    const safeEntries = (list) => list.filter((e2) => !!e2 && isSafeRel(e2?.rel) && !isIgnoredRel(e2.rel));
     if (files.length === 0) {
-      const migrated = await this.readManifestAt(MANIFESTS_DIR + "/_legacy.json");
-      const legacy = migrated.length > 0 ? migrated : await this.readManifestAt(LEGACY_MANIFEST);
-      if (legacy.length === 0) return [];
+      let legacy = await this.tryReadManifestAt(MANIFESTS_DIR + "/_legacy.json");
+      if (legacy === null || legacy.length === 0) {
+        legacy = await this.tryReadManifestAt(LEGACY_MANIFEST);
+      }
+      if (legacy === null || legacy.length === 0) {
+        this.manifestTrustFailed = ["(\u6CA1\u6709\u8BFB\u5230\u4EFB\u4F55\u8BBE\u5907\u6E05\u5355\uFF0C\u6216\u65E7\u683C\u5F0F\u6E05\u5355\u8BFB\u53D6\u5931\u8D25)"];
+        return [];
+      }
+      const cleaned = safeEntries(legacy);
       this.remoteManifestTrusted = true;
       try {
-        await this.writeManifestFile(manifestFileOf("_legacy"), legacy);
+        await this.writeManifestFile(manifestFileOf("_legacy"), cleaned);
       } catch {
       }
-      return legacy.filter((e2) => !isIgnoredRel(e2.rel));
+      return cleaned;
     }
-    const parts = [];
+    const reads = [];
     for (const f3 of files) {
-      const list = await this.readManifestAt(MANIFESTS_DIR + "/" + f3.name);
-      if (list.length > 0) parts.push(list);
+      reads.push({ name: f3.name, entries: await this.tryReadManifestAt(MANIFESTS_DIR + "/" + f3.name) });
     }
-    this.remoteManifestTrusted = parts.length > 0;
-    return mergeDeviceManifests(parts).filter((e2) => !isIgnoredRel(e2.rel));
+    const trust = evaluateManifestTrust(reads);
+    this.remoteManifestTrusted = trust.trusted;
+    this.manifestTrustFailed = trust.failed;
+    if (!trust.trusted) {
+      console.warn(
+        "[dsh-nas-sync] \u672C\u8F6E " + trust.failed.length + "/" + reads.length + " \u4EFD\u8BBE\u5907\u6E05\u5355\u8BFB\u53D6\u5931\u8D25\uFF0C\u7981\u7528\u5220\u9664\u4F20\u64AD\uFF1A" + trust.failed.join(", ")
+      );
+    }
+    const parts = reads.flatMap((r2) => r2.entries === null ? [] : [r2.entries]);
+    return safeEntries(mergeDeviceManifests(parts));
   }
-  /** 解密单份清单；文件不存在 / 口令不符都返回空（不抛）。 */
-  async readManifestAt(remote) {
+  /**
+   * 严格版：解密单份清单。**读失败与「读成了空清单」是两种结果**（null vs []），
+   * 只有 `readRemoteManifest()` 的删除传播判据能用它，别处不得拿 [] 当失败。
+   */
+  async tryReadManifestAt(remote) {
     try {
       const enc = await this.deps.transport.getBuffer(remote);
       const plain = await Crypto.decrypt(enc, this.deps.config.passphrase);
       const list = JSON.parse(new TextDecoder().decode(plain));
-      return Array.isArray(list) ? list : [];
+      return Array.isArray(list) ? list : null;
     } catch {
-      return [];
+      return null;
     }
+  }
+  /** 兼容旧调用点：读失败按空清单处理，**不可**用于删除传播判据。 */
+  async readManifestAt(remote) {
+    return await this.tryReadManifestAt(remote) ?? [];
   }
   async writeManifestFile(remote, entries) {
     const enc = await Crypto.encrypt(
@@ -22321,30 +22610,85 @@ var Engine = class {
   }
   /** `$DSH_HOME/nas-sync/ignored-sessions.json` 的路径。 */
   ignoredFilePath() {
-    return join6(dshHome(), "nas-sync", "ignored-sessions.json");
+    return join7(dshHome(), "nas-sync", "ignored-sessions.json");
   }
-  /** 读屏蔽清单。文件不存在 = 没有额外屏蔽，不是错误。 */
+  /**
+   * 读屏蔽清单（0.5.9 fail-closed）。
+   *
+   * 0.5.8 在 `try` 之前就 `this.ignoredFromFile = new Set()`，`catch` 又吞掉
+   * JSON 解析错误 —— 用户把文件写坏一次，屏蔽就被静默撤销，撤掉的会话全部复活。
+   * 现在：正常读 → 更新并刷新 last-known-good 备份；读坏 → 先备份原件、再尝试从
+   * 备份恢复；连备份都没有 → 保留内存态、置错误位、**本轮禁用一切破坏性回收**。
+   */
   loadIgnoredFile() {
-    this.ignoredFromFile = /* @__PURE__ */ new Set();
-    try {
-      const arr = JSON.parse(readFileSync3(this.ignoredFilePath(), "utf8"));
-      if (Array.isArray(arr)) {
-        for (const s2 of arr) if (typeof s2 === "string" && s2.trim()) this.ignoredFromFile.add(s2.trim());
-      }
-    } catch {
+    const path4 = this.ignoredFilePath();
+    const backupPath = path4 + ".bak";
+    const main = readJsonFile(path4);
+    const asSet = (v) => {
+      if (!Array.isArray(v)) return null;
+      const s2 = /* @__PURE__ */ new Set();
+      for (const x2 of v) if (typeof x2 === "string" && x2.trim()) s2.add(x2.trim());
+      return s2;
+    };
+    const fromMain = asSet(main.data);
+    if (fromMain) {
+      this.ignoredFromFile = fromMain;
+      this.ignoredFileError = null;
+      const bak = readJsonFile(backupPath).data;
+      const same = Array.isArray(bak) && bak.length === fromMain.size && [...fromMain].every((id) => bak.includes(id));
+      if (!same) writeBackup(path4);
+      return;
     }
+    if (main.missing && !main.corrupted) {
+      const fromBak2 = asSet(readJsonFile(backupPath).data);
+      if (fromBak2) {
+        this.ignoredFromFile = fromBak2;
+        this.ignoredFileError = "\u5C4F\u853D\u6E05\u5355\u4E3B\u6587\u4EF6\u7F3A\u5931\uFF0C\u5DF2\u4ECE .bak \u81EA\u52A8\u6062\u590D";
+        console.warn("[dsh-nas-sync] " + this.ignoredFileError);
+        this.saveIgnoredFile();
+        return;
+      }
+      this.ignoredFromFile = /* @__PURE__ */ new Set();
+      this.ignoredFileError = null;
+      return;
+    }
+    const fromBak = asSet(readJsonFile(backupPath).data);
+    if (fromBak) {
+      this.ignoredFromFile = fromBak;
+      this.ignoredFileError = "\u5C4F\u853D\u6E05\u5355\u635F\u574F\uFF0C\u5DF2\u4ECE .bak \u6062\u590D\uFF1B\u539F\u4EF6\u5907\u4EFD\u5728 " + (main.quarantinedTo ?? "(\u5907\u4EFD\u5931\u8D25)");
+      console.error("[dsh-nas-sync] " + this.ignoredFileError);
+      try {
+        writeJsonAtomic(path4, [...fromBak].sort());
+      } catch {
+      }
+      return;
+    }
+    this.ignoredFileError = "\u5C4F\u853D\u6E05\u5355\u635F\u574F\u4E14\u65E0\u53EF\u7528\u5907\u4EFD\uFF0C\u672C\u8F6E\u5DF2\u7981\u7528\u5220\u9664\u4F20\u64AD\uFF1A" + (main.quarantinedTo ?? "(\u5907\u4EFD\u5931\u8D25)");
+    console.error("[dsh-nas-sync] " + this.ignoredFileError);
   }
   saveIgnoredFile() {
     try {
-      mkdirSync2(join6(dshHome(), "nas-sync"), { recursive: true });
-      writeFileSync2(
-        this.ignoredFilePath(),
-        JSON.stringify([...this.ignoredFromFile].sort(), null, 2) + "\n",
-        "utf8"
-      );
+      const path4 = this.ignoredFilePath();
+      writeJsonAtomic(path4, [...this.ignoredFromFile].sort());
+      writeBackup(path4);
     } catch (err) {
-      console.warn("[dsh-nas-sync] \u5199\u5C4F\u853D\u6E05\u5355\u5931\u8D25\uFF1A" + String(err));
+      this.ignoredFileError = "\u5C4F\u853D\u6E05\u5355\u5199\u5165\u5931\u8D25\uFF1A" + String(err);
+      console.error("[dsh-nas-sync] " + this.ignoredFileError);
     }
+  }
+  /** 列出本机屏蔽的会话 id（只读，0.5.9 让这个能力对用户可见）。 */
+  listIgnoredSessions() {
+    this.loadIgnoredFile();
+    return { ids: [...this.ignoredFromFile].sort(), error: this.ignoredFileError };
+  }
+  /** 撤销屏蔽：这条会话下一轮又能从对端同步回来（0.5.9，让屏蔽可撤销）。 */
+  unignoreSession(sid) {
+    const id = String(sid || "").trim();
+    if (!id) return false;
+    this.loadIgnoredFile();
+    if (!this.ignoredFromFile.delete(id)) return false;
+    this.saveIgnoredFile();
+    return true;
   }
   /** rel 形如 `sessions/<cwd编码>/<sessionId>/session.v<N>.jsonl.zstd`。 */
   sessionIdOfRel(rel) {
@@ -22401,18 +22745,18 @@ var Engine = class {
    */
   localPluginSnapshot() {
     const out = [];
-    const root = join6(dshHome(), "profiles");
+    const root = join7(dshHome(), "profiles");
     let dirs = [];
     try {
-      dirs = readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => String(d.name));
+      dirs = readdirSync2(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => String(d.name));
     } catch {
       return out;
     }
     for (const p of dirs) {
-      const dir = join6(root, p);
+      const dir = join7(root, p);
       const declared = declaredPlugins(dir);
       if (!declared.length) continue;
-      const installed = readInstalled(join6(dir, "node_modules"));
+      const installed = readInstalled(join7(dir, "node_modules"));
       for (const name2 of declared) {
         out.push({ profile: p, name: name2, version: String(installed[name2] ?? "") });
       }
@@ -22427,7 +22771,7 @@ var Engine = class {
     }
     const workspaces = [];
     try {
-      const raw = JSON.parse(await readFile4(join6(dshHome(), "storages", "workspace.json"), "utf8"));
+      const raw = JSON.parse(await readFile4(join7(dshHome(), "storages", "workspace.json"), "utf8"));
       for (const w of Object.values(raw?.tables?.workspaces ?? {})) {
         const title = String(w?.title ?? "").trim();
         const p = String(w?.path ?? "");
@@ -22500,20 +22844,20 @@ var Engine = class {
    */
   async auditPlugins(targetProfile) {
     this.checkReady();
-    const root = join6(dshHome(), "profiles");
+    const root = join7(dshHome(), "profiles");
     const locals = [];
     let dirNames = [];
     try {
-      dirNames = readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => String(d.name));
+      dirNames = readdirSync2(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => String(d.name));
     } catch {
       dirNames = [];
     }
     for (const p of dirNames) {
-      const dir = join6(root, p);
-      if (!existsSync3(join6(dir, "package.json"))) continue;
+      const dir = join7(root, p);
+      if (!existsSync3(join7(dir, "package.json"))) continue;
       locals.push({
         profile: p,
-        installed: readInstalled(join6(dir, "node_modules")),
+        installed: readInstalled(join7(dir, "node_modules")),
         declared: declaredPlugins(dir)
       });
     }
@@ -22648,6 +22992,10 @@ var Engine = class {
     const last = this.deps.store.snapshot.lastSyncTime ?? 0;
     const imports = this.deps.store.sessionImports ?? (this.deps.store.sessionImports = {});
     const importedLocalRel = /* @__PURE__ */ new Set();
+    const destructiveBlocked = this.ignoredFileError !== null;
+    if (destructiveBlocked) {
+      console.warn("[dsh-nas-sync] \u672C\u8F6E\u8DF3\u8FC7\u5168\u90E8\u56DE\u6536\u52A8\u4F5C\uFF1A" + this.ignoredFileError);
+    }
     for (const [remoteRel, rec] of Object.entries(imports)) {
       let alive = false;
       try {
@@ -22660,13 +23008,13 @@ var Engine = class {
         continue;
       }
       if (!remoteMap.has(remoteRel)) {
-        if (!this.remoteManifestTrusted) {
-          importedLocalRel.add(rec.localRel);
-          continue;
-        }
-        const rounds = (rec.missingRounds ?? 0) + 1;
-        if (rounds < 2) {
-          rec.missingRounds = rounds;
+        const rounds = advanceMissingRounds({
+          trusted: this.remoteManifestTrusted && !destructiveBlocked,
+          present: false,
+          previous: rec.missingRounds
+        });
+        rec.missingRounds = rounds;
+        if (!shouldRetire(rounds)) {
           importedLocalRel.add(rec.localRel);
           continue;
         }
@@ -22683,6 +23031,7 @@ var Engine = class {
       importedLocalRel.add(rec.localRel);
     }
     for (const rel of [...localMap.keys()]) {
+      if (destructiveBlocked) break;
       if (!isSessionRel(rel) || !this.isImportIgnored(rel)) continue;
       try {
         await this.retireLocalSession(rel);
@@ -22905,32 +23254,170 @@ var Engine = class {
     }
     if (n > 0) console.log("[dsh-nas-sync] \u5DF2\u8865\u767B\u8BB0 " + n + " \u4E2A\u4F1A\u8BDD\u5230\u4FA7\u680F");
   }
+  /** 回收根目录。0.5.9 起这里的内容可被 `listRemovedSessions()` 枚举并恢复。 */
+  removedRoot() {
+    return join7(dshHome(), "nas-sync", "removed");
+  }
   /**
    * 把某个会话的**目录**搬进回收目录，并清掉它在工作区里的登记。
    * `retireImport()` 与本机屏蔽回收共用这一段。
    *
+   * 0.5.9：同时写一个 `<id>.meta.json` 记录原始 rel / 远端 rel / 原因，
+   * 否则目录名是 `sessions__xxx__sid__file` 这种有损编码，根本没法还原回去 ——
+   * README 说的「随时捞回来」在 0.5.8 里其实没有任何实现。
+   *
    * @returns 搬去的目标路径
    */
-  async retireLocalSession(localRel) {
+  async retireLocalSession(localRel, opts = { reason: "locally-ignored" }) {
+    if (!isSafeRel(localRel)) throw new Error("\u62D2\u7EDD\u56DE\u6536\u4E0D\u5B89\u5168\u7684 rel\uFF1A" + String(localRel).slice(0, 120));
     const abs = this.resolveLocal(localRel);
     const cut = Math.max(abs.lastIndexOf("/"), abs.lastIndexOf("\\"));
+    if (cut <= 0) throw new Error("\u65E0\u6CD5\u4ECE rel \u63A8\u5BFC\u4F1A\u8BDD\u76EE\u5F55\uFF1A" + localRel);
     const sessionDir = abs.slice(0, cut);
-    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-    const trash = join6(dshHome(), "nas-sync", "removed", stamp, localRel.replace(/\//g, "__"));
-    await mkdir3(join6(trash, ".."), { recursive: true });
+    const stamp2 = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+    const id = localRel.replace(/\//g, "__");
+    const batch = join7(this.removedRoot(), stamp2);
+    const trash = join7(batch, id);
+    await mkdir3(batch, { recursive: true });
     if (existsSync3(sessionDir)) {
       try {
         await rename2(sessionDir, trash);
       } catch {
         await cp(sessionDir, trash, { recursive: true });
+        const copied = await readdirAsync(trash);
+        if (copied.length === 0) throw new Error("\u56DE\u6536\u76EE\u5F55\u590D\u5236\u4E3A\u7A7A\uFF0C\u5DF2\u4FDD\u7559\u539F\u6587\u4EF6");
         await rm3(sessionDir, { recursive: true, force: true });
       }
+    }
+    try {
+      writeJsonAtomic(trash + ".meta.json", {
+        rel: localRel,
+        remoteRel: opts.remoteRel ?? null,
+        sessionId: this.sessionIdOfRel(localRel),
+        retiredAt: (/* @__PURE__ */ new Date()).toISOString(),
+        reason: opts.reason,
+        trashDir: trash
+      });
+    } catch (err) {
+      console.error("[dsh-nas-sync] \u56DE\u6536\u5143\u6570\u636E\u5199\u5165\u5931\u8D25\uFF08\u8FD9\u6761\u4F8B\u540E\u5C06\u53EA\u80FD\u624B\u5DE5\u6062\u590D\uFF09\uFF1A" + String(err));
     }
     try {
       await unregisterSessionFromRel(localRel);
     } catch {
     }
     return trash;
+  }
+  /** 回收目录里的一条记录。 */
+  listRemovedSessions() {
+    const root = this.removedRoot();
+    let batches = [];
+    try {
+      batches = readdirSync2(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+    } catch {
+      return [];
+    }
+    const out = [];
+    for (const batch of batches) {
+      const dir = join7(root, batch);
+      let names = [];
+      try {
+        names = readdirSync2(dir);
+      } catch {
+        continue;
+      }
+      for (const name2 of names) {
+        if (!name2.endsWith(".meta.json")) continue;
+        const metaPath = join7(dir, name2);
+        const meta = readJsonFile(metaPath).data;
+        const id = name2.slice(0, -".meta.json".length);
+        out.push({
+          id,
+          rel: typeof meta?.rel === "string" ? meta.rel : null,
+          sessionId: typeof meta?.sessionId === "string" ? meta.sessionId : null,
+          retiredAt: typeof meta?.retiredAt === "string" ? meta.retiredAt : null,
+          reason: typeof meta?.reason === "string" ? meta.reason : null,
+          restorable: !!meta && isSafeRel(meta.rel)
+        });
+      }
+      for (const name2 of names) {
+        if (name2.endsWith(".meta.json") || name2.endsWith(".bak")) continue;
+        const metaPath = join7(dir, name2 + ".meta.json");
+        if (existsSync3(metaPath)) continue;
+        out.push({
+          id: name2,
+          rel: null,
+          sessionId: null,
+          retiredAt: batch,
+          reason: "legacy\uFF08\u65E0\u5143\u6570\u636E\uFF09",
+          restorable: false
+        });
+      }
+    }
+    return out.sort((a, b) => String(b.retiredAt ?? "").localeCompare(String(a.retiredAt ?? "")));
+  }
+  /**
+   * 把回收目录里的会话放回原处（0.5.9）。
+   *
+   * 除了搬文件，还做两件必须的事：重新登记到工作区（否则侧栏看不到），
+   * 以及撤销本机屏蔽（否则下一轮扫描立刻又把它搬回来）。
+   */
+  async restoreRemovedSession(key) {
+    const wanted = String(key || "").trim();
+    if (!wanted) throw new Error("\u8BF7\u63D0\u4F9B\u56DE\u6536\u8BB0\u5F55\u7684 id \u6216\u539F\u59CB rel");
+    const entry = this.listRemovedSessions().find((e2) => e2.id === wanted || e2.rel === wanted);
+    if (!entry) throw new Error("\u56DE\u6536\u76EE\u5F55\u91CC\u6CA1\u6709\u8FD9\u6761\u8BB0\u5F55\uFF1A" + wanted);
+    if (!entry.restorable || !entry.rel) {
+      throw new Error("\u8FD9\u6761\u56DE\u6536\u8BB0\u5F55\u6CA1\u6709\u5143\u6570\u636E\uFF08\u65E7\u7248/\u624B\u5DE5\u642C\u8FC1\uFF09\uFF0C\u65E0\u6CD5\u81EA\u52A8\u8FD8\u539F\uFF1B\u8BF7\u624B\u5DE5\u4ECE " + this.removedRoot() + " \u62F7\u56DE sessions/ \u5BF9\u5E94\u76EE\u5F55");
+    }
+    const rel = entry.rel;
+    const abs = this.resolveLocal(rel);
+    const cut = Math.max(abs.lastIndexOf("/"), abs.lastIndexOf("\\"));
+    if (cut <= 0) throw new Error("\u65E0\u6CD5\u4ECE rel \u63A8\u5BFC\u4F1A\u8BDD\u76EE\u5F55\uFF1A" + rel);
+    const sessionDir = abs.slice(0, cut);
+    if (existsSync3(sessionDir)) {
+      throw new Error("\u76EE\u6807\u76EE\u5F55\u5DF2\u5B58\u5728\uFF0C\u62D2\u7EDD\u8986\u76D6\uFF1A" + sessionDir);
+    }
+    const root = this.removedRoot();
+    let trashDir = "";
+    let metaPath = "";
+    for (const batch of (() => {
+      try {
+        return readdirSync2(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+      } catch {
+        return [];
+      }
+    })()) {
+      const candidate = join7(root, batch, entry.id + ".meta.json");
+      if (!existsSync3(candidate)) continue;
+      const m2 = readJsonFile(candidate).data;
+      if (m2?.rel !== rel) continue;
+      metaPath = candidate;
+      trashDir = typeof m2?.trashDir === "string" ? m2.trashDir : join7(root, batch, entry.id);
+      break;
+    }
+    if (!trashDir || !existsSync3(trashDir)) throw new Error("\u56DE\u6536\u76EE\u5F55\u5DF2\u4E0D\u5B58\u5728\uFF1A" + (trashDir || entry.id));
+    await mkdir3(join7(sessionDir, ".."), { recursive: true });
+    try {
+      await rename2(trashDir, sessionDir);
+    } catch {
+      await cp(trashDir, sessionDir, { recursive: true });
+      const copied = await readdirAsync(sessionDir);
+      if (copied.length === 0) throw new Error("\u6062\u590D\u590D\u5236\u4E3A\u7A7A\uFF0C\u5DF2\u4FDD\u7559\u56DE\u6536\u76EE\u5F55");
+    }
+    try {
+      await registerSessionForRel(rel);
+    } catch (err) {
+      console.warn("[dsh-nas-sync] \u6062\u590D\u540E\u767B\u8BB0\u4FA7\u680F\u5931\u8D25\uFF1A" + String(err));
+    }
+    const sid = entry.sessionId ?? this.sessionIdOfRel(rel);
+    if (sid) this.unignoreSession(sid);
+    if (metaPath) {
+      try {
+        await rm3(metaPath, { force: true });
+      } catch {
+      }
+    }
+    return { rel, restoredTo: sessionDir };
   }
   /**
    * 回收一条导入的会话镜像（0.5.8）。
@@ -22951,7 +23438,7 @@ var Engine = class {
       console.log("[dsh-nas-sync] \u5BF9\u7AEF\u5220\u9664\u4E86\u7B49\u4EF7\u526F\u672C\uFF0C\u672C\u673A\u4F1A\u8BDD\u4FDD\u7559\u4E0D\u52A8\uFF1A" + rec.localRel);
       return;
     }
-    const trash = await this.retireLocalSession(rec.localRel);
+    const trash = await this.retireLocalSession(rec.localRel, { remoteRel, reason: "remote-deleted" });
     delete this.deps.store.sessionImports[remoteRel];
     this.deps.store.save();
     console.log("[dsh-nas-sync] \u5BF9\u7AEF\u5DF2\u5220\u9664\u8BE5\u4F1A\u8BDD\uFF0C\u672C\u673A\u955C\u50CF\u5DF2\u79FB\u5165\u56DE\u6536\u76EE\u5F55\uFF1A" + rec.localRel + " \u2192 " + trash);
@@ -23045,7 +23532,7 @@ var Engine = class {
   async pullWorkspaceRegistry() {
     this.registryNeedsPush = false;
     this.loadIgnoredFile();
-    const localAbs = join6(dshHome(), WORKSPACE_REGISTRY_REL);
+    const localAbs = join7(dshHome(), WORKSPACE_REGISTRY_REL);
     let plain = null;
     try {
       plain = await this.fetchRemotePlain("/dsh/" + WORKSPACE_REGISTRY_REL);
@@ -23074,7 +23561,7 @@ var Engine = class {
   /** 把本机注册表发布到 NAS（只在 pullWorkspaceRegistry 判定「本机有多出来的部分」时调用）。 */
   async pushWorkspaceRegistry() {
     try {
-      const abs = join6(dshHome(), WORKSPACE_REGISTRY_REL);
+      const abs = join7(dshHome(), WORKSPACE_REGISTRY_REL);
       const buf = await readFile4(abs);
       await this.pushFile(WORKSPACE_REGISTRY_REL);
       this.pushedOk.add(WORKSPACE_REGISTRY_REL);
@@ -23087,6 +23574,10 @@ var Engine = class {
    */
   async downloadEntry(rel) {
     this.setPhase("downloading");
+    if (!isSafeRel(rel)) {
+      console.warn("[dsh-nas-sync] \u62D2\u7EDD\u4E0D\u5B89\u5168\u7684\u8FDC\u7AEF rel\uFF1A" + String(rel).slice(0, 120));
+      return "skipped";
+    }
     if (this.isImportIgnored(rel)) return "skipped";
     const plain = await this.fetchRemotePlain("/dsh/" + rel);
     if (!plain) {
@@ -23138,7 +23629,9 @@ var Engine = class {
             console.warn("[dsh-nas-sync] \u8DF3\u8FC7\u5BFC\u5165\uFF08\u672C\u673A\u5DF2\u6709\u540C id \u4F1A\u8BDD\uFF0C\u907F\u514D\u4E92\u76F8\u8986\u76D6\uFF09\uFF1A" + rel);
           }
           return "skipped";
-        } else if (sessionFrameOffsets(cur).length === sessionFrameOffsets(written).length) {
+        } else if (sessionFrameOffsets(cur).length === sessionFrameOffsets(written).length && // 0.5.9：单帧会话没有尾帧可比，只比帧数会把两条不同会话误判成「等价副本」。
+        // 必须再用首帧身份指纹（忽略 cwd）证明确实是同一条。
+        sessionHeaderIdentity(cur) !== null && sessionHeaderIdentity(cur) === sessionHeaderIdentity(written)) {
           this.deps.store.sessionImports[rel] = {
             remoteHash: sha256Hex(plain),
             localRel: targetRel,
@@ -23262,24 +23755,24 @@ init_paths();
 
 // src/bridge.ts
 import { randomBytes as randomBytes3, timingSafeEqual } from "node:crypto";
-import { join as join8 } from "node:path";
+import { join as join9 } from "node:path";
 init_paths();
 
 // src/sync/installer.ts
 import { spawn } from "node:child_process";
-import { existsSync as existsSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname3, join as join7 } from "node:path";
+import { existsSync as existsSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname3, join as join8 } from "node:path";
 var LOG_CAP = 16 * 1024;
 function resolveCliScript() {
   const exe = process.execPath;
   if (!exe) return null;
-  const appAsar = join7(dirname3(exe), "resources", "app.asar");
+  const appAsar = join8(dirname3(exe), "resources", "app.asar");
   try {
     if (!existsSync4(appAsar)) return null;
   } catch {
     return null;
   }
-  return join7(
+  return join8(
     appAsar,
     "dsh",
     "node_modules",
@@ -23291,7 +23784,7 @@ function resolveCliScript() {
 }
 function readProfileJson(profileDir) {
   try {
-    return JSON.parse(readFileSync4(join7(profileDir, "package.json"), "utf8"));
+    return JSON.parse(readFileSync4(join8(profileDir, "package.json"), "utf8"));
   } catch {
     return null;
   }
@@ -23302,7 +23795,7 @@ function registerBundles(profileDir, installed) {
   const want = [];
   for (const name2 of installed) {
     try {
-      const pj = JSON.parse(readFileSync4(join7(profileDir, "node_modules", name2, "package.json"), "utf8"));
+      const pj = JSON.parse(readFileSync4(join8(profileDir, "node_modules", name2, "package.json"), "utf8"));
       if (pj?.dsh?.bundle?.patch) want.push(name2);
     } catch {
     }
@@ -23320,7 +23813,7 @@ function registerBundles(profileDir, installed) {
   }
   if (added.length === 0) return [];
   try {
-    writeFileSync3(join7(profileDir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+    writeFileSync2(join8(profileDir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
   } catch {
     return [];
   }
@@ -23406,7 +23899,7 @@ var Installer = class {
       job.endedAt = Date.now();
       job.state = code === 0 ? "done" : "failed";
       if (code === 0) {
-        const profileDir = join7(this.profilesRoot(), profile);
+        const profileDir = join8(this.profilesRoot(), profile);
         job.registered = registerBundles(profileDir, names);
         if (job.registered.length > 0) {
           append(`
@@ -23424,6 +23917,7 @@ var Installer = class {
 
 // src/bridge.ts
 var BRIDGE_PREFIX = "/nas-sync-api";
+var MAX_BODY_BYTES = 256 * 1024;
 function sendJson(res, status, body) {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -23477,7 +23971,7 @@ function publicConfig(cfg) {
 }
 function createBridge(ctx, deps) {
   const token = randomBytes3(24).toString("base64url");
-  const installer = new Installer(() => join8(dshHome(), "profiles"));
+  const installer = new Installer(() => join9(dshHome(), "profiles"));
   if (typeof ctx.on === "function") {
     ctx.on("webserver/index-inject", (table) => {
       table.push(
@@ -23520,7 +24014,13 @@ function createBridge(ctx, deps) {
     const engine = deps.getEngine();
     const readBody = async () => {
       const chunks = [];
-      for await (const c of req) chunks.push(c);
+      let total = 0;
+      for await (const c of req) {
+        const buf = c;
+        total += buf.length;
+        if (total > MAX_BODY_BYTES) throw new Error("\u8BF7\u6C42\u4F53\u8FC7\u5927\uFF08\u4E0A\u9650 256 KB\uFF09");
+        chunks.push(buf);
+      }
       const raw = Buffer.concat(chunks).toString("utf-8");
       return raw ? JSON.parse(raw) : {};
     };
@@ -23537,7 +24037,10 @@ function createBridge(ctx, deps) {
             conflictCount: s2.conflictCount,
             running: s2.running
           },
-          config: publicConfig(deps.getConfig())
+          config: publicConfig(deps.getConfig()),
+          // 0.5.9：把「本轮为什么没做删除传播」「状态文件是否异常」显式暴露给面板
+          safety: engine.safetyStatus(),
+          storeError: deps.store.lastError
         });
       }
       if (sub === "/skills" && method === "GET") {
@@ -23661,6 +24164,32 @@ function createBridge(ctx, deps) {
         if (!job) return fail(res, "not_found", "\u6CA1\u6709\u8FD9\u4E2A\u5B89\u88C5\u4EFB\u52A1");
         return ok(res, job);
       }
+      if (sub === "/removed" && method === "GET") {
+        return ok(res, { items: engine.listRemovedSessions(), root: join9(dshHome(), "nas-sync", "removed") });
+      }
+      if (sub === "/removed/restore" && method === "POST") {
+        const body = await readBody();
+        const key = String(body?.key ?? body?.id ?? body?.rel ?? "").trim();
+        if (!key) return fail(res, "bad_request", "key \u4E0D\u80FD\u4E3A\u7A7A\uFF08\u56DE\u6536\u8BB0\u5F55 id \u6216\u539F\u59CB rel\uFF09");
+        return ok(res, await engine.restoreRemovedSession(key));
+      }
+      if (sub === "/ignored" && method === "GET") {
+        return ok(res, engine.listIgnoredSessions());
+      }
+      if (sub === "/ignored" && method === "POST") {
+        const body = await readBody();
+        const sid = String(body?.sessionId ?? "").trim();
+        const action = String(body?.action ?? "remove");
+        if (!sid) return fail(res, "bad_request", "sessionId \u4E0D\u80FD\u4E3A\u7A7A");
+        if (action === "add") {
+          await engine.ignoreSession(sid);
+          return ok(res, { sessionId: sid, ignored: true });
+        }
+        if (action === "remove") {
+          return ok(res, { sessionId: sid, ignored: false, removed: engine.unignoreSession(sid) });
+        }
+        return fail(res, "bad_request", "action \u53EA\u80FD\u662F add \u6216 remove");
+      }
       return fail(res, "not_found", "\u672A\u77E5\u7AEF\u70B9: " + method + " " + sub);
     } catch (e2) {
       return fail(res, "internal", e2.message);
@@ -23746,6 +24275,10 @@ function apply(ctx, config) {
     }
   };
   const store = new Store();
+  const zstd = zstdCapabilities();
+  if (!zstd.compress || !zstd.decompress) {
+    warn("\u5BBF\u4E3B Node " + zstd.node + " \u7F3A\u5C11 zlib.zstd*Sync\uFF08\u9700\u8981 >= 22.15.0\uFF09\uFF1A\u8DE8\u5E73\u53F0\u4F1A\u8BDD cwd \u6539\u5199\u5DF2\u7981\u7528\uFF0C\u76F8\u5173\u4F1A\u8BDD\u4F1A\u88AB\u8DF3\u8FC7\u5BFC\u5165\uFF0C\u8BF7\u5347\u7EA7\u5BBF\u4E3B Node\u3002");
+  }
   let cfg = parseNasSyncConfig({ ...config ?? {}, ...store.userConfig ?? {} });
   let engine = buildEngine(cfg);
   function buildEngine(next) {
@@ -24367,6 +24900,98 @@ ${lines.join("\n")}` }];
       }
       const lines = diffLines(local.split(/\r?\n/), remote.split(/\r?\n/));
       return { file: rel, lines: lines.slice(0, 1e3) };
+    }
+  }));
+  ctx.tools.register(defineTool({
+    name: "nas_list_removed",
+    description: "\u5217\u51FA\u88AB\u540C\u6B65\u56DE\u6536\u5230\u672C\u673A\u56DE\u6536\u76EE\u5F55\u7684\u4F1A\u8BDD\uFF08\u542B\u539F\u59CB rel\u3001\u65F6\u95F4\u3001\u539F\u56E0\u3001\u662F\u5426\u53EF\u81EA\u52A8\u6062\u590D\uFF09\u3002\u53EA\u8BFB\u3002",
+    parameters: {},
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: { items: { type: "json" }, root: { type: "string" } }
+      },
+      render: (_args, value) => {
+        const items = Array.isArray(value.items) ? value.items : [];
+        if (items.length === 0) return [{ type: "text", text: "\u56DE\u6536\u76EE\u5F55\u662F\u7A7A\u7684\u3002" }];
+        return [{ type: "text", text: `\u56DE\u6536\u8BB0\u5F55 ${items.length} \u6761\uFF08${value.root}\uFF09\uFF1A
+` + items.map((e2) => `- ${e2.id}\uFF5C${e2.restorable ? "\u53EF\u6062\u590D" : "\u4EC5\u624B\u5DE5"}
+  rel=${e2.rel ?? "(\u672A\u77E5)"} \u539F\u56E0=${e2.reason ?? "?"} \u65F6\u95F4=${e2.retiredAt ?? "?"}`).join("\n") }];
+      }
+    },
+    async execute() {
+      return {
+        items: engine.listRemovedSessions(),
+        root: localOf("nas-sync/removed")
+      };
+    }
+  }));
+  ctx.tools.register(defineTool({
+    name: "nas_restore_session",
+    description: "\u628A\u56DE\u6536\u76EE\u5F55\u91CC\u7684\u4E00\u6761\u4F1A\u8BDD\u6062\u590D\u56DE\u539F\u6765\u7684 sessions \u76EE\u5F55\u3001\u91CD\u65B0\u767B\u8BB0\u5230\u4FA7\u680F\uFF0C\u5E76\u81EA\u52A8\u64A4\u9500\u672C\u673A\u5C4F\u853D\u3002\u76EE\u6807\u5DF2\u5B58\u5728\u65F6\u62D2\u7EDD\u8986\u76D6\u3002",
+    parameters: {
+      key: { type: "string", required: true, description: "nas_list_removed \u8FD4\u56DE\u7684 id\uFF0C\u6216\u539F\u59CB rel" }
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          success: { type: "boolean" },
+          rel: { type: "string" },
+          restoredTo: { type: "string" },
+          message: { type: "json" }
+        }
+      },
+      render: (_args, value) => [{
+        type: "text",
+        text: value.success ? `\u5DF2\u6062\u590D ${value.rel} \u2192 ${value.restoredTo}` : "\u6062\u590D\u5931\u8D25\uFF1A" + value.message
+      }]
+    },
+    async execute(args) {
+      try {
+        const r2 = await engine.restoreRemovedSession(String(args.key || ""));
+        return { success: true, rel: r2.rel, restoredTo: r2.restoredTo, message: null };
+      } catch (e2) {
+        return { success: false, rel: "", restoredTo: "", message: e2.message };
+      }
+    }
+  }));
+  ctx.tools.register(defineTool({
+    name: "nas_manage_ignored",
+    description: "\u7BA1\u7406\u300C\u672C\u673A\u4E0D\u540C\u6B65\u7684\u4F1A\u8BDD\u300D\u6E05\u5355\uFF1Alist \u67E5\u770B\u3001add \u5C4F\u853D\u4E00\u6761\u3001remove \u64A4\u9500\u5C4F\u853D\u3002\u5C4F\u853D\u53EA\u5F71\u54CD\u672C\u673A\uFF0C\u8FDC\u7AEF\u539F\u6587\u4FDD\u7559\u3002",
+    parameters: {
+      action: { type: "string", enum: ["list", "add", "remove"], description: "\u9ED8\u8BA4 list" },
+      sessionId: { type: "string", description: "add/remove \u65F6\u5FC5\u586B\u7684\u4F1A\u8BDD id" }
+    },
+    output: {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          ids: { type: "json" },
+          error: { type: "json" },
+          changed: { type: "boolean" },
+          message: { type: "json" }
+        }
+      },
+      render: (_args, value) => [{
+        type: "text",
+        text: (value.changed ? "\u5DF2\u66F4\u65B0\u3002" : "") + `\u672C\u673A\u5C4F\u853D ${value.ids.length} \u6761\uFF1A
+` + value.ids.map((s2) => "- " + s2).join("\n") + (value.error ? "\n\u26A0 " + value.error : "")
+      }]
+    },
+    async execute(args) {
+      const action = String(args.action || "list");
+      const sid = String(args.sessionId || "").trim();
+      if (action === "add" && !sid) {
+        return { ids: [], error: "add \u9700\u8981 sessionId", changed: false, message: "add \u9700\u8981 sessionId" };
+      }
+      if (action === "add") await engine.ignoreSession(sid);
+      if (action === "remove" && sid) engine.unignoreSession(sid);
+      const state = engine.listIgnoredSessions();
+      return { ids: state.ids, error: state.error, changed: action !== "list", message: null };
     }
   }));
   log("\u63D2\u4EF6\u5DF2\u52A0\u8F7D\uFF08name=" + name + "\uFF0Ctype=" + cfg.type + "\uFF09");

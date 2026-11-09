@@ -46,6 +46,21 @@ const zstdImpl = zlib as unknown as {
 const zstdCompress: ((buf: Uint8Array) => Buffer) | null = zstdImpl.zstdCompressSync ?? null;
 const zstdDecompress: ((buf: Uint8Array) => Buffer) | null = zstdImpl.zstdDecompressSync ?? null;
 
+/**
+ * 宿主 Node 的 zstd 能力（0.5.9）。
+ *
+ * `zlib.zstdCompressSync/zstdDecompressSync` 是 Node 22.15+ 才有的。0.5.8 把缺失
+ * 处理成「静默降级：不改写了」，结果就是低版本宿主上跨平台会话永远导入不进来，
+ * 而日志里一个字都没有。现在把能力显式暴露，由入口在加载时大声告警。
+ */
+export function zstdCapabilities(): { compress: boolean; decompress: boolean; node: string } {
+  return {
+    compress: zstdCompress !== null,
+    decompress: zstdDecompress !== null,
+    node: process.version,
+  };
+}
+
 /** 工作区注册表：相对 $DSH_HOME。 */
 export const WORKSPACE_REGISTRY_REL = 'storages/workspace.json';
 /**
@@ -576,16 +591,51 @@ export function sessionFrameOffsets(buf: Buffer): number[] {
 }
 
 /**
- * 判断本地这份是不是「同一条会话的更早快照」（0.5.8）。
+ * 第 0 帧的「身份指纹」（0.5.9）：解压首帧，把会话头里除 `cwd` 之外的所有字段
+ * 按 key 排序后序列化，再拼上首帧剩余文本。
+ *
+ * 跨平台落地时 `rewriteSessionCwd*()` **只改 `cwd` 这一个字段**，所以本地镜像与远端
+ * 原文的其余首帧内容应当逐字相同。用它就能区分：
+ *   · 同一条会话的两份 cwd 不同的副本（指纹相同）
+ *   · 恰好同 id 但其实是两条独立历史（指纹不同）
+ *
+ * 老 Node 没有 `zlib.zstdDecompressSync` 时返回 null —— 调用方按「无法证明同一性」
+ * 处理，即保守地不覆盖。
+ */
+export function sessionHeaderIdentity(buf: Buffer): string | null {
+  const text = decodeFirstFrame(buf);
+  if (text === null) return null;
+  const nl = text.indexOf('\n');
+  const headLine = nl === -1 ? text : text.slice(0, nl);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(headLine);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const header = { ...(parsed as Record<string, unknown>) };
+  delete header['cwd'];
+  const stable: Record<string, unknown> = {};
+  for (const k of Object.keys(header).sort()) stable[k] = header[k];
+  return JSON.stringify(stable) + '\n' + (nl === -1 ? '' : text.slice(nl));
+}
+
+/**
+ * 判断本地这份是不是「同一条会话的更早快照」（0.5.8，0.5.9 收紧）。
  *
  * 场景：PC 上先同步过一次手机会话（落地时 cwd 被改写），之后手机继续聊到 57 万字节，
  * 而 `downloadEntry()` 里那条「本机已有同 id 会话就不覆盖」的守卫按**字节哈希**比较
  * —— 改写过的旧副本和远端原文永远不相等，于是这条会话被永久判成「冲突」跳过，
  * 卡在旧快照上（实测 `B站UP主沐白若风` 就是：电脑 562 字节 / 手机 579570 字节）。
  *
- * 真正的判据是**追加序**：第 0 帧被改写过 cwd（所以不比），第 1..n 帧逐字节相同
+ * 真正的判据是**追加序**：第 0 帧身份相同（忽略被改写的 cwd），第 1..n 帧逐字节相同
  * = 本地就是远端某次提交的原样前缀，覆盖它不丢任何东西。
  * 反过来只要有一帧对不上（用户在本机继续过、历史分叉），就仍然按冲突跳过。
+ *
+ * 0.5.9 修的边界：0.5.8 的循环从 `i = 1` 起，本地只有 1 帧时**一次都不执行**就直接
+ * `return true` —— 等于「任何单帧会话都被当作旧快照」，连首帧是不是同一条会话都不核。
+ * 现在单帧必须靠 `sessionHeaderIdentity()` 证明同一性；多帧在能解压首帧时也顺带核身份。
  */
 export function localIsStaleSnapshot(local: Buffer, remote: Buffer): boolean {
   const a = sessionFrameOffsets(local);
@@ -593,6 +643,15 @@ export function localIsStaleSnapshot(local: Buffer, remote: Buffer): boolean {
   if (a.length === 0 || b.length === 0) return false;
   // 本地帧数比远端多 = 本机跑在前面，不是「旧快照」
   if (a.length > b.length) return false;
+
+  const la = sessionHeaderIdentity(local);
+  const rb = sessionHeaderIdentity(remote);
+  const identityKnown = la !== null && rb !== null;
+  // 单帧没有任何尾帧可比，身份是唯一判据；核不出来就绝不放行
+  if (a.length === 1) return identityKnown && la === rb;
+  // 多帧：能核身份就要求一致；老 Node 核不出来时退回 0.5.8 的尾帧比较（宁少判不多判）
+  if (identityKnown && la !== rb) return false;
+
   for (let i = 1; i < a.length; i++) {
     const ae = i + 1 < a.length ? a[i + 1] : local.length;
     const be = i + 1 < b.length ? b[i + 1] : remote.length;

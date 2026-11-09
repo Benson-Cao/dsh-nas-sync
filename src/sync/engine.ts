@@ -14,9 +14,15 @@
  * 远端路径 = '/dsh/' + rel，本地路径 = localOf(rel)。
  */
 
-import { readFile, writeFile, mkdir, rm, cp, rename } from 'node:fs/promises';
-import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFile, writeFile, mkdir, rm, cp, rename, readdir as readdirAsync } from 'node:fs/promises';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
+// 0.5.9：破坏性动作的纯判据与本地状态文件的安全读写（都能离线单测）
+import {
+  isSafeRel, evaluateManifestTrust, advanceMissingRounds, shouldRetire,
+  type ManifestRead,
+} from './safety.js';
+import { readJsonFile, writeJsonAtomic, writeBackup } from './state-file.js';
 import { createHash } from 'node:crypto';
 import type { ConflictItem, ManifestEntry, PendingFile, SyncPhase } from '../data/models.js';
 import { isIgnoredRel, Scanner } from './scanner.js';
@@ -57,6 +63,7 @@ import {
   mergeWorkspaceRegistry,
   platformMismatch,
   sessionCwdOf,
+  sessionHeaderIdentity,
   dedupeSessionDirs,
   repairSessionCwd,
   registerSessionForRel,
@@ -253,6 +260,24 @@ export class Engine {
   private ignoredFromFile = new Set<string>();
 
   /**
+   * 屏蔽清单读坏了（0.5.9）。此时**不**清空 `ignoredFromFile`，并且禁止本轮所有
+   * 破坏性回收动作 —— 0.5.8 在这里 fail-open，用户手写坏一次 JSON 就等于撤销屏蔽。
+   */
+  private ignoredFileError: string | null = null;
+
+  /** 本轮读失败的设备清单名（0.5.9），供状态面板解释「为什么这轮没有删除传播」。 */
+  private manifestTrustFailed: string[] = [];
+
+  /** 面板/诊断用：当前安全开关的状态。 */
+  safetyStatus(): { ignoredFileError: string | null; manifestTrustFailed: string[]; destructiveBlocked: boolean } {
+    return {
+      ignoredFileError: this.ignoredFileError,
+      manifestTrustFailed: [...this.manifestTrustFailed],
+      destructiveBlocked: this.ignoredFileError !== null,
+    };
+  }
+
+  /**
    * 已经提示过「导入被跳过」的 rel（0.5.6）。
    * 这种跳过每轮都会发生（本机有同 id 会话就一直跳过），不记一下就变成每轮刷日志。
    */
@@ -276,6 +301,15 @@ export class Engine {
    * 这种一半对一半错的状态。
    */
   private resolveLocal(rel: string): string {
+    // 0.5.9 纵深防御：远端清单已被 isSafeRel() 过滤，但所有本地读写最终都汇聚到
+    // 这里，再加一道最小判据，防止将来新增的调用点绕过过滤把 `../` 写进文件系统。
+    if (
+      typeof rel !== 'string' || rel.length === 0 ||
+      rel.startsWith('/') || rel.startsWith('\\') || rel.includes('\\') ||
+      rel.includes('\0') || rel.split('/').some((s) => s === '..' || s === '.')
+    ) {
+      throw new Error('拒绝不安全的 rel：' + String(rel).slice(0, 120));
+    }
     const hit = customFolderLocalOf(rel, this.deps.config.customFolders ?? []);
     if (hit) return hit.local;
 
@@ -450,58 +484,96 @@ export class Engine {
    */
   private async readRemoteManifest(): Promise<ManifestEntry[]> {
     this.remoteManifestTrusted = false;
+    this.manifestTrustFailed = [];
     let names: NasEntry[] = [];
     try {
       names = await this.deps.transport.list(MANIFESTS_DIR);
-    } catch {
-      names = []; // 目录还不存在 = 全新 NAS
+    } catch (err) {
+      // NAS 掉线 / 目录不存在都走这里。0.5.9：不能当成「全新 NAS」就算了 ——
+      // 「一份清单都没有」和「一份都没读到」必须区分，后者要禁用删除传播。
+      console.warn('[dsh-nas-sync] 设备清单目录读取失败，本轮禁用删除传播：' + String(err));
+      names = [];
     }
     // `_legacy.json` 只是「按设备拆分清单」之前那版**整份快照**，用途是迁移。
     // 一旦有了各设备自己的清单，它就是**永久过期**的：某台机器上一轮扫描到、
     // 之后删掉/改名的工作区会烂在里面，别的设备每轮都把它当「远端有、本地没有」
     // 去下载 → NAS 上 404 → 记一次错误 → 下一轮照旧，永远清不掉。
-    // （手机端实测：23 条幽灵待同步全来自这份文件的 `workspaces/胎教Agent/`。）
     const files = names.filter(
-      (n) => n.type === 'file' && n.name.endsWith('.json') && n.name !== '_legacy.json',
+      (n) => n.type === 'file' && n.name.endsWith('.json') && n.name !== '_legacy.json'
+        // 0.5.9：清单名来自远端目录列举，拼进 '/dsh/manifests/<name>' 之前
+        // 先挡住分隔符与 '..'，避免被伪造的目录项把 GET 指到别的远端路径。
+        && /^[A-Za-z0-9._-]+$/.test(n.name) && !n.name.includes('..'),
     );
+
+    // 远端数据统一在这里过安全过滤：对端可能还在跑旧版扫描器（清单里列着
+    // `.plugin-manager/logs/*` 与 `.bak` 副本），也可能被投喂了带 `../` 的 rel。
+    const safeEntries = (list: ManifestEntry[]): ManifestEntry[] =>
+      list.filter((e) => !!e && isSafeRel(e?.rel) && !isIgnoredRel(e.rel));
 
     if (files.length === 0) {
       // 一个设备清单都没有才回退到旧格式：先看已迁移的 _legacy.json，再看老路径。
-      const migrated = await this.readManifestAt(MANIFESTS_DIR + '/_legacy.json');
-      const legacy = migrated.length > 0 ? migrated : await this.readManifestAt(LEGACY_MANIFEST);
-      if (legacy.length === 0) return [];
+      let legacy = await this.tryReadManifestAt(MANIFESTS_DIR + '/_legacy.json');
+      if (legacy === null || legacy.length === 0) {
+        // 0.5.9 复核修正：`??` 会把「读成了空数组」误当成「读成了有效内容」，
+        // 不再回落老路径 —— 这是相对 0.5.8 的行为回归。空清单必须继续回落。
+        legacy = await this.tryReadManifestAt(LEGACY_MANIFEST);
+      }
+      if (legacy === null || legacy.length === 0) {
+        this.manifestTrustFailed = ['(没有读到任何设备清单，或旧格式清单读取失败)'];
+        return [];
+      }
+      const cleaned = safeEntries(legacy);
       this.remoteManifestTrusted = true;
       try {
-        await this.writeManifestFile(manifestFileOf('_legacy'), legacy);
+        await this.writeManifestFile(manifestFileOf('_legacy'), cleaned);
       } catch {
         /* 迁移失败只是每轮多读一次旧文件，不影响同步 */
       }
-      return legacy.filter((e) => !isIgnoredRel(e.rel));
+      return cleaned;
     }
 
-    const parts: ManifestEntry[][] = [];
+    /**
+     * 0.5.9 阻断级修复：0.5.8 用 `parts.length > 0` 判断「清单可信」，而
+     * `readManifestAt()` 把解密失败/JSON 损坏一律吞成 `[]`，于是 3 份清单里
+     * 坏 2 份、好 1 份时仍判可信 —— 那 2 份里的会话会被当成「对端删了」，
+     * 两轮后回收本机会话数据。现在改成「每一份都必须读成」。
+     */
+    const reads: ManifestRead<ManifestEntry>[] = [];
     for (const f of files) {
-      const list = await this.readManifestAt(MANIFESTS_DIR + '/' + f.name);
-      if (list.length > 0) parts.push(list);
+      reads.push({ name: f.name, entries: await this.tryReadManifestAt(MANIFESTS_DIR + '/' + f.name) });
     }
-    // 至少一份读成了才可以拿「清单里没有」当删除信号（见字段注释）
-    this.remoteManifestTrusted = parts.length > 0;
-    // 远端也过一遍过滤：对端可能还在跑旧版扫描器（它的清单里照样列着
-    // `.plugin-manager/logs/*` 与 `.bak` 副本）。只在本地排除的话，这些条目
-    // 每轮都会被当「远端有、本地没有」重新下载一遍，待同步永远清不完。
-    return mergeDeviceManifests(parts).filter((e) => !isIgnoredRel(e.rel));
+    const trust = evaluateManifestTrust(reads);
+    this.remoteManifestTrusted = trust.trusted;
+    this.manifestTrustFailed = trust.failed;
+    if (!trust.trusted) {
+      console.warn(
+        '[dsh-nas-sync] 本轮 ' + trust.failed.length + '/' + reads.length +
+        ' 份设备清单读取失败，禁用删除传播：' + trust.failed.join(', '),
+      );
+    }
+    // 空清单也要计入 parts：一台设备「确实一个条目都没有」是有效信息。
+    const parts: ManifestEntry[][] = reads.flatMap((r) => (r.entries === null ? [] : [r.entries]));
+    return safeEntries(mergeDeviceManifests(parts));
   }
 
-  /** 解密单份清单；文件不存在 / 口令不符都返回空（不抛）。 */
-  private async readManifestAt(remote: string): Promise<ManifestEntry[]> {
+  /**
+   * 严格版：解密单份清单。**读失败与「读成了空清单」是两种结果**（null vs []），
+   * 只有 `readRemoteManifest()` 的删除传播判据能用它，别处不得拿 [] 当失败。
+   */
+  private async tryReadManifestAt(remote: string): Promise<ManifestEntry[] | null> {
     try {
       const enc = await this.deps.transport.getBuffer(remote);
       const plain = await Crypto.decrypt(enc, this.deps.config.passphrase);
       const list = JSON.parse(new TextDecoder().decode(plain));
-      return Array.isArray(list) ? list : [];
+      return Array.isArray(list) ? list : null;
     } catch {
-      return [];
+      return null;
     }
+  }
+
+  /** 兼容旧调用点：读失败按空清单处理，**不可**用于删除传播判据。 */
+  private async readManifestAt(remote: string): Promise<ManifestEntry[]> {
+    return (await this.tryReadManifestAt(remote)) ?? [];
   }
 
   private async writeManifestFile(remote: string, entries: ManifestEntry[]): Promise<void> {
@@ -541,30 +613,94 @@ export class Engine {
     return join(dshHome(), 'nas-sync', 'ignored-sessions.json');
   }
 
-  /** 读屏蔽清单。文件不存在 = 没有额外屏蔽，不是错误。 */
+  /**
+   * 读屏蔽清单（0.5.9 fail-closed）。
+   *
+   * 0.5.8 在 `try` 之前就 `this.ignoredFromFile = new Set()`，`catch` 又吞掉
+   * JSON 解析错误 —— 用户把文件写坏一次，屏蔽就被静默撤销，撤掉的会话全部复活。
+   * 现在：正常读 → 更新并刷新 last-known-good 备份；读坏 → 先备份原件、再尝试从
+   * 备份恢复；连备份都没有 → 保留内存态、置错误位、**本轮禁用一切破坏性回收**。
+   */
   private loadIgnoredFile(): void {
-    this.ignoredFromFile = new Set<string>();
-    try {
-      const arr = JSON.parse(readFileSync(this.ignoredFilePath(), 'utf8'));
-      if (Array.isArray(arr)) {
-        for (const s of arr) if (typeof s === 'string' && s.trim()) this.ignoredFromFile.add(s.trim());
-      }
-    } catch {
-      /* 没有这个文件就是空清单 */
+    const path = this.ignoredFilePath();
+    const backupPath = path + '.bak';
+    const main = readJsonFile<unknown>(path);
+    const asSet = (v: unknown): Set<string> | null => {
+      if (!Array.isArray(v)) return null;
+      const s = new Set<string>();
+      for (const x of v) if (typeof x === 'string' && x.trim()) s.add(x.trim());
+      return s;
+    };
+
+    const fromMain = asSet(main.data);
+    if (fromMain) {
+      this.ignoredFromFile = fromMain;
+      this.ignoredFileError = null;
+      // 每轮扫描都会走到这里。内容没变就别反复刷 .bak（省一次写盘，也不让 mtime 抖动）
+      const bak = readJsonFile<unknown>(backupPath).data;
+      const same = Array.isArray(bak) && bak.length === fromMain.size
+        && [...fromMain].every((id) => bak.includes(id));
+      if (!same) writeBackup(path);
+      return;
     }
+
+    // 主文件不存在（首次运行 / 被误删）：有备份就自动恢复，没有才是合法的空清单
+    if (main.missing && !main.corrupted) {
+      const fromBak = asSet(readJsonFile<unknown>(backupPath).data);
+      if (fromBak) {
+        this.ignoredFromFile = fromBak;
+        this.ignoredFileError = '屏蔽清单主文件缺失，已从 .bak 自动恢复';
+        console.warn('[dsh-nas-sync] ' + this.ignoredFileError);
+        this.saveIgnoredFile();
+        return;
+      }
+      this.ignoredFromFile = new Set<string>();
+      this.ignoredFileError = null;
+      return;
+    }
+
+    // 损坏 / 不是数组：优先从备份恢复，并把坏文件留证
+    const fromBak = asSet(readJsonFile<unknown>(backupPath).data);
+    if (fromBak) {
+      this.ignoredFromFile = fromBak;
+      this.ignoredFileError = '屏蔽清单损坏，已从 .bak 恢复；原件备份在 '
+        + (main.quarantinedTo ?? '(备份失败)');
+      console.error('[dsh-nas-sync] ' + this.ignoredFileError);
+      try { writeJsonAtomic(path, [...fromBak].sort()); } catch { /* 下轮再试 */ }
+      return;
+    }
+    // 无可用备份：不清空、不猜测，直接把本轮标记为不可做破坏性动作
+    this.ignoredFileError = '屏蔽清单损坏且无可用备份，本轮已禁用删除传播：'
+      + (main.quarantinedTo ?? '(备份失败)');
+    console.error('[dsh-nas-sync] ' + this.ignoredFileError);
   }
 
   private saveIgnoredFile(): void {
     try {
-      mkdirSync(join(dshHome(), 'nas-sync'), { recursive: true });
-      writeFileSync(
-        this.ignoredFilePath(),
-        JSON.stringify([...this.ignoredFromFile].sort(), null, 2) + '\n',
-        'utf8',
-      );
+      const path = this.ignoredFilePath();
+      // 原子写，避免进程被杀时留下半截 JSON（这正是上面要防的损坏来源）
+      writeJsonAtomic(path, [...this.ignoredFromFile].sort());
+      writeBackup(path);
     } catch (err) {
-      console.warn('[dsh-nas-sync] 写屏蔽清单失败：' + String(err));
+      this.ignoredFileError = '屏蔽清单写入失败：' + String(err);
+      console.error('[dsh-nas-sync] ' + this.ignoredFileError);
     }
+  }
+
+  /** 列出本机屏蔽的会话 id（只读，0.5.9 让这个能力对用户可见）。 */
+  listIgnoredSessions(): { ids: string[]; error: string | null } {
+    this.loadIgnoredFile();
+    return { ids: [...this.ignoredFromFile].sort(), error: this.ignoredFileError };
+  }
+
+  /** 撤销屏蔽：这条会话下一轮又能从对端同步回来（0.5.9，让屏蔽可撤销）。 */
+  unignoreSession(sid: string): boolean {
+    const id = String(sid || '').trim();
+    if (!id) return false;
+    this.loadIgnoredFile();
+    if (!this.ignoredFromFile.delete(id)) return false;
+    this.saveIgnoredFile();
+    return true;
   }
 
   /** rel 形如 `sessions/<cwd编码>/<sessionId>/session.v<N>.jsonl.zstd`。 */
@@ -958,6 +1094,12 @@ export class Engine {
      */
     const imports = this.deps.store.sessionImports ?? (this.deps.store.sessionImports = {});
     const importedLocalRel = new Set<string>();
+    // 0.5.9：屏蔽清单读坏时，本轮**不做任何回收**。宁可这轮不收敛，也不能在
+    // 不知道哪些会话该保留的情况下搬走用户数据。
+    const destructiveBlocked = this.ignoredFileError !== null;
+    if (destructiveBlocked) {
+      console.warn('[dsh-nas-sync] 本轮跳过全部回收动作：' + this.ignoredFileError);
+    }
     for (const [remoteRel, rec] of Object.entries(imports)) {
       let alive = false;
       try {
@@ -980,18 +1122,20 @@ export class Engine {
          * 「鲸鱼宠物 / 数据库同步问题」就是这样在电脑上反复复活的。
          *
          * 三重保险，避免把「清单读失败」误判成「用户删了」：
-         *   ① `remoteManifestTrusted`：本轮至少有一份设备清单读成了；
-         *   ② 连续两轮都缺（`missingRounds`），单次抖动不算；
-         *   ③ 回收是移进 `$DSH_HOME/nas-sync/removed/<时间戳>/`，不是硬删。
+         *   ① `remoteManifestTrusted`：本轮**每一份**设备清单都读成了（0.5.9 收紧）；
+         *   ② `advanceMissingRounds()`：严格连续两轮，中间任何一轮不可信或又出现
+         *      都归零（0.5.8 的不可信分支不复位，实际是「累计两轮」，与 README 不符）；
+         *   ③ 回收是移进 `$DSH_HOME/nas-sync/removed/<时间戳>/`，不是硬删，
+         *      0.5.9 起还能用 `nas_list_removed` / `nas_restore_session` 真正恢复。
          */
-        if (!this.remoteManifestTrusted) {
-          importedLocalRel.add(rec.localRel); // 清单不可信：这一轮先当「还活着」，别上传别归零
-          continue;
-        }
-        const rounds = (rec.missingRounds ?? 0) + 1;
-        if (rounds < 2) {
-          rec.missingRounds = rounds;
-          importedLocalRel.add(rec.localRel);
+        const rounds = advanceMissingRounds({
+          trusted: this.remoteManifestTrusted && !destructiveBlocked,
+          present: false,
+          previous: rec.missingRounds,
+        });
+        rec.missingRounds = rounds;
+        if (!shouldRetire(rounds)) {
+          importedLocalRel.add(rec.localRel); // 还不到两轮：先当「还活着」，别上传别回收
           continue;
         }
         try {
@@ -1018,6 +1162,7 @@ export class Engine {
      * 两个动作绑在一起、每轮幂等执行，才真正收敛。
      */
     for (const rel of [...localMap.keys()]) {
+      if (destructiveBlocked) break; // 屏蔽清单不可信，不敢按它搬文件
       if (!isSessionRel(rel) || !this.isImportIgnored(rel)) continue;
       try {
         await this.retireLocalSession(rel);
@@ -1353,28 +1498,61 @@ export class Engine {
     if (n > 0) console.log('[dsh-nas-sync] 已补登记 ' + n + ' 个会话到侧栏');
   }
 
+  /** 回收根目录。0.5.9 起这里的内容可被 `listRemovedSessions()` 枚举并恢复。 */
+  private removedRoot(): string {
+    return join(dshHome(), 'nas-sync', 'removed');
+  }
+
   /**
    * 把某个会话的**目录**搬进回收目录，并清掉它在工作区里的登记。
    * `retireImport()` 与本机屏蔽回收共用这一段。
    *
+   * 0.5.9：同时写一个 `<id>.meta.json` 记录原始 rel / 远端 rel / 原因，
+   * 否则目录名是 `sessions__xxx__sid__file` 这种有损编码，根本没法还原回去 ——
+   * README 说的「随时捞回来」在 0.5.8 里其实没有任何实现。
+   *
    * @returns 搬去的目标路径
    */
-  private async retireLocalSession(localRel: string): Promise<string> {
+  private async retireLocalSession(
+    localRel: string,
+    opts: { remoteRel?: string; reason: string } = { reason: 'locally-ignored' },
+  ): Promise<string> {
+    if (!isSafeRel(localRel)) throw new Error('拒绝回收不安全的 rel：' + String(localRel).slice(0, 120));
     const abs = this.resolveLocal(localRel);
     // 会话文件在 `sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd`，整个目录一起搬
     const cut = Math.max(abs.lastIndexOf('/'), abs.lastIndexOf('\\'));
+    if (cut <= 0) throw new Error('无法从 rel 推导会话目录：' + localRel);
     const sessionDir = abs.slice(0, cut);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const trash = join(dshHome(), 'nas-sync', 'removed', stamp, localRel.replace(/\//g, '__'));
-    await mkdir(join(trash, '..'), { recursive: true });
+    const id = localRel.replace(/\//g, '__');
+    const batch = join(this.removedRoot(), stamp);
+    const trash = join(batch, id);
+    await mkdir(batch, { recursive: true });
 
     if (existsSync(sessionDir)) {
       try {
         await rename(sessionDir, trash);
       } catch {
+        // 跨卷回退：先复制完整，再删源目录（0.5.8 的 cp→rm 之间没有校验，
+        // 复制失败也会把源删掉。这里至少确认目标存在且非空才动手）
         await cp(sessionDir, trash, { recursive: true });
+        const copied = await readdirAsync(trash);
+        if (copied.length === 0) throw new Error('回收目录复制为空，已保留原文件');
         await rm(sessionDir, { recursive: true, force: true });
       }
+    }
+    // 元数据放在会话目录旁边，避免污染会话目录本身
+    try {
+      writeJsonAtomic(trash + '.meta.json', {
+        rel: localRel,
+        remoteRel: opts.remoteRel ?? null,
+        sessionId: this.sessionIdOfRel(localRel),
+        retiredAt: new Date().toISOString(),
+        reason: opts.reason,
+        trashDir: trash,
+      });
+    } catch (err) {
+      console.error('[dsh-nas-sync] 回收元数据写入失败（这条例后将只能手工恢复）：' + String(err));
     }
     try {
       await unregisterSessionFromRel(localRel);
@@ -1382,6 +1560,111 @@ export class Engine {
       /* 清登记失败不致命：文件已经不在，下一轮不会再有这条 */
     }
     return trash;
+  }
+
+  /** 回收目录里的一条记录。 */
+  listRemovedSessions(): Array<{
+    id: string; rel: string | null; sessionId: string | null;
+    retiredAt: string | null; reason: string | null; restorable: boolean;
+  }> {
+    const root = this.removedRoot();
+    let batches: string[] = [];
+    try {
+      batches = readdirSync(root, { withFileTypes: true })
+        .filter((d) => d.isDirectory()).map((d) => d.name);
+    } catch {
+      return []; // 还没有回收目录
+    }
+    const out: ReturnType<Engine['listRemovedSessions']> = [];
+    for (const batch of batches) {
+      const dir = join(root, batch);
+      let names: string[] = [];
+      try { names = readdirSync(dir); } catch { continue; }
+      for (const name of names) {
+        if (!name.endsWith('.meta.json')) continue;
+        const metaPath = join(dir, name);
+        const meta = readJsonFile<Record<string, any>>(metaPath).data;
+        const id = name.slice(0, -'.meta.json'.length);
+        out.push({
+          id,
+          rel: typeof meta?.rel === 'string' ? meta.rel : null,
+          sessionId: typeof meta?.sessionId === 'string' ? meta.sessionId : null,
+          retiredAt: typeof meta?.retiredAt === 'string' ? meta.retiredAt : null,
+          reason: typeof meta?.reason === 'string' ? meta.reason : null,
+          restorable: !!meta && isSafeRel(meta.rel),
+        });
+      }
+      // 0.5.8 及更早、或手工搬进去的目录：没有元数据，只列出不提供自动恢复
+      for (const name of names) {
+        if (name.endsWith('.meta.json') || name.endsWith('.bak')) continue;
+        const metaPath = join(dir, name + '.meta.json');
+        if (existsSync(metaPath)) continue;
+        out.push({
+          id: name, rel: null, sessionId: null,
+          retiredAt: batch, reason: 'legacy（无元数据）', restorable: false,
+        });
+      }
+    }
+    return out.sort((a, b) => String(b.retiredAt ?? '').localeCompare(String(a.retiredAt ?? '')));
+  }
+
+  /**
+   * 把回收目录里的会话放回原处（0.5.9）。
+   *
+   * 除了搬文件，还做两件必须的事：重新登记到工作区（否则侧栏看不到），
+   * 以及撤销本机屏蔽（否则下一轮扫描立刻又把它搬回来）。
+   */
+  async restoreRemovedSession(key: string): Promise<{ rel: string; restoredTo: string }> {
+    const wanted = String(key || '').trim();
+    if (!wanted) throw new Error('请提供回收记录的 id 或原始 rel');
+    const entry = this.listRemovedSessions().find((e) => e.id === wanted || e.rel === wanted);
+    if (!entry) throw new Error('回收目录里没有这条记录：' + wanted);
+    if (!entry.restorable || !entry.rel) {
+      throw new Error('这条回收记录没有元数据（旧版/手工搬迁），无法自动还原；请手工从 '
+        + this.removedRoot() + ' 拷回 sessions/ 对应目录');
+    }
+    const rel = entry.rel;
+    const abs = this.resolveLocal(rel);
+    const cut = Math.max(abs.lastIndexOf('/'), abs.lastIndexOf('\\'));
+    if (cut <= 0) throw new Error('无法从 rel 推导会话目录：' + rel);
+    const sessionDir = abs.slice(0, cut);
+    if (existsSync(sessionDir)) {
+      throw new Error('目标目录已存在，拒绝覆盖：' + sessionDir);
+    }
+    // 定位元数据与回收目录（listRemovedSessions 只给了 id，需要回查原始路径）
+    const root = this.removedRoot();
+    let trashDir = '';
+    let metaPath = '';
+    for (const batch of (() => {
+      try { return readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); }
+      catch { return [] as string[]; }
+    })()) {
+      const candidate = join(root, batch, entry.id + '.meta.json');
+      if (!existsSync(candidate)) continue;
+      const m = readJsonFile<Record<string, any>>(candidate).data;
+      if (m?.rel !== rel) continue;
+      metaPath = candidate;
+      trashDir = typeof m?.trashDir === 'string' ? m.trashDir : join(root, batch, entry.id);
+      break;
+    }
+    if (!trashDir || !existsSync(trashDir)) throw new Error('回收目录已不存在：' + (trashDir || entry.id));
+    await mkdir(join(sessionDir, '..'), { recursive: true });
+    try {
+      await rename(trashDir, sessionDir);
+    } catch {
+      await cp(trashDir, sessionDir, { recursive: true });
+      const copied = await readdirAsync(sessionDir);
+      if (copied.length === 0) throw new Error('恢复复制为空，已保留回收目录');
+    }
+    try { await registerSessionForRel(rel); } catch (err) {
+      console.warn('[dsh-nas-sync] 恢复后登记侧栏失败：' + String(err));
+    }
+    const sid = entry.sessionId ?? this.sessionIdOfRel(rel);
+    if (sid) this.unignoreSession(sid);
+    if (metaPath) {
+      try { await rm(metaPath, { force: true }); } catch { /* 留着不影响使用 */ }
+    }
+    return { rel, restoredTo: sessionDir };
   }
 
   /**
@@ -1409,7 +1692,7 @@ export class Engine {
       return;
     }
 
-    const trash = await this.retireLocalSession(rec.localRel);
+    const trash = await this.retireLocalSession(rec.localRel, { remoteRel, reason: 'remote-deleted' });
 
     delete this.deps.store.sessionImports[remoteRel];
     this.deps.store.save();
@@ -1566,6 +1849,13 @@ export class Engine {
   private async downloadEntry(rel: string): Promise<DownloadOutcome> {
     this.setPhase('downloading');
 
+    // 0.5.9：rel 来自远端清单，是**外部输入**。在它进入 fetch 路径拼接与
+    // resolveLocal() 之前先挡一道，防止 `../` / 绝对路径 / 编码穿越读写任意文件。
+    if (!isSafeRel(rel)) {
+      console.warn('[dsh-nas-sync] 拒绝不安全的远端 rel：' + String(rel).slice(0, 120));
+      return 'skipped';
+    }
+
     // 0.5.8：本机明确屏蔽的远端会话，连取都不取（省一次 580 KB 的下载）
     if (this.isImportIgnored(rel)) return 'skipped';
 
@@ -1676,9 +1966,15 @@ export class Engine {
             console.warn('[dsh-nas-sync] 跳过导入（本机已有同 id 会话，避免互相覆盖）：' + rel);
           }
           return 'skipped';
-        } else if (sessionFrameOffsets(cur).length === sessionFrameOffsets(written).length) {
+        } else if (
+          sessionFrameOffsets(cur).length === sessionFrameOffsets(written).length &&
+          // 0.5.9：单帧会话没有尾帧可比，只比帧数会把两条不同会话误判成「等价副本」。
+          // 必须再用首帧身份指纹（忽略 cwd）证明确实是同一条。
+          sessionHeaderIdentity(cur) !== null &&
+          sessionHeaderIdentity(cur) === sessionHeaderIdentity(written)
+        ) {
           /**
-           * 帧数一样、尾帧逐字节一样 = **内容完全等价，只差第 0 帧的 cwd**
+           * 帧数一样、尾帧逐字节一样、首帧身份相同 = **内容完全等价，只差第 0 帧的 cwd**
            * （典型：对端把自己那份镜像按本机路径回过一次，又被本机当成一条新 rel 看到）。
            * 这种不要去写盘：写了就得重新压第 0 帧，两端的字节又会互相「看起来更新」，
            * 580 KB 的会话每 5 分钟来回搬一次。只记账、不落盘，下一轮就收敛。

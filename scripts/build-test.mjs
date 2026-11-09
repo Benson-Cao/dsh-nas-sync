@@ -17,6 +17,11 @@ const entries = [
   ['src/sync/portable.ts', 'dist-test/portable.mjs'],
   ['src/sync/manifest.ts', 'dist-test/manifest.mjs'],
   ['src/sync/plugins.ts', 'dist-test/plugins.mjs'],
+  ['src/sync/safety.ts', 'dist-test/safety.mjs'],
+  ['src/sync/state-file.ts', 'dist-test/state-file.mjs'],
+  ['src/sync/crypto.ts', 'dist-test/crypto.mjs'],
+  ['src/config.ts', 'dist-test/config.mjs'],
+  ['src/sync/engine.ts', 'dist-test/engine.mjs'],
 ];
 
 for (const [entry, outfile] of entries) {
@@ -25,11 +30,17 @@ for (const [entry, outfile] of entries) {
     bundle: true,
     platform: 'node',
     format: 'esm',
-    target: 'node18',
+    target: 'node22',
     outfile,
     external: ['@deepseek-ai/*'],
     alias: {
       '@deepseek-ai/dsh-home-paths': './scripts/_test-home-paths-stub.mjs',
+      '@deepseek-ai/schemastery': './scripts/_test-schemastery-stub.mjs',
+    },
+    // tweetnacl 是 CJS，打进 ESM 产物后会留下 `require('crypto')`；
+    // 与 scripts/build.mjs 一样注入 createRequire，否则 engine 单测一 import 就炸。
+    banner: {
+      js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
     },
     logLevel: 'warning',
   });

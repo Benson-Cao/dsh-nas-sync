@@ -8,11 +8,11 @@
  */
 
 import z from '@deepseek-ai/schemastery';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { dshHome } from './paths.js';
 import type { ManifestEntry } from './data/models.js';
+import { readJsonFile, readTextFile, writeJsonAtomic, writeTextAtomic } from './sync/state-file.js';
 
 export const NS_NAS_SYNC = 'nas-sync';
 
@@ -281,15 +281,82 @@ const DEFAULT_SNAPSHOT: SyncSnapshot = {
   running: false,
 };
 
-/** 状态文件目录：$DSH_HOME/.dsh/nas-sync/（不在同步白名单内，不会自我同步）。 */
+/** 状态文件目录：$DSH_HOME/nas-sync/（不在同步白名单内，不会自我同步）。 */
 function storeDir(): string {
   return join(dshHome(), 'nas-sync');
 }
 
+/**
+ * 把两个口令字段从 `userConfig` 里拆出来（0.5.9）。
+ *
+ * 这不是加密 —— 在没有系统 keyring 的跨端环境里做不到真正的密钥托管。
+ * 但 `store.json` 是排障时最常被整份贴出来/拷走的文件，把口令挪进单独一个
+ * 0600 文件，至少不会「贴状态 = 贴口令」。迁移要向后兼容：老版本的口令还在
+ * store.json 里，构造时读出来拆走，下次 save 就写成新格式。
+ */
+function splitSecrets(uc: Record<string, unknown> | null): {
+  publicPart: Record<string, unknown> | null;
+  secrets: Record<string, unknown>;
+} {
+  const secrets: Record<string, unknown> = {};
+  if (!uc || typeof uc !== 'object') return { publicPart: uc, secrets };
+  const publicPart: Record<string, unknown> = { ...uc };
+  if (typeof uc['passphrase'] === 'string') {
+    secrets['passphrase'] = uc['passphrase'];
+    delete publicPart['passphrase'];
+  }
+  const wd = uc['webdav'];
+  if (wd && typeof wd === 'object' && !Array.isArray(wd)) {
+    const w = wd as Record<string, unknown>;
+    if (typeof w['password'] === 'string') {
+      secrets['webdav'] = { password: w['password'] };
+      const clean = { ...w };
+      delete clean['password'];
+      publicPart['webdav'] = clean;
+    }
+  }
+  return { publicPart, secrets };
+}
+
+/** 把独立凭据文件里的字段并回内存态（只在内存里合并，store.json 永远不含它们）。 */
+function mergeSecrets(
+  uc: Record<string, unknown> | null,
+  secrets: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  const out: Record<string, unknown> = { ...(uc ?? {}) };
+  if (secrets && typeof secrets === 'object') {
+    if (typeof secrets['passphrase'] === 'string') out['passphrase'] = secrets['passphrase'];
+    const w = secrets['webdav'];
+    if (w && typeof w === 'object' && !Array.isArray(w)) {
+      const pwd = (w as Record<string, unknown>)['password'];
+      if (typeof pwd === 'string') {
+        const base = out['webdav'] && typeof out['webdav'] === 'object'
+          ? { ...(out['webdav'] as Record<string, unknown>) }
+          : {};
+        base['password'] = pwd;
+        out['webdav'] = base;
+      }
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 export class Store {
   readonly storePath = join(storeDir(), 'store.json');
+  /**
+   * salt 单独存一份（0.5.9）。它进每个密文的文件头，丢了 = NAS 上所有历史密文
+   * 永久解不开。以前只写在 store.json 里，那份文件一坏就被构造函数的 catch 整份
+   * 重置，等于把钥匙一起扔了。现在独立、原子、只读一次。
+   */
+  readonly saltPath = join(storeDir(), 'salt.hex');
+  /** 口令类字段单独落 0600 文件，不进 store.json（0.5.9）。 */
+  readonly credentialsPath = join(storeDir(), 'credentials.json');
   /** 固定 scrypt salt（16B hex）。首次生成后持久化；进每个密文文件头，跨机可解。 */
   saltHex: string;
+  /** 上次状态文件异常，供状态面板/日志显示；不再静默吞掉。 */
+  lastError: string | null = null;
+  /** 避免每轮同步都重写凭据文件（save() 调用非常频繁）。 */
+  private lastCredentialsJson = '';
 
   snapshot: SyncSnapshot = { ...DEFAULT_SNAPSHOT };
   pendingFiles: PendingFile[] = [];
@@ -311,61 +378,94 @@ export class Store {
   sessionImports: Record<string, SessionImportRecord> = {};
 
   constructor() {
+    // ① 状态文件：区分「不存在」与「损坏」。损坏时留备份并大声报错，
+    //    绝不因为一个坏字段就把 snapshot / pending / conflicts 整份重置。
+    const stored = readJsonFile<Record<string, any>>(this.storePath);
+    const data = stored.data;
+    if (stored.corrupted) {
+      this.lastError = '状态文件损坏，已备份到 ' + (stored.quarantinedTo ?? '(备份失败)');
+      console.error('[dsh-nas-sync] ' + this.lastError);
+    }
+
+    // ② salt 独立持久化：store.json 没了/坏了，历史密文仍可解。
     let salt: string | null = null;
-    try {
-      if (existsSync(this.storePath)) {
-        const data = JSON.parse(readFileSync(this.storePath, 'utf-8'));
-        if (data.snapshot) {
-          this.snapshot = { ...DEFAULT_SNAPSHOT, ...data.snapshot };
-          /**
-           * 僵尸态清理（0.5.1）：手机上把 App 切后台后系统会冻结/杀掉 node 进程，
-           * `sync()` 的 finally 永远等不到，磁盘里就留下 `running:true` +
-           * `phase:'scanning'` + 半截 `progress`。
-           *
-           * 而 `Store` 只在插件加载（进程启动）时构造一次 —— 这一刻本进程绝不可能
-           * 已经有同步在跑，所以磁盘上的 running 必然是上一具尸体。不复位的话，
-           * 面板会一直显示「进行中」并挂着一个永远不动的 94/145，点「立即同步」
-           * 也看不出区别（用户实测就是这样卡了一小时）。
-           *
-           * progress 故意保留：它代表「上次中断在 N/M」，面板可以据此提示，
-           * 但只有 running 为真时才该当成实时进度。
-           */
-          this.snapshot.running = false;
-          this.snapshot.phase = 'idle';
-        }
-        if (Array.isArray(data.pendingFiles)) this.pendingFiles = data.pendingFiles;
-        if (Array.isArray(data.conflicts)) this.conflicts = data.conflicts;
-        if (Array.isArray(data.localManifest)) this.localManifest = data.localManifest;
-        if (data.userConfig && typeof data.userConfig === 'object') this.userConfig = data.userConfig;
-        if (data.sessionImports && typeof data.sessionImports === 'object') {
-          this.sessionImports = data.sessionImports as Record<string, SessionImportRecord>;
-        }
-        if (typeof data.saltHex === 'string' && data.saltHex.length === 32) salt = data.saltHex;
-      }
-    } catch {
-      this.snapshot = { ...DEFAULT_SNAPSHOT };
-      this.pendingFiles = [];
-      this.conflicts = [];
+    const saltFile = readTextFile(this.saltPath);
+    if (saltFile.data && /^[0-9a-f]{32}$/i.test(saltFile.data.trim())) {
+      salt = saltFile.data.trim().toLowerCase();
+    } else if (typeof data?.saltHex === 'string' && /^[0-9a-f]{32}$/i.test(data.saltHex)) {
+      salt = data.saltHex.toLowerCase(); // 从老版 store.json 迁移
     }
     if (!salt) salt = randomBytes(16).toString('hex');
     this.saltHex = salt;
+    try {
+      writeTextAtomic(this.saltPath, this.saltHex + '\n');
+    } catch (err) {
+      this.lastError = 'salt 持久化失败（历史密文可能无法解开）：' + String(err);
+      console.error('[dsh-nas-sync] ' + this.lastError);
+    }
+
+    // ③ 逐字段恢复，坏一个不影响其它。
+    if (data && typeof data === 'object') {
+      if (data.snapshot && typeof data.snapshot === 'object') {
+        /**
+         * 僵尸态清理（0.5.1）：手机切后台时 node 进程会被冻结/杀掉，`sync()` 的
+         * finally 等不到，磁盘上就留下 running:true + 半截 progress。Store 只在
+         * 插件加载时构造一次，此刻本进程不可能已有同步在跑，所以那是上一具尸体。
+         */
+        this.snapshot = {
+          ...DEFAULT_SNAPSHOT,
+          ...data.snapshot,
+          running: false,
+          phase: 'idle',
+        };
+      }
+      if (Array.isArray(data.pendingFiles)) this.pendingFiles = data.pendingFiles;
+      if (Array.isArray(data.conflicts)) this.conflicts = data.conflicts;
+      if (Array.isArray(data.localManifest)) this.localManifest = data.localManifest;
+      if (data.userConfig && typeof data.userConfig === 'object') this.userConfig = data.userConfig;
+      if (data.sessionImports && typeof data.sessionImports === 'object') {
+        this.sessionImports = data.sessionImports as Record<string, SessionImportRecord>;
+      }
+    }
+
+    // ④ 凭据：优先独立文件；老版本从 store.json 迁移（下次 save 写成新格式）。
+    const credFile = readJsonFile<Record<string, unknown>>(this.credentialsPath);
+    if (credFile.corrupted) {
+      this.lastError = '凭据文件损坏，已备份到 ' + (credFile.quarantinedTo ?? '(备份失败)')
+        + '；请重新执行 nas_set_config 设置口令';
+      console.error('[dsh-nas-sync] ' + this.lastError);
+    }
+    let secrets: Record<string, unknown> | null = credFile.data;
+    if (!secrets && this.userConfig) {
+      const migrated = splitSecrets(this.userConfig);
+      secrets = migrated.secrets;
+      this.userConfig = migrated.publicPart;
+    }
+    this.userConfig = mergeSecrets(this.userConfig, secrets);
+
     this.save();
   }
 
   save(): void {
     try {
-      mkdirSync(dirname(this.storePath), { recursive: true });
-      writeFileSync(this.storePath, JSON.stringify({
+      const { publicPart, secrets } = splitSecrets(this.userConfig);
+      writeJsonAtomic(this.storePath, {
         saltHex: this.saltHex,
         snapshot: this.snapshot,
         pendingFiles: this.pendingFiles,
         conflicts: this.conflicts,
         localManifest: this.localManifest,
-        userConfig: this.userConfig,
+        userConfig: publicPart,
         sessionImports: this.sessionImports,
-      }, null, 2), 'utf-8');
-    } catch {
-      /* 写失败不致命，下次再试 */
+      });
+      const credJson = JSON.stringify(secrets);
+      if (credJson !== this.lastCredentialsJson) {
+        writeJsonAtomic(this.credentialsPath, secrets);
+        this.lastCredentialsJson = credJson;
+      }
+    } catch (err) {
+      this.lastError = '状态文件写入失败：' + String(err);
+      console.error('[dsh-nas-sync] ' + this.lastError);
     }
   }
 
