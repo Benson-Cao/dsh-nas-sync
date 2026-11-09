@@ -236,7 +236,7 @@ registerNasSyncUi(ctx, HostBridge(scope))
 | 插件 CAS 解包写 `node_modules` | `src/sync/tgz.ts`、`installer.ts` 的 `installFromCas()` / `startCas()` | CLI 优先；无 CLI（手机端）自动从 `/dsh/objects/<sha前2位>/<sha>` 校验后零依赖解 USTAR/PAX/GNU longname `.tgz`，临时目录 + 原子重命名 + 失败回滚。拒绝路径穿越、符号/硬链接、设备文件与解压炸弹 |
 | NSS2 信封 + 流式分块加密 | `src/sync/crypto.ts`、`engine.ts` 的 `seal()` | `envelopeVersion=1`（NSS1）继续写，兼容旧端；设成 `2` 才写带版本 + AAD 的 NSS2。`decrypt()` 永远双读，历史密文不会失效；`sealStream()` / `openStream()` 用 `NSS2C` 帧绑定 `(aad, index, final)`，防重排 / 复制 / 截断 / 篡改 |
 | 增量扫描缓存 | `src/sync/scan-cache.ts`、`scanner.ts` 的 `toEntry()` | 默认开、TTL 24h（`$DSH_HOME/nas-sync/scan-cache.json`）。按 `mtimeMs/ctimeMs/size` 三元组命中即跳过 `readFile` + sha256；配置指纹变化整表失效，坏缓存降级为全量扫描并告警 |
-| 完整质量体系 | `.github/workflows/ci.yml`、`scripts/coverage.mjs` / `mutation.mjs` / `security-audit.mjs` / `device-e2e.*`、`test/*` | `npm run verify` = build + 232 单测 + 覆盖率（门槛 40%，实测 73.56%）+ 10 个变异体全杀死 + SAST/SCA（high/medium 0）。真机 E2E 已在物理设备上实跑通过（`reports/device-e2e.json`：`ok:true`、6 个端点全 200），可复跑 `npm run device:e2e` |
+| 完整质量体系 | `.github/workflows/ci.yml`、`scripts/coverage.mjs` / `mutation.mjs` / `security-audit.mjs` / `device-e2e.*`、`test/*` | `npm run verify` = build + 297 单测 + 覆盖率（门槛 40%，实测 74.48%）+ 10 个变异体全杀死 + SAST/SCA（high/medium 0）+ 契约 33/33。真机 E2E 已在物理设备上实跑通过（`reports/device-e2e.json`：`ok:true`、6 个端点全 200），可复跑 `npm run device:e2e` |
 
 仍诚实保留的边界：**凭据仍拆在 0600 的 `credentials.json` 里但为明文**，真正的系统
 keyring 需要宿主接口；`scan()` 仍无并发锁；`DefaultBridge` 仍是骨架；工作区文件按目录
