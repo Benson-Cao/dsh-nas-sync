@@ -22818,8 +22818,22 @@ function makeEvent(input) {
   if (input.category) e2.category = input.category;
   if (input.platform) e2.platform = input.platform;
   if (Number.isFinite(input.retentionDays)) e2.retentionDays = Math.max(0, Math.floor(input.retentionDays));
+  const obs = normalizeVector(input.obs);
+  if (obs) e2.obs = obs;
   e2.sig = eventSignature(e2);
   return e2;
+}
+function normalizeVector(v) {
+  if (!v || typeof v !== "object") return void 0;
+  const out = {};
+  let any = false;
+  for (const k of Object.keys(v)) {
+    const n = Math.floor(Number(v[k]));
+    if (!k || !Number.isFinite(n) || n <= 0) continue;
+    out[k] = n;
+    any = true;
+  }
+  return any ? out : void 0;
 }
 function verifyEvent(e2) {
   if (!e2 || typeof e2 !== "object") return false;
@@ -22831,6 +22845,12 @@ function verifyEvent(e2) {
   if (typeof r2.key !== "string" || !r2.key) return false;
   if (!VALID_OPS.has(r2.op)) return false;
   if (typeof r2.sig !== "string" || !r2.sig) return false;
+  if (r2.obs !== void 0) {
+    if (!r2.obs || typeof r2.obs !== "object" || Array.isArray(r2.obs)) return false;
+    for (const [k, n] of Object.entries(r2.obs)) {
+      if (!k || !Number.isFinite(n) || n < 1) return false;
+    }
+  }
   try {
     return eventSignature(e2) === r2.sig;
   } catch {
@@ -22839,6 +22859,49 @@ function verifyEvent(e2) {
 }
 function eventId(e2) {
   return e2.device + ":" + e2.seq;
+}
+function vectorClockOf(e2) {
+  const v = { ...e2.obs ?? {} };
+  v[e2.device] = Math.max(v[e2.device] ?? 0, e2.seq);
+  return v;
+}
+function dominates(a, b) {
+  let strictly = false;
+  const keys = /* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    const x2 = a[k] ?? 0;
+    const y = b[k] ?? 0;
+    if (x2 < y) return false;
+    if (x2 > y) strictly = true;
+  }
+  return strictly;
+}
+function compareCausally(a, b) {
+  if (a.device === b.device && a.seq === b.seq) return "equal";
+  const va = vectorClockOf(a);
+  const vb = vectorClockOf(b);
+  if (dominates(va, vb)) return "after";
+  if (dominates(vb, va)) return "before";
+  return "concurrent";
+}
+function stableTieBreak(a, b) {
+  if (a.ts !== b.ts) return a.ts - b.ts;
+  const d = String(a.device).localeCompare(String(b.device));
+  if (d !== 0) return d;
+  return a.seq - b.seq;
+}
+function isContentOp(op) {
+  return op === "delete" || op === "upsert" || op === "plugin-install";
+}
+function pickWinner(events) {
+  const list = events.filter((e2) => e2 && isContentOp(e2.op));
+  if (list.length === 0) return null;
+  if (list.length === 1) return list[0];
+  const maximal = list.filter((e2) => !list.some((o) => o !== e2 && compareCausally(o, e2) === "after"));
+  const pool = maximal.length > 0 ? maximal : list;
+  const dead = pool.filter((e2) => e2.op === "delete");
+  const candidates = dead.length > 0 ? dead : pool;
+  return candidates.reduce((best, cur) => stableTieBreak(cur, best) > 0 ? cur : best);
 }
 function compareEvents(a, b) {
   if (a.ts !== b.ts) return a.ts - b.ts;
@@ -22909,30 +22972,62 @@ function validateEventStream(reads) {
     badSignatures
   };
 }
+function tombstoneOf(e2, days) {
+  const d = e2.retentionDays ?? days;
+  return {
+    key: e2.key,
+    rel: e2.rel,
+    deletedAt: e2.ts,
+    by: e2.device,
+    device: e2.device,
+    seq: e2.seq,
+    expiresAt: d > 0 ? e2.ts + d * DAY_MS : 0,
+    trashRel: e2.rel ? trashPathOf(e2.key, e2.ts) : void 0,
+    vc: vectorClockOf(e2)
+  };
+}
+function resurrects(e2, t2) {
+  const vc = normalizeVector(t2.vc);
+  if (vc) return dominates(vectorClockOf(e2), vc);
+  return e2.ts > t2.deletedAt;
+}
 function buildTombstones(events, opts = {}) {
   const days = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
   const byKey = /* @__PURE__ */ new Map();
-  for (const t2 of opts.previous ?? []) if (t2 && t2.key) byKey.set(t2.key, t2);
-  for (const e2 of sortEvents(events)) {
-    if (e2.op === "delete") {
-      const d = e2.retentionDays ?? days;
-      byKey.set(e2.key, {
-        key: e2.key,
-        rel: e2.rel,
-        deletedAt: e2.ts,
-        by: e2.device,
-        device: e2.device,
-        seq: e2.seq,
-        expiresAt: d > 0 ? e2.ts + d * DAY_MS : 0,
-        trashRel: e2.rel ? trashPathOf(e2.key, e2.ts) : void 0
-      });
-    } else if (e2.op === "upsert" || e2.op === "plugin-install") {
-      const t2 = byKey.get(e2.key);
-      if (t2 && e2.ts > t2.deletedAt) byKey.delete(e2.key);
-    } else if (e2.op === "unignore") {
-    }
+  for (const e2 of events) {
+    if (!e2 || !e2.key || !isContentOp(e2.op)) continue;
+    const arr = byKey.get(e2.key);
+    if (arr) arr.push(e2);
+    else byKey.set(e2.key, [e2]);
   }
-  return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+  const out = /* @__PURE__ */ new Map();
+  for (const [key, list] of byKey) {
+    const winner = pickWinner(list);
+    if (winner && winner.op === "delete") out.set(key, tombstoneOf(winner, days));
+  }
+  for (const t2 of opts.previous ?? []) {
+    if (!t2 || !t2.key || out.has(t2.key)) continue;
+    const list = byKey.get(t2.key);
+    if (!list) {
+      out.set(t2.key, t2);
+      continue;
+    }
+    const winner = pickWinner(list);
+    if (!winner || !resurrects(winner, t2)) out.set(t2.key, t2);
+  }
+  return [...out.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+function tombstoneWins(a, b) {
+  const va = normalizeVector(a.vc);
+  const vb = normalizeVector(b.vc);
+  if (va && vb) {
+    if (dominates(va, vb)) return true;
+    if (dominates(vb, va)) return false;
+  }
+  return stableTieBreak(
+    { ts: a.deletedAt, seq: a.seq, device: String(a.device) },
+    { ts: b.deletedAt, seq: b.seq, device: String(b.device) }
+  ) > 0;
 }
 function mergeTombstones(...lists) {
   const byKey = /* @__PURE__ */ new Map();
@@ -22944,8 +23039,7 @@ function mergeTombstones(...lists) {
         byKey.set(t2.key, t2);
         continue;
       }
-      const newer = t2.deletedAt > cur.deletedAt || t2.deletedAt === cur.deletedAt && (t2.seq > cur.seq || t2.seq === cur.seq && String(t2.device) > String(cur.device));
-      if (newer) byKey.set(t2.key, t2);
+      if (tombstoneWins(t2, cur)) byKey.set(t2.key, t2);
     }
   }
   return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
@@ -23746,6 +23840,26 @@ var Engine = class {
   publishedEvents = 0;
   /** 上次成功读取事件流的时间戳（10 秒内复用，避免一轮同步读两遍）。 */
   eventStreamFreshAt = 0;
+  /**
+   * 「本机会话目录被同步动作改动过」的单调纪元（0.7.0）。
+   *
+   * 宿主的侧栏列表来自自身的一次 `session/list` 拉取，之后只跟着 Host 推的
+   * 会话生命周期事件更新 —— 我们在它背后把会话目录搬走，它并不知情，于是
+   * 那一行要等重启（重新拉 list）才消失。
+   *
+   * 这个计数器就是给页面的信号：值变了，说明磁盘上的会话集合被同步改过，
+   * 客户端插件会据此调一次宿主自己的 `sessions.refresh()`（= 重新拉 list 基线），
+   * 不需要重启。是内存态，不做持久化 —— 页面刷新后自己会重新对齐。
+   */
+  removalEpoch = 0;
+  /** 供面板读取：会话目录改动纪元。 */
+  removalEpochValue() {
+    return this.removalEpoch;
+  }
+  /** 会话目录被本插件改动过（回收 / 清理 / 恢复）时推进纪元。 */
+  bumpRemovalEpoch() {
+    this.removalEpoch += 1;
+  }
   /** 面板/诊断用：当前安全开关的状态。 */
   safetyStatus() {
     return {
@@ -24537,7 +24651,11 @@ var Engine = class {
       console.warn("[dsh-nas-sync] \u4E8B\u4EF6\u6D41\u4E0D\u5B8C\u6574\uFF0C\u672C\u8F6E\u7981\u7528\u4E8B\u4EF6\u9A71\u52A8\u5220\u9664\uFF1A" + this.eventStreamError);
     }
     this.tombstones = buildTombstones(this.eventStream, {
-      retentionDays: normalizeRetentionDays(this.deps.config.retentionDays)
+      retentionDays: normalizeRetentionDays(this.deps.config.retentionDays),
+      // 0.7.0：日志分片有可能只读回一部分（网络抖动 / 某片读失败）。这时
+      // `eventStream` 里「那条 delete 不在」，若不拿旧墓碑兜底，删除就会被忘掉、
+      // 下一轮把会话重新拉回来。旧墓碑只有拿到因果更晚的写入才会被撤销。
+      previous: this.tombstones
     });
     this.eventStreamFreshAt = Date.now();
   }
@@ -24707,10 +24825,31 @@ var Engine = class {
     }
     return out;
   }
+  /**
+   * 本机当前的因果前沿：已读到的**各台其他设备**的最大 seq。
+   *
+   * 写进事件的 `obs` 后，对端就能判断「这条写入有没有见过我之前那条」——
+   * 这是向量时钟裁决 delete / upsert 胜负的唯一依据，与两台机器的墙钟快慢无关。
+   *
+   * 直接从 `this.eventStream`（本轮刚读完的完整合并流）算，而不是从
+   * `deviceCursors` 取：位点是在「应用完事件之后」才推进的，用它会有滞后，
+   * 而滞后会让真·复活被判成并发、进而被 delete-wins 吃掉。
+   */
+  causalFrontier() {
+    const self2 = selfDevice();
+    const out = {};
+    for (const e2 of this.eventStream) {
+      if (!e2 || !e2.device || e2.device === self2) continue;
+      if (!Number.isInteger(e2.seq)) continue;
+      if (e2.seq > (out[e2.device] ?? 0)) out[e2.device] = e2.seq;
+    }
+    return out;
+  }
   /** 收尾发布本机事件：上传成功 → upsert；确认删除 → delete；屏蔽操作 → ignore/unignore。 */
   async publishEvents(fresh, baseline) {
     const device = selfDevice();
     const ts = Date.now();
+    const obs = this.causalFrontier();
     let seq = nextLocalSeq(this.eventStream, device);
     const out = [];
     const retentionDays = normalizeRetentionDays(this.deps.config.retentionDays);
@@ -24721,6 +24860,7 @@ var Engine = class {
         device,
         seq: seq++,
         ts,
+        obs,
         key: stableKeyOf(rel),
         rel,
         hash: e2.hash,
@@ -24776,6 +24916,7 @@ var Engine = class {
           device,
           seq: seq++,
           ts,
+          obs,
           key: stableKeyOf(rel),
           rel,
           op: "delete",
@@ -24788,6 +24929,7 @@ var Engine = class {
         device,
         seq: seq++,
         ts,
+        obs,
         key: "session:" + intent.sid,
         op: intent.op,
         category: "sessions"
@@ -25268,6 +25410,7 @@ var Engine = class {
       device,
       seq: nextLocalSeq(this.eventStream, device),
       ts: Date.now(),
+      obs: this.causalFrontier(),
       key: stableKeyOf(rel),
       rel,
       op: "delete",
@@ -25325,6 +25468,7 @@ var Engine = class {
         const pruned = await pruneEmptySessionDirs(dead);
         if (pruned.length > 0) {
           console.log("[dsh-nas-sync] \u6E05\u6389 " + pruned.length + " \u4E2A\u5DF2\u5220\u4F1A\u8BDD\u7559\u4E0B\u7684\u7A7A\u76EE\u5F55");
+          this.bumpRemovalEpoch();
         }
       }
     } catch (err) {
@@ -25675,6 +25819,7 @@ var Engine = class {
     } catch (err) {
       console.error("[dsh-nas-sync] \u56DE\u6536\u5143\u6570\u636E\u5199\u5165\u5931\u8D25\uFF08\u8FD9\u6761\u4F8B\u540E\u5C06\u53EA\u80FD\u624B\u5DE5\u6062\u590D\uFF09\uFF1A" + String(err));
     }
+    if (this.isSessionBodyRel(localRel)) this.bumpRemovalEpoch();
     const sid = this.sessionIdOfRel(localRel);
     try {
       await unregisterSessionFromRel(localRel);
@@ -25808,6 +25953,7 @@ var Engine = class {
             device,
             seq: nextLocalSeq(this.eventStream, device),
             ts: Date.now(),
+            obs: this.causalFrontier(),
             key: key2,
             rel,
             hash: sha256Hex2(buf),
@@ -25828,6 +25974,7 @@ var Engine = class {
         }
       }
     }
+    this.bumpRemovalEpoch();
     return { rel, restoredTo: sessionDir };
   }
   /**
@@ -26653,7 +26800,13 @@ function createBridge(ctx, deps) {
           config: publicConfig(deps.getConfig()),
           // 0.5.9：把「本轮为什么没做删除传播」「状态文件是否异常」显式暴露给面板
           safety: engine.safetyStatus(),
-          storeError: deps.store.lastError
+          storeError: deps.store.lastError,
+          /**
+           * 0.7.0：本机会话目录被同步动作改动过的单调纪元。
+           * 页面侧（client.js）轮询它，值一变就调宿主自己的 `sessions.refresh()`
+           * 重新拉 `session/list` —— 否则删掉的会话要等重启才从侧栏消失。
+           */
+          removalEpoch: engine.removalEpochValue()
         });
       }
       if (sub === "/events" && method === "GET") {

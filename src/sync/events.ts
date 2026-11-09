@@ -17,7 +17,7 @@
 import { createHash } from 'node:crypto';
 import type {
   SyncEvent, SyncEventOp, Tombstone, DeviceCursor,
-  EventStreamTrust, ManifestEntry, BidMapEntry,
+  EventStreamTrust, ManifestEntry, BidMapEntry, VersionVector,
 } from '../data/models.js';
 
 /** 事件日志根目录：每台设备一个子目录，分片 JSONL。 */
@@ -143,11 +143,33 @@ export function pluginTarget(platform: string, arch: string, abi: string | numbe
 // 事件构造与校验
 // ---------------------------------------------------------------------------
 
-/** 签名覆盖的固定字段顺序 —— 与对象属性插入顺序无关，JSON.parse 回来也能校验。 */
+/**
+ * 签名覆盖的固定字段顺序 —— 与对象属性插入顺序无关，JSON.parse 回来也能校验。
+ *
+ * 注意：`obs`（向量时钟）**故意不在签名范围内**。
+ * 原因是跨版本互通：0.6.x 的读端按它自己那份字段表算签名，如果 0.7.0 把 `obs`
+ * 也算进去，旧端会算出不同的哈希、把每条新事件判成「被篡改」→ `badSignatures`
+ * 非空 → 整轮事件流不可信 → **旧端直接禁用删除传播**。为避免升级一半就炸，
+ * `obs` 只做数据不做签名。事件日志本身从来就不是认证信道（能写 NAS 的人都能
+ * 改），签名挡的是「半截写 / 手滑改坏」，不是恶意伪造 —— 这个取舍是划算的。
+ */
 const SIG_KEYS = [
   'v', 'device', 'seq', 'ts', 'key', 'rel', 'hash', 'op',
   'category', 'platform', 'retentionDays',
 ] as const;
+
+/**
+ * 版本向量的规范串：按设备名排序后拼 `d:seq`。
+ *
+ * 虽然不进签名，仍需要规范化形式：日志/测试里比较两个向量时不能受对象键序影响。
+ * 空向量返回空串。
+ */
+export function canonicalVector(v: VersionVector | undefined | null): string {
+  if (!v || typeof v !== 'object') return '';
+  const keys = Object.keys(v).filter((k) => Number.isFinite(v[k])).sort();
+  if (keys.length === 0) return '';
+  return keys.map((k) => k + ':' + String(Math.floor(v[k]))).join(',');
+}
 
 function canonicalForSig(e: SyncEvent): string {
   const parts: string[] = [];
@@ -174,6 +196,8 @@ export interface MakeEventInput {
   category?: string;
   platform?: string;
   retentionDays?: number;
+  /** 写入时的因果前沿；传空对象等同于不传 */
+  obs?: VersionVector;
 }
 
 /** 造一条自校验事件。所有写入端都必须走这里，禁止手写对象字面量。 */
@@ -191,8 +215,24 @@ export function makeEvent(input: MakeEventInput): SyncEvent {
   if (input.category) e.category = input.category;
   if (input.platform) e.platform = input.platform;
   if (Number.isFinite(input.retentionDays)) e.retentionDays = Math.max(0, Math.floor(input.retentionDays as number));
+  const obs = normalizeVector(input.obs);
+  if (obs) e.obs = obs;
   e.sig = eventSignature(e);
   return e;
+}
+
+/** 规范化版本向量：丢掉非正 / 非有限值，空结果返回 undefined（不写进事件）。 */
+export function normalizeVector(v: VersionVector | undefined | null): VersionVector | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const out: VersionVector = {};
+  let any = false;
+  for (const k of Object.keys(v)) {
+    const n = Math.floor(Number(v[k]));
+    if (!k || !Number.isFinite(n) || n <= 0) continue;
+    out[k] = n;
+    any = true;
+  }
+  return any ? out : undefined;
 }
 
 /** 事件是否完整且未被篡改。半截写 / 手改 / 版本不对一律 false。 */
@@ -206,6 +246,13 @@ export function verifyEvent(e: unknown): e is SyncEvent {
   if (typeof r.key !== 'string' || !r.key) return false;
   if (!VALID_OPS.has(r.op as SyncEventOp)) return false;
   if (typeof r.sig !== 'string' || !r.sig) return false;
+  // obs 允许缺省（0.6.x 的历史事件）；一旦出现就必须是「设备名 → 正整数」
+  if (r.obs !== undefined) {
+    if (!r.obs || typeof r.obs !== 'object' || Array.isArray(r.obs)) return false;
+    for (const [k, n] of Object.entries(r.obs as Record<string, unknown>)) {
+      if (!k || !Number.isFinite(n) || (n as number) < 1) return false;
+    }
+  }
   try {
     return eventSignature(e as SyncEvent) === r.sig;
   } catch {
@@ -221,9 +268,99 @@ export function eventId(e: SyncEvent): string {
 // 排序 / 合并
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 向量时钟：同一 key 上 delete / upsert 的胜负裁决
+// ---------------------------------------------------------------------------
+
+/**
+ * 一条事件的完整时钟 = 写入时的观测前沿 ∪ {自己的 (device, seq)}。
+ *
+ * `obs` 只记「别人的进度」，自己的位置由 `(device, seq)` 表示 —— 两者相加
+ * 才是一个完整的版本向量。旧事件没有 `obs`，退化成只含自己那一维，
+ * 于是它与任何跨设备事件都「并发」，由下面的兜底规则处理。
+ */
+export function vectorClockOf(e: SyncEvent): VersionVector {
+  const v: VersionVector = { ...(e.obs ?? {}) };
+  v[e.device] = Math.max(v[e.device] ?? 0, e.seq);
+  return v;
+}
+
+/** `a` 是否严格支配 `b`：每个维度都不小于，且至少一个维度更大。 */
+export function dominates(a: VersionVector, b: VersionVector): boolean {
+  let strictly = false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    const x = a[k] ?? 0;
+    const y = b[k] ?? 0;
+    if (x < y) return false;
+    if (x > y) strictly = true;
+  }
+  return strictly;
+}
+
+export type CausalOrder = 'after' | 'before' | 'concurrent' | 'equal';
+
+/**
+ * 两条事件的因果关系。
+ *
+ * `after` 表示 a 的作者**在写 a 之前已经见过 b** —— 这才是「更新」的正确含义。
+ * `concurrent` 表示互相都没见过（离线各改各的、或时钟错乱导致的伪并发）。
+ */
+export function compareCausally(a: SyncEvent, b: SyncEvent): CausalOrder {
+  if (a.device === b.device && a.seq === b.seq) return 'equal';
+  const va = vectorClockOf(a);
+  const vb = vectorClockOf(b);
+  if (dominates(va, vb)) return 'after';
+  if (dominates(vb, va)) return 'before';
+  return 'concurrent';
+}
+
+/**
+ * 同一毫秒 / 并发的确定性兜底顺序。
+ *
+ * 只在**语义相同**的两条事件之间用来挑代表（两条 delete、两条 upsert），
+ * 保证两端算出来的代表完全一致 —— 不能让它变成「谁时钟快谁说了算」。
+ */
+function stableTieBreak(a: { ts: number; seq: number; device: string }, b: { ts: number; seq: number; device: string }): number {
+  if (a.ts !== b.ts) return a.ts - b.ts;
+  const d = String(a.device).localeCompare(String(b.device));
+  if (d !== 0) return d;
+  return a.seq - b.seq;
+}
+
+/** 参与「内容裁决」的操作：只有这两类会决定一个 key 是活的还是死的。 */
+function isContentOp(op: SyncEventOp): boolean {
+  return op === 'delete' || op === 'upsert' || op === 'plugin-install';
+}
+
+/**
+ * 在一组同 key 的事件里挑出胜者。
+ *
+ * 规则（与墙钟彻底脱钩）：
+ *   ① 先求「因果极大集」—— 被别的事件因果压过的直接淘汰；
+ *   ② 极大集里只要有一条 delete，**delete 胜**（并发删除语义，宁删不活）；
+ *   ③ 极大集全是 upsert（真·复活，即写入者确实见过之前的删除）时取确定性的
+ *      最大者；④ 全是 delete 时同样取确定性的最大者，仅用于选代表。
+ */
+export function pickWinner(events: ReadonlyArray<SyncEvent>): SyncEvent | null {
+  const list = events.filter((e) => e && isContentOp(e.op));
+  if (list.length === 0) return null;
+  if (list.length === 1) return list[0];
+
+  const maximal = list.filter((e) => !list.some((o) => o !== e && compareCausally(o, e) === 'after'));
+  const pool = maximal.length > 0 ? maximal : list;
+
+  const dead = pool.filter((e) => e.op === 'delete');
+  const candidates = dead.length > 0 ? dead : pool;
+  return candidates.reduce((best, cur) => (stableTieBreak(cur, best) > 0 ? cur : best));
+}
+
 /**
  * LWW 比较：`ts` 大者胜。同一毫秒里 `delete` 排后面（后回放 = 胜），
  * 即「删除优先」；再按 `(device, seq)` 稳定打破平局，保证两端结果一致。
+ *
+ * 0.7.0 起它**只用于输出顺序**（让日志、清单、测试输出可复现），
+ * 胜负改由 `pickWinner()` 按向量时钟裁决。
  */
 export function compareEvents(a: SyncEvent, b: SyncEvent): number {
   if (a.ts !== b.ts) return a.ts - b.ts;
@@ -338,39 +475,96 @@ export interface TombstoneOptions {
   previous?: ReadonlyArray<Tombstone>;
 }
 
-/** 从事件流回放生成墓碑。更晚的 upsert 可以「复活」；同毫秒删除优先。 */
+/** 由一条 delete 事件派生墓碑。 */
+function tombstoneOf(e: SyncEvent, days: number): Tombstone {
+  const d = e.retentionDays ?? days;
+  return {
+    key: e.key,
+    rel: e.rel,
+    deletedAt: e.ts,
+    by: e.device,
+    device: e.device,
+    seq: e.seq,
+    expiresAt: d > 0 ? e.ts + d * DAY_MS : 0,
+    trashRel: e.rel ? trashPathOf(e.key, e.ts) : undefined,
+    vc: vectorClockOf(e),
+  };
+}
+
+/**
+ * 一条 upsert 能否「复活」既有墓碑。
+ *
+ * 只有**写入者确实见过这条删除**（向量时钟支配墓碑的时钟）才算真复活。
+ * 旧墓碑（0.6.x 写入、没有 `vc`）退回墙钟兜底，保持升级前后行为一致。
+ */
+function resurrects(e: SyncEvent, t: Tombstone): boolean {
+  const vc = normalizeVector(t.vc);
+  if (vc) return dominates(vectorClockOf(e), vc);
+  return e.ts > t.deletedAt;
+}
+
+/**
+ * 从事件流回放生成墓碑。
+ *
+ * 0.7.0 起不再「按 ts 顺序一条条套用」，而是**按 key 归组后一次性裁决**
+ * （`pickWinner()`）。原因：流式套用隐含依赖「事件按真实发生顺序排列」，
+ * 而墙钟排序在有设备时钟偏移时根本不成立 —— 一条 ts 偏大的 upsert 只要排在
+ * delete 后面就会把删除抹掉。按 key 归组后胜负只取决于因果，与顺序无关，
+ * 于是 `buildTombstones` 对输入顺序不再敏感（可交换、可重放）。
+ */
 export function buildTombstones(
   events: ReadonlyArray<SyncEvent>,
   opts: TombstoneOptions = {},
 ): Tombstone[] {
   const days = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
-  const byKey = new Map<string, Tombstone>();
-  for (const t of opts.previous ?? []) if (t && t.key) byKey.set(t.key, t);
 
-  for (const e of sortEvents(events)) {
-    if (e.op === 'delete') {
-      const d = e.retentionDays ?? days;
-      byKey.set(e.key, {
-        key: e.key,
-        rel: e.rel,
-        deletedAt: e.ts,
-        by: e.device,
-        device: e.device,
-        seq: e.seq,
-        expiresAt: d > 0 ? e.ts + d * DAY_MS : 0,
-        trashRel: e.rel ? trashPathOf(e.key, e.ts) : undefined,
-      });
-    } else if (e.op === 'upsert' || e.op === 'plugin-install') {
-      const t = byKey.get(e.key);
-      if (t && e.ts > t.deletedAt) byKey.delete(e.key);
-    } else if (e.op === 'unignore') {
-      // 屏蔽撤销不属于内容墓碑，忽略即可
-    }
+  const byKey = new Map<string, SyncEvent[]>();
+  for (const e of events) {
+    if (!e || !e.key || !isContentOp(e.op)) continue;
+    const arr = byKey.get(e.key);
+    if (arr) arr.push(e);
+    else byKey.set(e.key, [e]);
   }
-  return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+
+  const out = new Map<string, Tombstone>();
+  for (const [key, list] of byKey) {
+    const winner = pickWinner(list);
+    if (winner && winner.op === 'delete') out.set(key, tombstoneOf(winner, days));
+  }
+
+  // 旧墓碑兜底：日志被 GC / 本轮只读到部分分片时，不能因为「没看到那几条事件」
+  // 就把删除忘掉。只有拿到「因果上更晚的写入」才允许撤销。
+  for (const t of opts.previous ?? []) {
+    if (!t || !t.key || out.has(t.key)) continue;
+    const list = byKey.get(t.key);
+    if (!list) {
+      out.set(t.key, t);
+      continue;
+    }
+    const winner = pickWinner(list);
+    if (!winner || !resurrects(winner, t)) out.set(t.key, t);
+  }
+
+  return [...out.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-/** 合并多份墓碑表：后写胜（ts 大者；同 ts 按 seq / device 稳定判定）。 */
+/** 两份墓碑谁该留作代表：先看因果，因果不可比时用确定性兜底。 */
+function tombstoneWins(a: Tombstone, b: Tombstone): boolean {
+  const va = normalizeVector(a.vc);
+  const vb = normalizeVector(b.vc);
+  if (va && vb) {
+    if (dominates(va, vb)) return true;
+    if (dominates(vb, va)) return false;
+  }
+  // 两边都是「删除」，语义完全一致；这里只在挑代表（谁的时间戳/回收期当前），
+  // 用确定性顺序保证两端选到同一条，不会因为时钟快慢改变「已删除」这个结论。
+  return stableTieBreak(
+    { ts: a.deletedAt, seq: a.seq, device: String(a.device) },
+    { ts: b.deletedAt, seq: b.seq, device: String(b.device) },
+  ) > 0;
+}
+
+/** 合并多份墓碑表：因果更晚者胜；并发（两边都是删除）时确定性收敛。 */
 export function mergeTombstones(...lists: ReadonlyArray<ReadonlyArray<Tombstone>>): Tombstone[] {
   const byKey = new Map<string, Tombstone>();
   for (const list of lists) {
@@ -381,11 +575,7 @@ export function mergeTombstones(...lists: ReadonlyArray<ReadonlyArray<Tombstone>
         byKey.set(t.key, t);
         continue;
       }
-      const newer =
-        t.deletedAt > cur.deletedAt ||
-        (t.deletedAt === cur.deletedAt &&
-          (t.seq > cur.seq || (t.seq === cur.seq && String(t.device) > String(cur.device))));
-      if (newer) byKey.set(t.key, t);
+      if (tombstoneWins(t, cur)) byKey.set(t.key, t);
     }
   }
   return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));

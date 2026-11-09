@@ -156,12 +156,22 @@ export type SyncEventOp =
  * `sig` 覆盖除自身外的所有字段，用来分辨「半截写 / 被改过」和「合法空日志」，
  * 与 0.5.9 里 `tryReadManifestAt()` 吞异常返回 [] 是同一类问题的正面解法。
  */
+/**
+ * 版本向量：`device -> 该写入者当时已读到的对方最大 seq`。
+ *
+ * 0.7.0 起用它取代「按墙钟比大小」来裁决同一 key 的 delete / upsert 胜负。
+ * 墙钟有个绕不过去的洞：设备时钟偏快 5 分钟的那一端，随便一次写入都会被判成
+ * 「比对方的删除更晚」，于是删除被静默撤销、会话自己回来。向量时钟只看因果：
+ * 「我写这条的时候，有没有见过你那条」——与时钟快慢无关。
+ */
+export type VersionVector = Record<string, number>;
+
 export interface SyncEvent {
   v: 2;
   device: string;
   /** 该设备内从 1 开始单调递增 */
   seq: number;
-  /** 物理毫秒；同一毫秒内由 compareEvents 打破平局 */
+  /** 物理毫秒；只用于展示、回收保留期与稳定的输出顺序，**不参与胜负裁决** */
   ts: number;
   key: string;
   /** 事件对应的 rel（会话可能是 canonical rel） */
@@ -175,6 +185,13 @@ export interface SyncEvent {
   platform?: string;
   /** 删除事件的回收保留天数；0 = 永久，缺省走 DEFAULT_RETENTION_DAYS */
   retentionDays?: number;
+  /**
+   * 写入时的因果前沿（版本向量）。
+   *
+   * 缺省表示「旧版事件 / 没记录」——比对时按空向量处理，并退回墙钟兜底，
+   * 这样 0.6.x 写下的历史日志不需要重签也能继续参与裁决。
+   */
+  obs?: VersionVector;
   /** 事件体校验和（sha256 hex） */
   sig?: string;
 }
@@ -191,6 +208,8 @@ export interface Tombstone {
   expiresAt: number;
   /** 远端回收副本路径 */
   trashRel?: string;
+  /** 产生这条墓碑的那条 delete 事件的因果前沿（版本向量）；旧版墓碑没有 */
+  vc?: VersionVector;
 }
 
 /** 设备位点：本机已确认处理到某台设备的哪个 seq。 */

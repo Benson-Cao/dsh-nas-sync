@@ -1545,6 +1545,82 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * 找一个宿主提供的客户端服务。
+     *
+     * 不把它写进 `inject` 的原因：cordis 的 inject 缺服务会让**整个插件**停在
+     * pending，连设置面板都不再注册。侧栏刷新只是锦上添花，绝不能因为宿主版本
+     * 没这个服务就把面板弄没。所以运行时软查找，找不到就跳过。
+     */
+    function lookupService(ctx, name) {
+      const probes = [
+        () => (typeof ctx.get === 'function' ? ctx.get(name) : undefined),
+        () => ctx[name],
+        () => (ctx.root && ctx.root[name]),
+        () => (ctx.reflect && typeof ctx.reflect.get === 'function' ? ctx.reflect.get(name) : undefined),
+      ];
+      for (let i = 0; i < probes.length; i++) {
+        try {
+          const v = probes[i]();
+          if (v) return v;
+        } catch (_) { /* 换下一个探测方式 */ }
+      }
+      return undefined;
+    }
+
+    /**
+     * 侧栏「已删会话」自动消失（0.7.0）。
+     *
+     * ── 为什么必须这么做 ────────────────────────────────────────────
+     * 宿主的侧栏列表是它自己 `session/list` 拉来的**客户端缓存**，之后只跟着
+     * Host 推的会话生命周期事件（session/created、session/disposed）更新。
+     * 我们在宿主背后把会话目录搬进 `nas-sync/removed/`，它并不知道，于是那一行
+     * 一直挂着，要等重启（重新拉一次 list）才消失。
+     *
+     * 宿主客户端上下文里有 `sessions` 服务，且带一个 `refresh()` —— 它就是
+     * `session/list` 的重新拉取（内部 `manager.refreshList()`）。所以：
+     * 服务端每次改动会话目录就把 `removalEpoch` +1，这边轮询到变化就 refresh。
+     *
+     * 首轮只记基线不刷新：否则每次打开页面都白拉一次列表。
+     */
+    function startSessionListAutoRefresh(ctx) {
+      if (typeof window === 'undefined' || typeof window.setInterval !== 'function') return;
+      let last = null;
+      let busy = false;
+      let stopped = false;
+
+      const tick = () => {
+        if (stopped || busy) return;
+        // 后台标签页不拉：既省流量，也避免和宿主自己的可见性策略打架
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        const a = api();
+        if (!a.ready) return;
+        busy = true;
+        a.call('/status')
+          .then((value) => {
+            const epoch = value && value.removalEpoch;
+            if (typeof epoch !== 'number') return;
+            if (last === null) { last = epoch; return; }
+            if (epoch === last) return;
+            last = epoch;
+            const sessions = lookupService(ctx, 'sessions');
+            if (!sessions || typeof sessions.refresh !== 'function') return;
+            Promise.resolve(sessions.refresh()).catch(() => { /* 拉失败就等下一轮 */ });
+          })
+          .catch(() => { /* 状态接口暂时拿不到，下一轮再试 */ })
+          .then(() => { busy = false; });
+      };
+
+      tick();
+      const timer = window.setInterval(tick, 4000);
+      try {
+        ctx.effect(() => () => {
+          stopped = true;
+          try { window.clearInterval(timer); } catch (_) { /* 忽略 */ }
+        }, 'dsh-nas-sync: session list auto refresh');
+      } catch (_) { /* 没有 effect 能力时定时器就跟着页面走，无副作用 */ }
+    }
+
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-nas-sync: dictionaries');
       const t = ctx.locale.bind(NS);
@@ -1559,6 +1635,8 @@ window.__ModuleLoader__.load({
           NasPanelIcon,
         ),
       );
+      // 0.7.0：对端删除落地后让侧栏自己把那一行去掉，不用重启
+      try { startSessionListAutoRefresh(ctx); } catch (_) { /* 刷新只是体验优化 */ }
     }
 
     return { inject: ['slots', 'locale'], apply };

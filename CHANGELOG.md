@@ -1,5 +1,69 @@
 # 变更记录
 
+## 0.7.0 — 2026-11-09
+
+两件事：墓碑裁决换成**向量时钟**，以及**对端删除落地后侧栏自己刷新**（不用重启）。
+
+### 1. 向量时钟取代墙钟 LWW
+
+0.6.x 用 `ts`（本机墙钟）裁决同一 key 上 upsert 与 delete 谁赢。后果很直白：
+**谁的钟快谁赢**。手机钟偏快两分钟，手机上的 upsert 就能盖掉电脑上的 delete——
+删除被「伪复活」，与因果顺序无关。
+
+- `models.ts`：新增 `VersionVector = Record<device, maxSeq>`；`SyncEvent.obs?`
+  （发送方在写入这条事件时**已经看到**的各设备最大 seq）；`Tombstone.vc?`。
+- `events.ts`：新增 `canonicalVector()` / `normalizeVector()` / `vectorClockOf()` /
+  `dominates()` / `compareCausally()`（`after|before|concurrent|equal`）/
+  `pickWinner()` / `stableTieBreak()` / `isContentOp()`。
+- 裁决规则：
+  - `a` 支配 `b` → `a` 赢（因果上更晚，这是唯一合法的「复活」）；
+  - 互不支配（并发）→ **delete 赢**；
+  - 两者 `obs` 都缺（旧事件）→ 退回原来的 `ts` 比较；
+  - 仍打平 → `stableTieBreak()`（device 字典序 + seq），保证各端收敛到同一赢家。
+- `buildTombstones()` 从「顺序扫、逐条比」重写为**按 key 归组 + 一次性裁决**。
+  原来的实现依赖事件遍历顺序，同一批事件换个顺序可能得出不同墓碑——这是收敛性
+  的隐患，现在裁决与顺序无关（有回归用例锁死）。
+- `buildTombstones(events, { previous })`：事件日志被 GC、或某个分片读失败时，
+  不能因此把删除忘掉。`previous` 里的墓碑若没有被因果上更晚的 upsert 真正复活，
+  继续保留。
+- `engine.ts`：新增 `causalFrontier()`，直接从 `eventStream` 算「别的设备最大 seq」。
+  **不用 `deviceCursors`** —— 它是上一轮提交后的位点，落后于刚读进来的事件，用它
+  会把自己刚发的事件算成并发。全部 5 处 `makeEvent()` 都带上 `obs`。
+- 旧墓碑（无 `vc`）仍按 `e.ts > t.deletedAt` 兜底，升级不需要清墓碑缓存。
+
+#### 关键互操作取舍：`obs` 不进签名
+
+`SIG_KEYS` **不含** `obs`。若纳入签名，0.6.x 读端算出的哈希与新端不同 →
+`verifyEvent()` 判成篡改 → `badSignatures` 非空 → 整轮事件流被判不可信 → **旧端
+会直接关掉删除传播**。这不划算：新旧端混跑时，让旧端保持「能用但没有向量时钟
+优势」远好于让它彻底失灵。回归用例：同一条事件带不带 `obs`，`sig` 必须完全一致。
+
+### 2. 侧栏「已删会话」不用重启就消失
+
+宿主的侧栏列表是它自己 `session/list` 拉来的**客户端缓存**，之后只跟着 Host 推的
+`session/created` / `session/disposed` 更新。插件在宿主背后把会话目录搬进
+`nas-sync/removed/`，宿主并不知情 → 那一行一直挂着，必须重启（重新拉 list）。
+
+- `engine.ts`：新增 `removalEpoch` 计数器 + `removalEpochValue()` / `bumpRemovalEpoch()`。
+  三个地方会 `+1`：`retireLocalSession()`（本机退场或按墓碑退场）、
+  `pruneEmptySessionDirs` 真清掉目录、`restoreRemovedSession()`（恢复也算目录变了）。
+- `bridge.ts`：`/status` 返回 `removalEpoch`。
+- `client.js`：新增 `lookupService()` + `startSessionListAutoRefresh(ctx)`。每 4 秒拉一次
+  `/status`，`removalEpoch` 变了就调宿主 `sessions.refresh()`（内部即
+  `manager.refreshList()`，重新拉 `session/list`）。首轮只记基线不刷新，否则每次
+  开页面都白拉一次；`document.visibilityState === 'hidden'` 时跳过。
+- **为什么不写进 `inject`**：cordis 的 `inject` 缺服务会让**整个插件**停在 pending，
+  连设置面板都不再注册。刷新只是锦上添花，绝不能因为宿主版本没这个服务就把面板
+  弄没。所以运行时软查找（`ctx.get()` / `ctx[name]` / `ctx.root[name]` /
+  `ctx.reflect.get()`），找不到就静静跳过。
+
+### 测试
+
+319 条全绿（新增 10 条：向量规范化与签名无关、0.6.x 老事件仍通过校验、
+`dominates` / `compareCausally` 语义、**钟快不再作弊**、真复活、`buildTombstones`
+顺序无关、`pickWinner` 并发收敛、旧墓碑墙钟兜底、新墓碑拒绝伪复活）。
+
+
 ## 0.6.3 — 2026-11-09
 
 修「侧栏幽灵条目」：删除传播打通之后，本机 `sessions/<cwd编码>/<sid>/` 的**空目录**

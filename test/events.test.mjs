@@ -20,6 +20,7 @@ import {
   validateEventStream, buildTombstones, mergeTombstones, isDeleted, collectGc, tombstoneTargets,
   advanceCursor, eventsSince, applyEventsToManifest, migrateV1ToEvents,
   parseEventLog, serializeEventLog, mergeBidMaps, bidMapLookup,
+  canonicalVector, normalizeVector, vectorClockOf, dominates, compareCausally, pickWinner,
 } from '../dist-test/events.mjs';
 
 import {
@@ -215,13 +216,21 @@ test('buildTombstones：delete 生成墓碑，默认保留 30 天，带回收副
   assert.equal(t.by, DEV_A);
 });
 
-test('buildTombstones：更晚的 upsert 能复活；同毫秒的 upsert 不能覆盖删除', () => {
+test('buildTombstones：同一设备上 seq 更大的 upsert 属于「真复活」', () => {
   const del = ev({ seq: 1, op: 'delete', key: 'session:s1' });
   const revive = ev({ seq: 2, ts: TS + 1000, op: 'upsert', key: 'session:s1' });
   assert.equal(buildTombstones([del, revive]).length, 0);
 
+  // 0.7.0：同毫秒不再靠「delete 优先」兜底，而是看**追加顺序**。
+  // 同一设备里 seq 更大 = 后写（发布批次里 delete 总排在 upsert 之后，
+  // 这条不变），所以 seq 更大的 upsert 同样是真复活。
   const sameMs = ev({ seq: 2, ts: TS, op: 'upsert', key: 'session:s1' });
-  assert.equal(buildTombstones([del, sameMs]).length, 1, '删除优先');
+  assert.equal(buildTombstones([del, sameMs]).length, 0);
+
+  // 反过来：seq 更小的 upsert 在删除之前发生，删除必须留下
+  const before = ev({ seq: 1, ts: TS, op: 'upsert', key: 'session:s1' });
+  const laterDel = ev({ seq: 2, ts: TS, op: 'delete', key: 'session:s1' });
+  assert.equal(buildTombstones([before, laterDel]).length, 1);
 });
 
 test('buildTombstones：retentionDays=0 表示永久保留', () => {
@@ -236,8 +245,119 @@ test('mergeTombstones：后写胜且与合并顺序无关', () => {
   assert.equal(mergeTombstones(newer, old)[0].by, DEV_B);
 });
 
+/* ------------------------------------------------- 向量时钟（0.7.0） */
+
+test('版本向量：不进签名（保证 0.6.x 读端仍认这些事件），但自身要规范化', () => {
+  const a = makeEvent({ device: DEV_A, seq: 1, ts: TS, key: 'k', op: 'delete', obs: { [DEV_A]: 1, [DEV_B]: 2 } });
+  const b = makeEvent({ device: DEV_A, seq: 1, ts: TS, key: 'k', op: 'delete', obs: { [DEV_B]: 2, [DEV_A]: 1 } });
+  assert.equal(a.sig, b.sig, '对象键顺序不同不能算出两个签名');
+  assert.equal(canonicalVector({ [DEV_B]: 2, [DEV_A]: 1 }), canonicalVector({ [DEV_A]: 1, [DEV_B]: 2 }));
+  assert.equal(canonicalVector({ [DEV_B]: 2, [DEV_A]: 1 }), `${DEV_B}:2,${DEV_A}:1`, '按设备名排序');
+
+  // 关键互操作约束：obs 不进签名 → 同一个事件带不带 obs，签名完全一样。
+  // 这样 0.6.x 的读端算出的哈希仍与新端一致，不会把新事件判成「被篡改」。
+  const noObs = makeEvent({ device: DEV_A, seq: 1, ts: TS, key: 'k', op: 'delete' });
+  const withObs = makeEvent({ device: DEV_A, seq: 1, ts: TS, key: 'k', op: 'delete', obs: { [DEV_B]: 9 } });
+  assert.equal(noObs.sig, withObs.sig);
+  assert.equal(noObs.obs, undefined);
+  // 空 / 全零向量 → 不写进事件
+  const emptyObs = makeEvent({ device: DEV_A, seq: 1, ts: TS, key: 'k', op: 'delete', obs: {} });
+  assert.equal(emptyObs.obs, undefined);
+  assert.equal(normalizeVector({ [DEV_A]: 0, [DEV_B]: NaN }), undefined);
+});
+
+test('0.6.x 的历史事件（无 obs）仍能通过校验 —— 升级不能把老日志判成损坏', () => {
+  const legacy = { v: 2, device: DEV_A, seq: 4, ts: TS, key: 'session:s1', op: 'delete' };
+  legacy.sig = eventSignature(legacy);
+  assert.ok(verifyEvent(legacy));
+  // 混进新事件一起回放也不影响
+  const fresh = makeEvent({ device: DEV_B, seq: 1, ts: TS, key: 'session:s2', op: 'delete', obs: { [DEV_A]: 4 } });
+  assert.deepEqual(buildTombstones([legacy, fresh]).map((t) => t.key), ['session:s1', 'session:s2']);
+});
+
+test('dominates / compareCausally：因果只看「有没有见过」，与时间戳无关', () => {
+  assert.equal(dominates({ a: 3, b: 1 }, { a: 2, b: 1 }), true);
+  assert.equal(dominates({ a: 2, b: 1 }, { a: 2, b: 1 }), false, '相等不算支配');
+  assert.equal(dominates({ a: 2 }, { a: 3 }), false);
+
+  const del = makeEvent({ device: DEV_A, seq: 5, ts: TS, key: 'k', op: 'delete' });
+  const sawIt = makeEvent({ device: DEV_B, seq: 3, ts: TS, key: 'k', op: 'upsert', hash: HASH, obs: { [DEV_A]: 5 } });
+  const blind = makeEvent({ device: DEV_B, seq: 3, ts: TS, key: 'k', op: 'upsert', hash: HASH });
+
+  assert.equal(compareCausally(sawIt, del), 'after');
+  assert.equal(compareCausally(del, sawIt), 'before');
+  assert.equal(compareCausally(blind, del), 'concurrent');
+  assert.equal(compareCausally(del, del), 'equal');
+  assert.equal(vectorClockOf(sawIt)[DEV_B], 3, '自己的位置由 (device, seq) 补齐');
+});
+
+test('时钟偏快不再作弊：ts 大得多但没见过删除 → 并发 → 删除照样赢', () => {
+  const del = makeEvent({ device: DEV_A, seq: 5, ts: TS, key: 'session:s1', op: 'delete' });
+  // 手机时钟快了 5 分钟：ts 远大于删除，但它从没读过 A 的日志
+  const skewed = makeEvent({
+    device: DEV_B, seq: 3, ts: TS + 300_000, key: 'session:s1',
+    rel: 'sessions/--PHONE/session-s1/f', hash: HASH, op: 'upsert',
+  });
+  assert.equal(compareCausally(skewed, del), 'concurrent');
+
+  const [t] = buildTombstones([del, skewed]);
+  assert.ok(t, '并发时 delete 胜 —— 这正是 0.6.x 按墙钟比较会误复活的地方');
+  assert.equal(t.key, 'session:s1');
+  assert.equal(t.by, DEV_A);
+});
+
+test('真复活：写入者确实见过那条删除，upsert 才赢得干净', () => {
+  const del = makeEvent({ device: DEV_A, seq: 5, ts: TS, key: 'session:s1', op: 'delete' });
+  const revive = makeEvent({
+    device: DEV_B, seq: 3, ts: TS + 1, key: 'session:s1',
+    rel: 'sessions/--PHONE/session-s1/f', hash: HASH, op: 'upsert', obs: { [DEV_A]: 5 },
+  });
+  assert.equal(compareCausally(revive, del), 'after');
+  assert.equal(buildTombstones([del, revive]).length, 0);
+});
+
+test('buildTombstones 对输入顺序不敏感（可交换、可重放）', () => {
+  const del = makeEvent({ device: DEV_A, seq: 5, ts: TS, key: 'session:s1', op: 'delete' });
+  const up1 = makeEvent({ device: DEV_B, seq: 1, ts: TS + 10, key: 'session:s2', rel: 'r2', hash: HASH, op: 'upsert' });
+  const up2 = makeEvent({ device: DEV_A, seq: 6, ts: TS + 20, key: 'session:s2', rel: 'r2', hash: HASH, op: 'upsert', obs: { [DEV_B]: 1 } });
+  const a = buildTombstones([del, up1, up2]);
+  const b = buildTombstones([up2, del, up1]);
+  const c = buildTombstones([up1, up2, del]);
+  assert.deepEqual(a, b);
+  assert.deepEqual(b, c);
+  assert.deepEqual(a.map((t) => t.key), ['session:s1']);
+});
+
+test('pickWinner：并发两条 delete 也收敛到同一条代表', () => {
+  const d1 = makeEvent({ device: DEV_A, seq: 1, ts: TS, key: 'k', op: 'delete' });
+  const d2 = makeEvent({ device: DEV_B, seq: 1, ts: TS + 5, key: 'k', op: 'delete' });
+  assert.equal(pickWinner([d1, d2]).device, DEV_B);
+  assert.equal(pickWinner([d2, d1]).device, DEV_B);
+});
+
+test('旧墓碑（无 vc）保留期兜底：仍按墙钟允许复活，升级前后行为一致', () => {
+  const legacyTomb = {
+    key: 'session:s1', deletedAt: TS, by: DEV_A, device: DEV_A, seq: 5, expiresAt: 0,
+  };
+  const later = makeEvent({ device: DEV_B, seq: 1, ts: TS + 1, key: 'session:s1', op: 'upsert', hash: HASH });
+  assert.equal(buildTombstones([later], { previous: [legacyTomb] }).length, 0, '墙钟更晚 → 复活');
+
+  const earlier = makeEvent({ device: DEV_B, seq: 1, ts: TS - 1, key: 'session:s1', op: 'upsert', hash: HASH });
+  assert.equal(buildTombstones([earlier], { previous: [legacyTomb] }).length, 1, '墙钟更早 → 删除保留');
+});
+
+test('新墓碑（带 vc）拒绝「时钟偏快但没见过删除」的复活', () => {
+  const del = makeEvent({ device: DEV_A, seq: 5, ts: TS, key: 'session:s1', op: 'delete' });
+  const [tomb] = buildTombstones([del]);
+  assert.deepEqual(tomb.vc, { [DEV_A]: 5 });
+
+  const skewed = makeEvent({ device: DEV_B, seq: 9, ts: TS + 999_999, key: 'session:s1', op: 'upsert', hash: HASH });
+  const kept = buildTombstones([], { previous: [tomb] });
+  assert.equal(kept.length, 1, '本轮没有该 key 的事件 → 墓碑原样保留');
+  assert.equal(buildTombstones([skewed], { previous: [tomb] }).length, 1, '并发 upsert 撤销不了带 vc 的墓碑');
+});
+
 test('tombstoneTargets：key 与 rel 不一致时只按 key 语义删，绝不误删无关文件', () => {
-  // 一条被投喂的脏事件：key 说删会话 s1，rel 却指向附件
   const dirty = ev({ op: 'delete', key: 'session:s1', rel: 'attachments/a.png' });
   const [t] = buildTombstones([dirty], { now: TS });
   assert.equal(t.rel, 'attachments/a.png');

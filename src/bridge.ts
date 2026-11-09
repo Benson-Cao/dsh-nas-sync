@@ -214,6 +214,12 @@ export function createBridge(ctx: any, deps: BridgeDeps): void {
           // 0.5.9：把「本轮为什么没做删除传播」「状态文件是否异常」显式暴露给面板
           safety: engine.safetyStatus(),
           storeError: deps.store.lastError,
+          /**
+           * 0.7.0：本机会话目录被同步动作改动过的单调纪元。
+           * 页面侧（client.js）轮询它，值一变就调宿主自己的 `sessions.refresh()`
+           * 重新拉 `session/list` —— 否则删掉的会话要等重启才从侧栏消失。
+           */
+          removalEpoch: engine.removalEpochValue(),
         });
       }
 

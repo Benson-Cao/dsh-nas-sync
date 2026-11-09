@@ -27,7 +27,7 @@ import { readJsonFile, writeJsonAtomic, writeBackup } from './state-file.js';
 import { createHash } from 'node:crypto';
 import type {
   ConflictItem, ManifestEntry, PendingFile, SyncPhase,
-  SyncEvent, Tombstone, DeviceCursor, EventStreamTrust, BidMapEntry,
+  SyncEvent, Tombstone, DeviceCursor, EventStreamTrust, BidMapEntry, VersionVector,
 } from '../data/models.js';
 import { isIgnoredRel, Scanner, SYNC_CATEGORIES } from './scanner.js';
 import { Crypto } from './crypto.js';
@@ -337,6 +337,28 @@ export class Engine {
   private publishedEvents = 0;
   /** 上次成功读取事件流的时间戳（10 秒内复用，避免一轮同步读两遍）。 */
   private eventStreamFreshAt = 0;
+  /**
+   * 「本机会话目录被同步动作改动过」的单调纪元（0.7.0）。
+   *
+   * 宿主的侧栏列表来自自身的一次 `session/list` 拉取，之后只跟着 Host 推的
+   * 会话生命周期事件更新 —— 我们在它背后把会话目录搬走，它并不知情，于是
+   * 那一行要等重启（重新拉 list）才消失。
+   *
+   * 这个计数器就是给页面的信号：值变了，说明磁盘上的会话集合被同步改过，
+   * 客户端插件会据此调一次宿主自己的 `sessions.refresh()`（= 重新拉 list 基线），
+   * 不需要重启。是内存态，不做持久化 —— 页面刷新后自己会重新对齐。
+   */
+  private removalEpoch = 0;
+
+  /** 供面板读取：会话目录改动纪元。 */
+  removalEpochValue(): number {
+    return this.removalEpoch;
+  }
+
+  /** 会话目录被本插件改动过（回收 / 清理 / 恢复）时推进纪元。 */
+  private bumpRemovalEpoch(): void {
+    this.removalEpoch += 1;
+  }
 
   /** 面板/诊断用：当前安全开关的状态。 */
   safetyStatus(): {
@@ -1337,6 +1359,10 @@ export class Engine {
     }
     this.tombstones = buildTombstones(this.eventStream, {
       retentionDays: normalizeRetentionDays(this.deps.config.retentionDays),
+      // 0.7.0：日志分片有可能只读回一部分（网络抖动 / 某片读失败）。这时
+      // `eventStream` 里「那条 delete 不在」，若不拿旧墓碑兜底，删除就会被忘掉、
+      // 下一轮把会话重新拉回来。旧墓碑只有拿到因果更晚的写入才会被撤销。
+      previous: this.tombstones,
     });
     this.eventStreamFreshAt = Date.now();
   }
@@ -1516,10 +1542,32 @@ export class Engine {
     return out;
   }
 
+  /**
+   * 本机当前的因果前沿：已读到的**各台其他设备**的最大 seq。
+   *
+   * 写进事件的 `obs` 后，对端就能判断「这条写入有没有见过我之前那条」——
+   * 这是向量时钟裁决 delete / upsert 胜负的唯一依据，与两台机器的墙钟快慢无关。
+   *
+   * 直接从 `this.eventStream`（本轮刚读完的完整合并流）算，而不是从
+   * `deviceCursors` 取：位点是在「应用完事件之后」才推进的，用它会有滞后，
+   * 而滞后会让真·复活被判成并发、进而被 delete-wins 吃掉。
+   */
+  private causalFrontier(): VersionVector {
+    const self = selfDevice();
+    const out: VersionVector = {};
+    for (const e of this.eventStream) {
+      if (!e || !e.device || e.device === self) continue;
+      if (!Number.isInteger(e.seq)) continue;
+      if (e.seq > (out[e.device] ?? 0)) out[e.device] = e.seq;
+    }
+    return out;
+  }
+
   /** 收尾发布本机事件：上传成功 → upsert；确认删除 → delete；屏蔽操作 → ignore/unignore。 */
   private async publishEvents(fresh: ManifestEntry[], baseline: ManifestEntry[]): Promise<void> {
     const device = selfDevice();
     const ts = Date.now();
+    const obs = this.causalFrontier();
     let seq = nextLocalSeq(this.eventStream, device);
     const out: SyncEvent[] = [];
     const retentionDays = normalizeRetentionDays(this.deps.config.retentionDays);
@@ -1528,7 +1576,7 @@ export class Engine {
       const e = fresh.find((x) => x.rel === rel);
       if (!e || !isSafeRel(rel)) continue;
       out.push(makeEvent({
-        device, seq: seq++, ts, key: stableKeyOf(rel), rel, hash: e.hash,
+        device, seq: seq++, ts, obs, key: stableKeyOf(rel), rel, hash: e.hash,
         op: 'upsert', category: rel.split('/')[0],
       }));
     }
@@ -1595,7 +1643,7 @@ export class Engine {
     } else {
       for (const rel of decision.rels) {
         out.push(makeEvent({
-          device, seq: seq++, ts, key: stableKeyOf(rel), rel,
+          device, seq: seq++, ts, obs, key: stableKeyOf(rel), rel,
           op: 'delete', retentionDays,
         }));
       }
@@ -1603,7 +1651,7 @@ export class Engine {
 
     for (const intent of this.deps.store.pendingIntents ?? []) {
       out.push(makeEvent({
-        device, seq: seq++, ts, key: 'session:' + intent.sid,
+        device, seq: seq++, ts, obs, key: 'session:' + intent.sid,
         op: intent.op, category: 'sessions',
       }));
     }
@@ -2089,6 +2137,7 @@ export class Engine {
     const device = selfDevice();
     const e = makeEvent({
       device, seq: nextLocalSeq(this.eventStream, device), ts: Date.now(),
+      obs: this.causalFrontier(),
       key: stableKeyOf(rel), rel, op: 'delete',
       retentionDays: normalizeRetentionDays(this.deps.config.retentionDays),
     });
@@ -2154,6 +2203,7 @@ export class Engine {
         const pruned = await pruneEmptySessionDirs(dead);
         if (pruned.length > 0) {
           console.log('[dsh-nas-sync] 清掉 ' + pruned.length + ' 个已删会话留下的空目录');
+          this.bumpRemovalEpoch();
         }
       }
     } catch (err) {
@@ -2684,6 +2734,9 @@ export class Engine {
     } catch (err) {
       console.error('[dsh-nas-sync] 回收元数据写入失败（这条例后将只能手工恢复）：' + String(err));
     }
+    // 会话目录被搬走了 → 通知页面重新拉一次 session/list（不必重启）。
+    // 只对会话正文推进纪元：附件之类的普通 rel 不影响侧栏。
+    if (this.isSessionBodyRel(localRel)) this.bumpRemovalEpoch();
     const sid = this.sessionIdOfRel(localRel);
     try {
       await unregisterSessionFromRel(localRel);
@@ -2823,6 +2876,7 @@ export class Engine {
           const device = selfDevice();
           const e = makeEvent({
             device, seq: nextLocalSeq(this.eventStream, device), ts: Date.now(),
+            obs: this.causalFrontier(),
             key, rel, hash: sha256Hex(buf), op: 'upsert', category: 'sessions',
           });
           await this.appendLocalEvents([e]);
@@ -2839,6 +2893,8 @@ export class Engine {
         }
       }
     }
+    // 恢复也改了会话目录：让页面重新拉一次列表，否则「恢复了却看不见」
+    this.bumpRemovalEpoch();
     return { rel, restoredTo: sessionDir };
   }
 
