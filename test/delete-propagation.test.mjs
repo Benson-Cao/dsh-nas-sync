@@ -318,3 +318,112 @@ test('eventStreamAllowsDeletes / normalizeRetentionDays：口径稳定', () => {
   assert.equal(normalizeRetentionDays(0), 0);
   assert.equal(normalizeRetentionDays(99999), 3650);
 });
+
+/* ------------------------------------------- 跨端编码：对端删除 → 按 sid 回收 */
+
+test('对端 delete 事件（rel 编码与本机不同）→ 按 sid 回收 + 清 sessionIds + 清投影缓存', async () => {
+  const { encodeCwd } = await import('../dist-test/portable.mjs');
+  const home = mkdtempSync(join(tmpdir(), 'dsh-del-sid-'));
+  process.env.DSH_HOME_TEST = home;
+  try {
+    const SID = 'session-22222222-2222-4222-8222-222222222222';
+    const wsDir = join(home, 'nassyncworkspaces', 'wstest');
+    mkdirSync(wsDir, { recursive: true });
+    // 本机 rel 的编码来自**本机 cwd**；对端那条会话的 rel 用的是安卓编码。
+    const enc = encodeCwd(wsDir);
+    const sessDir = join(home, 'sessions', enc, SID);
+    mkdirSync(sessDir, { recursive: true });
+    writeFileSync(join(sessDir, 'session.v4.jsonl.zstd'), 'body-not-really-zstd');
+
+    mkdirSync(join(home, 'storages'), { recursive: true });
+    writeFileSync(
+      join(home, 'storages', 'workspace.json'),
+      JSON.stringify({ tables: { workspaces: { w1: { id: 'w1', title: 'wstest', path: wsDir, sessionIds: [SID] } } } }),
+    );
+    const projDir = join(home, 'storages', 'session_projcache', 'sessions');
+    mkdirSync(projDir, { recursive: true });
+    writeFileSync(join(projDir, SID + '.json'), '{}');
+    mkdirSync(join(home, 'nas-sync'), { recursive: true });
+
+    const transport = new MemTransport();
+    const peerRel = 'sessions/--data-user-0-com.dsh.harness-files-home-wstest--/' + SID + '/session.v4.jsonl.zstd';
+    assert.notEqual(peerRel.split('/')[1], enc, '用例前提：两端 cwd 编码不同');
+    const ev = makeEvent({
+      device: PEER, seq: 1, ts: Date.now(), key: 'session:' + SID,
+      rel: peerRel, op: 'delete', retentionDays: 30,
+    });
+    transport.blobs.set(eventLogFileOf(PEER, 0), Buffer.from(serializeEventLog([ev])));
+    transport.dirs.add('/dsh/events');
+    transport.dirs.add('/dsh/events/' + PEER.replace(/[^A-Za-z0-9._-]/g, '_'));
+
+    const engine = new Engine({ transport, store: new Store(), config: baseConfig() });
+    await engine.scan();
+
+    assert.equal(existsSync(sessDir), false, '同 sid、不同 rel 的本地会话也必须被回收');
+    const reg = JSON.parse(readFileSync(join(home, 'storages', 'workspace.json'), 'utf8'));
+    assert.deepEqual(
+      reg.tables.workspaces.w1.sessionIds, [],
+      'sessionIds 必须清掉，否则侧栏留一条点不开的幽灵会话',
+    );
+    assert.equal(
+      existsSync(join(projDir, SID + '.json')), false,
+      '投影缓存不在同步范围，必须由回收流程顺手清掉',
+    );
+  } finally {
+    delete process.env.DSH_HOME_TEST;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------- 回收站会话：发布阶段必须同口径剔除 */
+
+test('本机会话进了 DSH 回收站 → 同步一轮必须发出 delete 事件（key=session:<sid>）', async () => {
+  // 真机回归：0.6.1 只在 scanOnce 里剔了回收站会话，而 publishEvents 自己
+  // 又调了一次 buildManifest()，fresh 里那条会话「还在」→ computeLocalDeletes
+  // 算不出差异 → 手机识别到 7 条隐藏会话、发出 0 条事件，删除永远传不过去。
+  const { encodeCwd } = await import('../dist-test/portable.mjs');
+  const home = mkdtempSync(join(tmpdir(), 'dsh-trash-publish-'));
+  process.env.DSH_HOME_TEST = home;
+  try {
+    const SID = 'session-33333333-3333-4333-8333-333333333333';
+    const wsDir = join(home, 'nassyncworkspaces', 'wstrash');
+    mkdirSync(wsDir, { recursive: true });
+    const enc = encodeCwd(wsDir);
+    const sessDir = join(home, 'sessions', enc, SID);
+    mkdirSync(sessDir, { recursive: true });
+    writeFileSync(join(sessDir, 'session.v4.jsonl.zstd'), 'body');
+    mkdirSync(join(home, 'nas-sync'), { recursive: true });
+
+    const transport = new MemTransport();
+    const store = new Store();
+    const engine = new Engine({ transport, store, config: baseConfig() });
+
+    // 第一轮：正常上传，建立基线（baseline 里有这条会话）
+    await engine.sync('mirror');
+    assert.ok((store.localManifest ?? []).some((e) => e.rel.includes(SID)), '基线里应有该会话');
+
+    // 用户删除：DSH 只往回收站写一条记录，原文件仍在（这正是坑的来源）
+    mkdirSync(join(home, 'sessions', '.sessions-trash', '2026-11-09T11-23-34.331Z---' + enc + '---' + SID), { recursive: true });
+
+    // 第二轮：必须算出「消失了」并发布 delete
+    await engine.sync('mirror');
+
+    // 事件日志按本机设备名落盘，测试里不假定名字，扫一遍所有分片
+    let ops = [];
+    for (const [p, buf] of transport.blobs) {
+      if (!/\/dsh\/events\/.+\/\d{6}\.jsonl$/.test(p)) continue;
+      for (const line of buf.toString('utf8').split('\n').filter(Boolean)) {
+        try { ops.push(JSON.parse(line)); } catch { /* 坏行交给别的用例 */ }
+      }
+    }
+    const del = ops.find((e) => e.op === 'delete' && e.key === 'session:' + SID);
+    assert.ok(del, '必须发出 key=session:<sid> 的 delete 事件（实际 ops: '
+      + ops.map((e) => e.op + ':' + e.key).join(', ') + '）');
+    // 删除事件带的是**本机**那条 rel，对端按 sid 匹配才能跨编码生效
+    assert.match(del.rel, new RegExp(SID));
+    assert.ok(!(store.localManifest ?? []).some((e) => e.rel.includes(SID)), '被删会话不该留在基线里');
+  } finally {
+    delete process.env.DSH_HOME_TEST;
+    rmSync(home, { recursive: true, force: true });
+  }
+});

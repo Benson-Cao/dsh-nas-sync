@@ -1,5 +1,65 @@
 # 变更记录
 
+## 0.6.3 — 2026-11-09
+
+修「侧栏幽灵条目」：删除传播打通之后，本机 `sessions/<cwd编码>/<sid>/` 的**空目录**
+还留着，宿主按目录枚举会话，于是侧栏里那条会话点得开、点开就报错。
+
+- `portable.ts`：新增 `pruneEmptySessionDirs(deletedSids, home, opts)`。三个边界——
+  ① 只删**空**目录（有残留文件一律不碰）；② 只删 session id 在「已删集合」里的
+  目录（集合来自墓碑 `session:` 键 + 本机 DSH 回收站）；③ `mtime` 在 120 秒内的
+  不碰，避免和正在进行的写入抢跑。`.sessions-trash` 以 `.` 开头，单独跳过。
+- `engine.ts`：`scanOnce()` 里 `stripTrashed(local)` 之后调用它，清理失败只记日志、
+  不影响本轮同步。
+- 回归用例：`test/ghost-dir.test.mjs` 锁死上述三个边界 + `.sessions-trash` 永不
+  被碰 + 空集合不做 IO。
+
+真机验证（电脑端，真实 `~/.dsh`）：造 2 个已删会话的空目录 → 同步一轮 →
+日志 `[dsh-nas-sync] 清掉 2 个已删会话留下的空目录`，两个目录确实消失。
+
+
+## 0.6.2 — 2026-11-09
+
+修复 0.6.1 没修透的那一环：**回收站剔除只做在扫描阶段，发布阶段漏了**。
+
+- `engine.ts`：抽出 `stripTrashed(list)`，`scanOnce()` 与 `sync()` 里发布前那次
+  `scanner.buildManifest()` 都过同一道闸。上一版只在扫描处剔除，而 `publishEvents`
+  的 `fresh` 是**另行重建**的清单，被删会话在里面依旧「还在」→ `computeLocalDeletes`
+  算不出差异 → delete 事件一条也发不出来（真机：识别到 7 条回收站会话、发出 0 条）。
+- 回归用例：`test/delete-propagation.test.mjs` 新增「会话进回收站 → 同步一轮必须
+  发出 `key=session:<sid>` 的 delete 事件」，同时断言基线里不再残留该会话。
+
+
+## 0.6.1 — 2026-11-09
+
+对应真机问题：「手机端删一个会话 → 两端各点一次立即同步 → 电脑端那条会话还在」。
+
+### Fixed
+
+- **回收站参与同步把删除意图弄丢了**：DSH 的「删除会话」不删文件，只在
+  `sessions/.sessions-trash/` 下留一条隐藏记录。该目录落在 `sessions` 分类的扫描
+  前缀内，且不在排除表里，于是被当成普通会话文件 `upsert` 上去 —— 对端收到的是
+  「多了两个新文件」，还会把回收站目录下载到自己机器上，污染本机回收站。
+  现在 `.sessions-trash` 进入统一排除表（`exclusions.ts`）。
+- **回收站判据按 cwd 编码拼接，跨端永远对不上**：原来用 `<cwd编码>/<sid>` 比对，
+  而 cwd 编码两端必然不同（安卓 `data-user-0-...` / 电脑 `C-Users-Administrator-...`）。
+  结果本机清单里那条 rel 剔不掉 → 「上一轮有、这一轮也有」→ `computeLocalDeletes`
+  算不出消失 → **0 条 delete 事件**。改为按 sessionId 单键判定
+  （新增 `listTrashedSessionIds()`），扫描剔除与 `publishEvents` 的镜像放行同时修正。
+- **回收站副本被误当成会话主键**：`sessionIdFromRel()` 会把回收站目录名当 sid，
+  产生 `session:2026-11-09T...---...` 这种永远对不上真会话的假键，污染事件流与墓碑。
+  现在回收站路径一律回落到 `rel:` 空间。
+- **删除后侧栏幽灵会话**：注册表合并是单调并集，远端每轮会把已删除的 sid 并回
+  `sessionIds`。现在合并时把墓碑里的 sid 一并剔除；`retireLocalSession()` 同时清
+  `storages/session_projcache/sessions/<sid>.json`。
+- **恢复会被墓碑再删一次**：`restoreRemovedSession()` 补发一条更晚的 `upsert` 事件，
+  撤销墓碑（否则恢复后下一轮又被隐藏/回收）。
+
+### Changed
+
+- `sync()` 在合并工作区注册表**之前**读一次事件流（同一轮 10 秒内复用，不多走网络），
+  注册表剔除才能用上本轮最新的墓碑。
+
 ## 0.6.0 — 2026-11-09
 
 对应提交：`06403ec`（主体）、`756f7d9`（CI 修复）。真机包：`30.112.0 / r231`。

@@ -149,6 +149,16 @@ export interface DeleteCandidateInput {
   maxDeletes?: number;
   /** 删除数占基线的比例上限，超过整批拒绝 */
   maxRatio?: number;
+  /**
+   * **有确凿删除证据**的 rel（0.6.2）：本地 DSH 回收站里就有这条会话的记录。
+   *
+   * 条数上限与比例上限防的是「扫描范围变了」这类**推断**误差 —— 远端清单读失败、
+   * 扫描器临时读不到某个目录、用户关掉分类勾选，在「本轮少了 N 条」上长得一模一样。
+   * 但回收站记录不是推断：用户确实按了删除，DSH 落了 `<ISO>---<编码>---<sid>` 目录。
+   * 所以这类条目只过第 ④ 道闸（安全 rel / 启用分类 / 排除集合），不受 ⑤⑥ 限制 ——
+   * 否则一台只有一两条会话的设备，删掉唯一那条会被比例闸永久拦住（1/1 = 100%）。
+   */
+  explicit?: ReadonlySet<string>;
 }
 
 export interface DeleteDecision {
@@ -199,18 +209,22 @@ export function computeLocalDeletes(input: DeleteCandidateInput): DeleteDecision
   }
   if (candidates.length === 0) return { ...empty, excludedCount };
 
+  // 0.6.2：有确凿证据的条目（回收站记录）不计入「推断消失」，只受 ④ 约束。
+  const explicit = input.explicit ?? new Set<string>();
+  const inferred = candidates.filter((rel) => !explicit.has(rel));
+
   const maxDeletes = input.maxDeletes ?? 50;
-  if (candidates.length > maxDeletes) {
+  if (inferred.length > maxDeletes) {
     return {
       ...empty, blocked: true, excludedCount,
-      reason: '单轮消失 ' + candidates.length + ' 条，超过上限 ' + maxDeletes + '（疑似配置/路径变更）',
+      reason: '单轮消失 ' + inferred.length + ' 条，超过上限 ' + maxDeletes + '（疑似配置/路径变更）',
     };
   }
   const maxRatio = input.maxRatio ?? 0.5;
-  if (candidates.length / input.baseline.length > maxRatio) {
+  if (inferred.length / input.baseline.length > maxRatio) {
     return {
       ...empty, blocked: true, excludedCount,
-      reason: '单轮消失比例 ' + (candidates.length / input.baseline.length).toFixed(2) +
+      reason: '单轮消失比例 ' + (inferred.length / input.baseline.length).toFixed(2) +
         ' 超过上限 ' + maxRatio + '（疑似扫描范围变更）',
     };
   }

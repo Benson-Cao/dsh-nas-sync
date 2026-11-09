@@ -100,6 +100,16 @@ export function canonicalSessionRel(sid: string, version = 1): string {
 export function sessionIdFromRel(rel: string): string | null {
   const parts = String(rel || '').split('/');
   if (parts[0] !== 'sessions') return null;
+  /**
+   * 回收站里的副本不是会话本体（0.6.0 / 收尾②）。
+   *
+   * 它形如 `sessions/.sessions-trash/<ISO>---<cwd编码>---<sid>/session.v4.jsonl.zstd.trash`，
+   * 倒数第二段是**回收站目录名**，照通用规则抽出来会得到
+   * `session:2026-11-09T10-52-22.155Z---...---session-xxx` 这种假 sid ——
+   * 既不会和真会话的墓碑对上，还会在事件流里长出一批永远无法回收的键。
+   * 回收站条目不该参与会话归键，一律回落到 `rel:` 空间。
+   */
+  if (parts[1] === '.sessions-trash') return null;
   if (parts[1] === 'by-id' && parts.length >= 3) return parts[2] || null;
   if (parts.length < 4) return null;
   return parts[parts.length - 2] || null;

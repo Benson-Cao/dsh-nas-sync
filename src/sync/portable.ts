@@ -25,7 +25,7 @@
  */
 
 import * as zlib from 'node:zlib';
-import { readdir, readFile, writeFile, mkdir, stat, rename, rm } from 'node:fs/promises';
+import { readdir, readFile, writeFile, mkdir, stat, rename, rm, rmdir } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import * as os from 'node:os';
@@ -1488,4 +1488,163 @@ export async function detectWorkspaceCollisions(home: string = dshHome()): Promi
   }
   out.sort((a, b) => a.rel.localeCompare(b.rel));
   return out;
+}
+
+/**
+ * DSH 原生回收站（`.sessions-trash`）里的会话键。
+ *
+ * 背景（2026-11-09 真机实测）：DSH 的「删除会话」**不删文件**——它把
+ * `sessions/<cwd编码>/<sid>` 复制一份到
+ * `sessions/.sessions-trash/<ISO时间>---<cwd编码>---<sid>/`，然后**只按这份记录
+ * 把会话从侧栏隐藏**。原目录、原文件、`workspace.json` 的 `sessionIds`、
+ * `session_projcache` 全都保持不动。
+ *
+ * 于是插件旧的删除判据（「上一轮清单里有、本轮扫不到」）永远不成立：
+ * 文件还在，`present.has(rel)` 为真，delete 事件永远发不出去，另一端也就
+ * 永远留着这个会话。用户在手机上删、两边点立即同步，电脑端照样有。
+ *
+ * 本函数把「被 DSH 放进回收站」翻译成插件能用的键：`<cwd编码>/<sid>`。
+ * 解析失败的目录名一律忽略（宁可少删，不可误删）。
+ */
+export function parseTrashDirName(name: string): { enc: string; sid: string; at: number } | null {
+  // 形如 `2026-11-09T10-52-22.155Z---data-user-0-...-wstest---session-<uuid>`
+  const m = /^([0-9T:.-]+Z)---(.+)---(session-[0-9a-f-]+)$/i.exec(String(name || ''));
+  if (!m) return null;
+  // 时间部分是 `2026-11-09T10-52-22.155Z`（时分秒用 `-` 而不是 `:`），
+  // 直接 Date.parse 会得到 NaN，必须先把时间段的 `-` 换成 `:`。
+  const [datePart, timePart] = m[1].split('T');
+  const iso = datePart + 'T' + String(timePart || '').replace(/-/g, ':');
+  const at = Date.parse(iso);
+  // 时间戳只用于排序/判新旧，解析不出来也不影响删除判定：仍然返回键，at 记 0。
+  return { at: Number.isFinite(at) ? at : 0, enc: m[2], sid: m[3] };
+}
+
+/** 枚举回收站里的会话条目（解析失败的目录名一律丢弃：宁可少删，不可误删）。 */
+async function readTrashEntries(
+  home: string,
+): Promise<Array<{ enc: string; sid: string; at: number }>> {
+  let names: string[] = [];
+  try {
+    names = await readdir(join(home, 'sessions', '.sessions-trash'));
+  } catch {
+    return []; // 没有回收站目录 = 没删过任何会话
+  }
+  const out: Array<{ enc: string; sid: string; at: number }> = [];
+  for (const n of names) {
+    const p = parseTrashDirName(n);
+    if (p) out.push(p);
+  }
+  return out;
+}
+
+/** 列出本机 DSH 回收站里被隐藏的会话键（`<cwd编码>/<sid>`）。 */
+export async function listTrashedSessionKeys(home: string = dshHome()): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const p of await readTrashEntries(home)) out.add(p.enc + '/' + p.sid);
+  return out;
+}
+
+/**
+ * 列出本机 DSH 回收站里被隐藏的 **sessionId**（0.6.0 / 收尾②）。
+ *
+ * 为什么还需要这个「只按 sid」的视图：`listTrashedSessionKeys()` 拼的是
+ * `<cwd编码>/<sid>`，而 cwd 编码**两端必然不同**——
+ * 手机是 `data-user-0-com.dsh.harness...`，电脑是 `C-Users-Administrator-...`。
+ * 于是「从对端同步下来的回收站记录」永远对不上本机那条会话的 rel，
+ * 剔除逻辑静默失效，delete 事件也就永远发不出去。
+ *
+ * sid 是会话的全局主键（两端同一个会话 = 同一个 sid），按它比对才跨端成立。
+ */
+export async function listTrashedSessionIds(home: string = dshHome()): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const p of await readTrashEntries(home)) out.add(p.sid);
+  return out;
+}
+
+/**
+ * 清掉「已删会话」留下的空目录（0.6.3）。
+ *
+ * 真机现象：手机删了会话、电脑端文件也确实搬进了回收站、`workspace.json` 的
+ * `sessionIds` 也清了，**侧栏里那条还在**。原因是 `sessions/<cwd编码>/<sid>/`
+ * 这个目录本身没删——下载路径会先 `mkdir -p` 再决定是否写入，跳过写入时（内容
+ * 已一致 / 被墓碑挡掉 / 本轮只读）就留下一个空目录。宿主按目录列举会话，空目录
+ * 照样渲染成一条「点开就报错」的幽灵。
+ *
+ * 只处理**空**目录，且 sid 必须在「已删除」集合里（墓碑 ∪ 本机回收站），
+ * 另外要求目录 mtime 至少 `minAgeMs` 之前 —— 防止和正在写入的新会话抢跑。
+ */
+export async function pruneEmptySessionDirs(
+  deletedSids: ReadonlySet<string>,
+  home: string = dshHome(),
+  opts: { minAgeMs?: number; now?: number } = {},
+): Promise<string[]> {
+  const minAge = Math.max(0, Number(opts.minAgeMs ?? 120_000));
+  const now = Number.isFinite(opts.now) ? (opts.now as number) : Date.now();
+  if (deletedSids.size === 0) return [];
+  const root = join(home, 'sessions');
+  let encs: string[] = [];
+  try {
+    encs = await readdir(root);
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const enc of encs) {
+    if (enc.startsWith('.')) continue;           // `.sessions-trash` 不碰
+    const encDir = join(root, enc);
+    let names: string[] = [];
+    try {
+      names = await readdir(encDir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!deletedSids.has(name)) continue;
+      const dir = join(encDir, name);
+      try {
+        const st = await stat(dir);
+        if (!st.isDirectory()) continue;
+        if (now - st.mtimeMs < minAge) continue;  // 刚动过，可能正在写
+        const kids = await readdir(dir);
+        if (kids.length > 0) continue;            // 有残留文件就不能删，留给人工判断
+        await rmdir(dir);
+        removed.push(enc + '/' + name);
+      } catch {
+        /* 删不掉就算了：下一轮还会扫到 */
+      }
+    }
+  }
+  return removed;
+}
+
+/**
+ * 删掉某个会话的投影缓存（0.6.0 / 收尾②）。
+ *
+ * `storages/session_projcache/sessions/<sid>.json` 是 DSH 给侧栏/详情页用的
+ * 投影快照，**不属于同步范围**，也不会随会话文件消失而自动清掉。会话被踢出
+ * `workspace.json` 的 sessionIds 之后，侧栏通常已经不显示了；但某些版本会先读
+ * 这份缓存，留下一条「点开就报错」的幽灵条目，所以回收时一并清掉。
+ *
+ * 清失败不影响回收本身（文件已经搬走是既成事实），调用方按尽力而为处理。
+ */
+export async function dropSessionProjCache(
+  sid: string,
+  home: string = dshHome(),
+): Promise<number> {
+  const id = String(sid || '').trim();
+  if (!id) return 0;
+  const dir = join(home, 'storages', 'session_projcache', 'sessions');
+  // 实测两种命名都存在：带 `session-` 前缀的 uuid，以及裸 uuid
+  const bare = id.replace(/^session-/, '');
+  const names = new Set([id, bare, 'session-' + bare]);
+  let n = 0;
+  for (const name of names) {
+    try {
+      await rm(join(dir, name + '.json'), { force: true });
+      n += 1;
+    } catch {
+      /* 不存在 / 无权限：都不影响回收主流程 */
+    }
+  }
+  return n;
 }

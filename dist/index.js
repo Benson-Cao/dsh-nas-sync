@@ -20447,22 +20447,24 @@ function computeLocalDeletes(input) {
     candidates.push(rel);
   }
   if (candidates.length === 0) return { ...empty, excludedCount };
+  const explicit = input.explicit ?? /* @__PURE__ */ new Set();
+  const inferred = candidates.filter((rel) => !explicit.has(rel));
   const maxDeletes = input.maxDeletes ?? 50;
-  if (candidates.length > maxDeletes) {
+  if (inferred.length > maxDeletes) {
     return {
       ...empty,
       blocked: true,
       excludedCount,
-      reason: "\u5355\u8F6E\u6D88\u5931 " + candidates.length + " \u6761\uFF0C\u8D85\u8FC7\u4E0A\u9650 " + maxDeletes + "\uFF08\u7591\u4F3C\u914D\u7F6E/\u8DEF\u5F84\u53D8\u66F4\uFF09"
+      reason: "\u5355\u8F6E\u6D88\u5931 " + inferred.length + " \u6761\uFF0C\u8D85\u8FC7\u4E0A\u9650 " + maxDeletes + "\uFF08\u7591\u4F3C\u914D\u7F6E/\u8DEF\u5F84\u53D8\u66F4\uFF09"
     };
   }
   const maxRatio = input.maxRatio ?? 0.5;
-  if (candidates.length / input.baseline.length > maxRatio) {
+  if (inferred.length / input.baseline.length > maxRatio) {
     return {
       ...empty,
       blocked: true,
       excludedCount,
-      reason: "\u5355\u8F6E\u6D88\u5931\u6BD4\u4F8B " + (candidates.length / input.baseline.length).toFixed(2) + " \u8D85\u8FC7\u4E0A\u9650 " + maxRatio + "\uFF08\u7591\u4F3C\u626B\u63CF\u8303\u56F4\u53D8\u66F4\uFF09"
+      reason: "\u5355\u8F6E\u6D88\u5931\u6BD4\u4F8B " + (inferred.length / input.baseline.length).toFixed(2) + " \u8D85\u8FC7\u4E0A\u9650 " + maxRatio + "\uFF08\u7591\u4F3C\u626B\u63CF\u8303\u56F4\u53D8\u66F4\uFF09"
     };
   }
   return { rels: candidates.sort(), blocked: false, reason: null, excludedCount };
@@ -20954,7 +20956,7 @@ var Store = class {
 // src/sync/portable.ts
 init_paths();
 import * as zlib2 from "node:zlib";
-import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mkdir as mkdir2, stat as stat3, rename, rm as rm2 } from "node:fs/promises";
+import { readdir as readdir2, readFile as readFile2, writeFile as writeFile2, mkdir as mkdir2, stat as stat3, rename, rm as rm2, rmdir } from "node:fs/promises";
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import { join as join5, resolve, sep as sep3 } from "node:path";
 import * as os from "node:os";
@@ -20978,6 +20980,12 @@ var SKIP_DIR_NAMES = /* @__PURE__ */ new Set([
   // 宿主运行时产生的目录
   "nas-sync",
   ".plugin-manager",
+  // DSH 自己的会话回收站（0.6.0 / 收尾②）。
+  // 它位于 `sessions/.sessions-trash/`，落在 sessions 分类的扫描前缀里；不排除的话
+  // 一端删会话会被当成「回收站里多了两个新文件」同步过去，另一端不仅收到 upsert，
+  // 还会把 `sessions/.sessions-trash/<ISO>---<enc>---<sid>` 当普通目录下载到本地，
+  // 把本机回收站污染成两端时间戳的大杂烩。删除意图只能走 delete 事件，不能靠搬文件。
+  ".sessions-trash",
   // 插件自身的安装目录（两端版本/平台不同，搬过去只会把对面弄坏）
   "dsh-nas-sync"
 ]);
@@ -21796,6 +21804,87 @@ async function dedupeSessionDirs(home = dshHome()) {
     }
   }
   return result;
+}
+function parseTrashDirName(name2) {
+  const m2 = /^([0-9T:.-]+Z)---(.+)---(session-[0-9a-f-]+)$/i.exec(String(name2 || ""));
+  if (!m2) return null;
+  const [datePart, timePart] = m2[1].split("T");
+  const iso = datePart + "T" + String(timePart || "").replace(/-/g, ":");
+  const at = Date.parse(iso);
+  return { at: Number.isFinite(at) ? at : 0, enc: m2[2], sid: m2[3] };
+}
+async function readTrashEntries(home) {
+  let names = [];
+  try {
+    names = await readdir2(join5(home, "sessions", ".sessions-trash"));
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const n of names) {
+    const p = parseTrashDirName(n);
+    if (p) out.push(p);
+  }
+  return out;
+}
+async function listTrashedSessionIds(home = dshHome()) {
+  const out = /* @__PURE__ */ new Set();
+  for (const p of await readTrashEntries(home)) out.add(p.sid);
+  return out;
+}
+async function pruneEmptySessionDirs(deletedSids, home = dshHome(), opts = {}) {
+  const minAge = Math.max(0, Number(opts.minAgeMs ?? 12e4));
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  if (deletedSids.size === 0) return [];
+  const root = join5(home, "sessions");
+  let encs = [];
+  try {
+    encs = await readdir2(root);
+  } catch {
+    return [];
+  }
+  const removed = [];
+  for (const enc of encs) {
+    if (enc.startsWith(".")) continue;
+    const encDir = join5(root, enc);
+    let names = [];
+    try {
+      names = await readdir2(encDir);
+    } catch {
+      continue;
+    }
+    for (const name2 of names) {
+      if (!deletedSids.has(name2)) continue;
+      const dir = join5(encDir, name2);
+      try {
+        const st = await stat3(dir);
+        if (!st.isDirectory()) continue;
+        if (now - st.mtimeMs < minAge) continue;
+        const kids = await readdir2(dir);
+        if (kids.length > 0) continue;
+        await rmdir(dir);
+        removed.push(enc + "/" + name2);
+      } catch {
+      }
+    }
+  }
+  return removed;
+}
+async function dropSessionProjCache(sid, home = dshHome()) {
+  const id = String(sid || "").trim();
+  if (!id) return 0;
+  const dir = join5(home, "storages", "session_projcache", "sessions");
+  const bare = id.replace(/^session-/, "");
+  const names = /* @__PURE__ */ new Set([id, bare, "session-" + bare]);
+  let n = 0;
+  for (const name2 of names) {
+    try {
+      await rm2(join5(dir, name2 + ".json"), { force: true });
+      n += 1;
+    } catch {
+    }
+  }
+  return n;
 }
 
 // src/sync/scanner.ts
@@ -22674,6 +22763,7 @@ function canonicalSessionRel(sid, version = 1) {
 function sessionIdFromRel(rel) {
   const parts = String(rel || "").split("/");
   if (parts[0] !== "sessions") return null;
+  if (parts[1] === ".sessions-trash") return null;
   if (parts[1] === "by-id" && parts.length >= 3) return parts[2] || null;
   if (parts.length < 4) return null;
   return parts[parts.length - 2] || null;
@@ -23654,6 +23744,8 @@ var Engine = class {
   eventStreamError = null;
   /** 本轮成功发布的本机事件数。 */
   publishedEvents = 0;
+  /** 上次成功读取事件流的时间戳（10 秒内复用，避免一轮同步读两遍）。 */
+  eventStreamFreshAt = 0;
   /** 面板/诊断用：当前安全开关的状态。 */
   safetyStatus() {
     return {
@@ -24396,6 +24488,7 @@ var Engine = class {
   }
   /** 读全局事件流：列每台设备的分片、逐片解析、校验完整性、回放墓碑。 */
   async readEventStream() {
+    if (this.eventTrust && Date.now() - this.eventStreamFreshAt < 1e4) return;
     const t2 = this.deps.transport;
     this.eventStream = [];
     this.eventTrust = null;
@@ -24446,6 +24539,7 @@ var Engine = class {
     this.tombstones = buildTombstones(this.eventStream, {
       retentionDays: normalizeRetentionDays(this.deps.config.retentionDays)
     });
+    this.eventStreamFreshAt = Date.now();
   }
   /** 追加本机事件到自己的分片。CAS 保护同一分片被两个进程同时写。 */
   async appendLocalEvents(newEvents) {
@@ -24641,9 +24735,33 @@ var Engine = class {
       const sid = this.sessionIdOfRel(e2.rel);
       if (sid && this.ignoredFromFile.has(sid)) excluded.add(e2.rel);
     }
+    try {
+      const trashedIds = await listTrashedSessionIds();
+      if (trashedIds.size > 0) {
+        for (const rel of [...excluded]) {
+          const sid = this.sessionIdOfRel(rel);
+          if (sid && trashedIds.has(sid)) excluded.delete(rel);
+        }
+      }
+    } catch {
+    }
+    let explicit;
+    try {
+      const trashed = await listTrashedSessionIds();
+      if (trashed.size > 0) {
+        explicit = new Set(
+          baseline.filter((e2) => {
+            const sid = this.sessionIdOfRel(e2.rel);
+            return !!sid && trashed.has(sid);
+          }).map((e2) => e2.rel)
+        );
+      }
+    } catch {
+    }
     const decision = computeLocalDeletes({
       baseline,
       fresh,
+      explicit,
       enabledPrefixes: SYNC_CATEGORIES.filter((c) => this.deps.config.syncScope[c.key]).map((c) => c.localDir),
       eventTrusted: this.eventTrust?.trusted ?? false,
       manifestTrusted: this.remoteManifestTrusted,
@@ -24926,6 +25044,38 @@ var Engine = class {
     return isSessionRel(rel) || isCanonicalSessionRel(rel);
   }
   /**
+   * 把「已在 DSH 回收站里」的会话从清单里剔除（0.6.2）。
+   *
+   * 为什么必须**两处都过这道闸**：扫描（scanOnce）决定本轮上传什么，发布
+   * （publishEvents）决定本轮发什么 delete 事件 —— 而后者会**再调一次**
+   * `scanner.buildManifest()` 拿 `fresh`。0.6.1 只在扫描那处剔了，`fresh` 里
+   * 被删的会话依旧「还在」，`computeLocalDeletes` 算不出差异，delete 事件
+   * 永远发不出去。真机实测：手机识别到 7 条回收站会话、发出 0 条事件。
+   *
+   * 判据是 **sid**，不是 `<cwd编码>/<sid>`：回收站目录名里的编码属于执行删除
+   * 的设备，两端 cwd 编码必然不同，拼出来的键永远不相等。
+   */
+  async stripTrashed(list) {
+    let trashed;
+    try {
+      trashed = await listTrashedSessionIds();
+    } catch (err) {
+      console.warn("[dsh-nas-sync] \u8BFB\u53D6 DSH \u56DE\u6536\u7AD9\u5931\u8D25\uFF0C\u672C\u8F6E\u4E0D\u6309\u9690\u85CF\u5904\u7406\uFF1A" + String(err));
+      return list;
+    }
+    if (trashed.size === 0) return list;
+    const out = list.filter((e2) => {
+      if (!this.isSessionBodyRel(e2.rel)) return true;
+      const sid = this.sessionIdOfRel(e2.rel);
+      return !(sid && trashed.has(sid));
+    });
+    const hidden = list.length - out.length;
+    if (hidden > 0) {
+      console.warn("[dsh-nas-sync] " + hidden + " \u6761\u4F1A\u8BDD\u5728 DSH \u56DE\u6536\u7AD9\u91CC\uFF08\u4FA7\u680F\u5DF2\u9690\u85CF\uFF09\uFF0C\u672C\u8F6E\u6309\u5DF2\u5220\u9664\u5904\u7406");
+    }
+    return out;
+  }
+  /**
    * 查跨平台会话镜像账。canonical 模式下远端原文 rel 变了，但账本还是按老 rel
    * 记的（迁移不改本机 Store）；按 sid 兜底找一次，避免镜像被误判成「本机已有
    * 同 id 会话」而永远不更新。legacy 模式直接命中，行为不变。
@@ -25162,6 +25312,23 @@ var Engine = class {
     this.setPhase("scanning");
     await this.readEventStream();
     let local = await this.scanner.buildManifest();
+    local = await this.stripTrashed(local);
+    try {
+      const dead = /* @__PURE__ */ new Set();
+      for (const t2 of this.tombstones) {
+        if (typeof t2.key === "string" && t2.key.startsWith("session:")) {
+          dead.add(t2.key.slice("session:".length));
+        }
+      }
+      for (const sid of await listTrashedSessionIds()) dead.add(sid);
+      if (dead.size > 0) {
+        const pruned = await pruneEmptySessionDirs(dead);
+        if (pruned.length > 0) {
+          console.log("[dsh-nas-sync] \u6E05\u6389 " + pruned.length + " \u4E2A\u5DF2\u5220\u4F1A\u8BDD\u7559\u4E0B\u7684\u7A7A\u76EE\u5F55");
+        }
+      }
+    } catch (err) {
+    }
     if (this.scanCache) {
       try {
         saveScanCache(this.scanCache.snapshot());
@@ -25282,7 +25449,10 @@ var Engine = class {
     this.abort = new AbortController();
     this.pushedOk.clear();
     this.registryNeedsPush = mode === "push";
-    if (mode !== "push") await this.pullWorkspaceRegistry();
+    if (mode !== "push") {
+      await this.readEventStream();
+      await this.pullWorkspaceRegistry();
+    }
     this.loadWorkspaceDirs();
     if (this.registryNeedsPush && mode !== "pull") await this.pushWorkspaceRegistry();
     this.deps.store.snapshot.running = true;
@@ -25374,7 +25544,7 @@ var Engine = class {
         }
       }
       if (!this.abort.signal.aborted) {
-        const fresh = await this.scanner.buildManifest();
+        const fresh = await this.stripTrashed(await this.scanner.buildManifest());
         const baseline = this.deps.store.localManifest ?? [];
         await this.writeOwnManifest(this.withoutMirrors(fresh));
         this.remoteManifest = await this.readRemoteManifest();
@@ -25505,9 +25675,16 @@ var Engine = class {
     } catch (err) {
       console.error("[dsh-nas-sync] \u56DE\u6536\u5143\u6570\u636E\u5199\u5165\u5931\u8D25\uFF08\u8FD9\u6761\u4F8B\u540E\u5C06\u53EA\u80FD\u624B\u5DE5\u6062\u590D\uFF09\uFF1A" + String(err));
     }
+    const sid = this.sessionIdOfRel(localRel);
     try {
       await unregisterSessionFromRel(localRel);
     } catch {
+    }
+    if (sid) {
+      try {
+        await dropSessionProjCache(sid);
+      } catch {
+      }
     }
     return trash;
   }
@@ -25619,6 +25796,36 @@ var Engine = class {
       try {
         await rm3(metaPath, { force: true });
       } catch {
+      }
+    }
+    if (sid) {
+      const key2 = "session:" + sid;
+      if (this.tombstones.some((t2) => t2.key === key2)) {
+        try {
+          const buf = await readFile4(this.resolveLocal(rel));
+          const device = selfDevice();
+          const e2 = makeEvent({
+            device,
+            seq: nextLocalSeq(this.eventStream, device),
+            ts: Date.now(),
+            key: key2,
+            rel,
+            hash: sha256Hex2(buf),
+            op: "upsert",
+            category: "sessions"
+          });
+          await this.appendLocalEvents([e2]);
+          this.eventStream = mergeEventLogs([this.eventStream, [e2]]);
+          this.tombstones = buildTombstones(this.eventStream, {
+            retentionDays: normalizeRetentionDays(this.deps.config.retentionDays)
+          });
+          await this.writeTombstones();
+          await this.writeCursors(this.eventStream);
+        } catch (err) {
+          console.warn(
+            "[dsh-nas-sync] \u6062\u590D\u540E\u64A4\u9500\u5220\u9664\u5893\u7891\u5931\u8D25\uFF08\u4E0B\u4E00\u8F6E\u53EF\u80FD\u53C8\u628A\u8BE5\u4F1A\u8BDD\u9690\u85CF\uFF09\uFF1A" + String(err)
+          );
+        }
       }
     }
     return { rel, restoredTo: sessionDir };
@@ -25750,7 +25957,16 @@ var Engine = class {
     }
     const remoteText = Buffer.from(plain).toString("utf8");
     try {
-      const r2 = await mergeWorkspaceRegistry(remoteText, void 0, this.ignoredFromFile);
+      const drops = new Set(this.ignoredFromFile);
+      const now = Date.now();
+      for (const t2 of this.tombstones) {
+        if (!t2.key.startsWith("session:")) continue;
+        const sid = t2.key.slice("session:".length);
+        if (!sid) continue;
+        if (t2.expiresAt !== 0 && now >= t2.expiresAt) continue;
+        drops.add(sid);
+      }
+      const r2 = await mergeWorkspaceRegistry(remoteText, void 0, drops);
       if (r2.added > 0 || r2.remapped > 0 || r2.deduped > 0) {
         console.warn(
           "[dsh-nas-sync] \u5DE5\u4F5C\u533A\u6CE8\u518C\u8868\u5DF2\u5408\u5E76\uFF1A\u65B0\u589E " + r2.added + "\u3001\u4FEE\u6B63\u8DEF\u5F84 " + r2.remapped + "\u3001\u53BB\u91CD " + r2.deduped

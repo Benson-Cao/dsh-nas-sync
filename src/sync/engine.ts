@@ -106,6 +106,9 @@ import {
   sessionFrameOffsets,
   unregisterSessionFromRel,
   WORKSPACE_REGISTRY_REL,
+  listTrashedSessionIds,
+  pruneEmptySessionDirs,
+  dropSessionProjCache,
   type WorkspaceCollision,
 } from './portable.js';
 
@@ -332,6 +335,8 @@ export class Engine {
   private eventStreamError: string | null = null;
   /** 本轮成功发布的本机事件数。 */
   private publishedEvents = 0;
+  /** 上次成功读取事件流的时间戳（10 秒内复用，避免一轮同步读两遍）。 */
+  private eventStreamFreshAt = 0;
 
   /** 面板/诊断用：当前安全开关的状态。 */
   safetyStatus(): {
@@ -1268,6 +1273,12 @@ export class Engine {
 
   /** 读全局事件流：列每台设备的分片、逐片解析、校验完整性、回放墓碑。 */
   private async readEventStream(): Promise<void> {
+    /**
+     * 同一轮同步里这个函数会被调用两次：`sync()` 开头一次（供注册表剔除用，
+     * 注册表必须在本轮扫描**之前**合并），`scanOnce()` 里再一次（供删除判定用）。
+     * 十秒内的重复调用直接复用上次结果，免得每轮多一次 NAS 往返。
+     */
+    if (this.eventTrust && Date.now() - this.eventStreamFreshAt < 10_000) return;
     const t = this.deps.transport;
     this.eventStream = [];
     this.eventTrust = null;
@@ -1327,6 +1338,7 @@ export class Engine {
     this.tombstones = buildTombstones(this.eventStream, {
       retentionDays: normalizeRetentionDays(this.deps.config.retentionDays),
     });
+    this.eventStreamFreshAt = Date.now();
   }
 
   /** 追加本机事件到自己的分片。CAS 保护同一分片被两个进程同时写。 */
@@ -1530,9 +1542,46 @@ export class Engine {
       const sid = this.sessionIdOfRel(e.rel);
       if (sid && this.ignoredFromFile.has(sid)) excluded.add(e.rel);
     }
+    // DSH 回收站是**明确的用户删除**，优先级必须高于上面的镜像排除：
+    // 跨平台同步过来的会话在 sessionImports 里有 localRel，若不同时放行，
+    // delete 事件永远发不出去（真机实测：手机识别到 5 条回收站会话、发出 0 条事件）。
+    //
+    // 0.6.0 / 收尾②：必须按 **sid** 放行，不能按 `<cwd编码>/<sid>`。
+    // 排除集合里是「本机 rel」，而回收站记录里的编码来自**删除方**（可能是另一台
+    // 设备同步下来的），两端 cwd 编码永远不等 → 原来这段放行对镜像会话恒为 false。
+    try {
+      const trashedIds = await listTrashedSessionIds();
+      if (trashedIds.size > 0) {
+        for (const rel of [...excluded]) {
+          const sid = this.sessionIdOfRel(rel);
+          if (sid && trashedIds.has(sid)) excluded.delete(rel);
+        }
+      }
+    } catch { /* 回收站读不到就保持原行为，宁可少删 */ }
+    // 0.6.2：把「有确凿证据」的条目挑出来 —— 本地 DSH 回收站里就有这条会话的记录。
+    // 它们不该受条数/比例上限约束：一台只有一两条会话的设备，删掉唯一那条时
+    // 消失比例是 100%，会被比例闸永久拦住（真机复现过这个死角）。
+    let explicit: Set<string> | undefined;
+    try {
+      const trashed = await listTrashedSessionIds();
+      if (trashed.size > 0) {
+        explicit = new Set(
+          baseline
+            .filter((e) => {
+              const sid = this.sessionIdOfRel(e.rel);
+              return !!sid && trashed.has(sid);
+            })
+            .map((e) => e.rel),
+        );
+      }
+    } catch {
+      /* 回收站读不到就没有确凿证据，退回原来的推断闸（宁可不删） */
+    }
+
     const decision = computeLocalDeletes({
       baseline,
       fresh,
+      explicit,
       enabledPrefixes: SYNC_CATEGORIES
         .filter((c) => this.deps.config.syncScope[c.key])
         .map((c) => c.localDir),
@@ -1830,6 +1879,40 @@ export class Engine {
   }
 
   /**
+   * 把「已在 DSH 回收站里」的会话从清单里剔除（0.6.2）。
+   *
+   * 为什么必须**两处都过这道闸**：扫描（scanOnce）决定本轮上传什么，发布
+   * （publishEvents）决定本轮发什么 delete 事件 —— 而后者会**再调一次**
+   * `scanner.buildManifest()` 拿 `fresh`。0.6.1 只在扫描那处剔了，`fresh` 里
+   * 被删的会话依旧「还在」，`computeLocalDeletes` 算不出差异，delete 事件
+   * 永远发不出去。真机实测：手机识别到 7 条回收站会话、发出 0 条事件。
+   *
+   * 判据是 **sid**，不是 `<cwd编码>/<sid>`：回收站目录名里的编码属于执行删除
+   * 的设备，两端 cwd 编码必然不同，拼出来的键永远不相等。
+   */
+  private async stripTrashed(list: ManifestEntry[]): Promise<ManifestEntry[]> {
+    let trashed: Set<string>;
+    try {
+      trashed = await listTrashedSessionIds();
+    } catch (err) {
+      // 回收站读不到不影响主流程：最多是这一轮仍按「文件还在」处理
+      console.warn('[dsh-nas-sync] 读取 DSH 回收站失败，本轮不按隐藏处理：' + String(err));
+      return list;
+    }
+    if (trashed.size === 0) return list;
+    const out = list.filter((e) => {
+      if (!this.isSessionBodyRel(e.rel)) return true;
+      const sid = this.sessionIdOfRel(e.rel);
+      return !(sid && trashed.has(sid));
+    });
+    const hidden = list.length - out.length;
+    if (hidden > 0) {
+      console.warn('[dsh-nas-sync] ' + hidden + ' 条会话在 DSH 回收站里（侧栏已隐藏），本轮按已删除处理');
+    }
+    return out;
+  }
+
+  /**
    * 查跨平台会话镜像账。canonical 模式下远端原文 rel 变了，但账本还是按老 rel
    * 记的（迁移不改本机 Store）；按 sid 兜底找一次，避免镜像被误判成「本机已有
    * 同 id 会话」而永远不更新。legacy 模式直接命中，行为不变。
@@ -2052,6 +2135,30 @@ export class Engine {
     // 在下面被判成「远端有本地无 → 下载」，删完立刻又拉回来。
     await this.readEventStream();
     let local = await this.scanner.buildManifest();
+    // 让「DSH 侧栏可见性」成为同步判据（0.6.2 收进 stripTrashed，两处共用）。
+    // 注意：**不能**只在这一处剔除 —— 发布事件那条路会自己再调一次
+    // buildManifest，见 stripTrashed 的注释。
+    local = await this.stripTrashed(local);
+    // 0.6.3：被删会话常留下一个**空目录**（下载路径先 mkdir 再决定写不写），
+    // 宿主按目录列举会话，空目录照样渲染成一条「点开就报错」的幽灵。
+    // 只清空目录，且 sid 必须在墓碑或本机回收站里、目录 mtime 也够旧。
+    try {
+      const dead = new Set<string>();
+      for (const t of this.tombstones) {
+        if (typeof t.key === 'string' && t.key.startsWith('session:')) {
+          dead.add(t.key.slice('session:'.length));
+        }
+      }
+      for (const sid of await listTrashedSessionIds()) dead.add(sid);
+      if (dead.size > 0) {
+        const pruned = await pruneEmptySessionDirs(dead);
+        if (pruned.length > 0) {
+          console.log('[dsh-nas-sync] 清掉 ' + pruned.length + ' 个已删会话留下的空目录');
+        }
+      }
+    } catch (err) {
+      // 清不掉不影响本轮同步：下一轮还会扫到
+    }
     // 0.6.0 / 收尾③：扫描成功后原子落盘。写失败只降级（下轮重算），不能让
     // 一轮同步因为缓存写不进去而整体失败。
     if (this.scanCache) {
@@ -2249,7 +2356,14 @@ export class Engine {
      * 两台设备的注册表 id 天然不同，会每轮互相盖回去。
      */
     this.registryNeedsPush = mode === 'push';
-    if (mode !== 'push') await this.pullWorkspaceRegistry();
+    if (mode !== 'push') {
+      // 先读事件流再并注册表：合并时要用墓碑里的 sid 把「已被对端删除」的会话
+      // 从 sessionIds 里剔掉，否则每轮都会把它并回来（侧栏幽灵会话）。
+      // 读失败不阻断：readEventStream 内部已把不可信状态记在 eventTrust 上，
+      // 那种情况下删除传播本来就会整轮禁用。
+      await this.readEventStream();
+      await this.pullWorkspaceRegistry();
+    }
     this.loadWorkspaceDirs();
 
     // 本机有远端缺的工作区/会话归属 → 发布一次，让对端也能拿到（判定见 registryCovers）。
@@ -2393,7 +2507,9 @@ export class Engine {
 
       // 回写 manifest：用最新本地状态重建（下载过的文件也反映进来）
       if (!this.abort.signal.aborted) {
-        const fresh = await this.scanner.buildManifest();
+        // 0.6.2：这里必须与扫描阶段同口径（剔除回收站会话），否则
+        // computeLocalDeletes 拿到的 fresh 里「已删的会话还在」，一条 delete 都发不出。
+        const fresh = await this.stripTrashed(await this.scanner.buildManifest());
         // 保存本轮之前的基线：下面会把 store.localManifest 覆盖成 fresh，
         // 而删除判定必须拿「上一轮」来比，否则一条 delete 事件都发不出来。
         const baseline = this.deps.store.localManifest ?? [];
@@ -2568,10 +2684,23 @@ export class Engine {
     } catch (err) {
       console.error('[dsh-nas-sync] 回收元数据写入失败（这条例后将只能手工恢复）：' + String(err));
     }
+    const sid = this.sessionIdOfRel(localRel);
     try {
       await unregisterSessionFromRel(localRel);
     } catch {
       /* 清登记失败不致命：文件已经不在，下一轮不会再有这条 */
+    }
+    /**
+     * 0.6.0 / 收尾②：连投影缓存一起清。
+     *
+     * `storages/session_projcache/sessions/<sid>.json` 不在同步范围，也不会随会话
+     * 文件消失而自动清理。部分宿主版本会先读这份快照渲染侧栏，于是出现「文件已经
+     * 搬进回收站、侧栏还挂着一条、点开报错」的幽灵条目。清失败不影响回收本身。
+     */
+    if (sid) {
+      try {
+        await dropSessionProjCache(sid);
+      } catch { /* 尽力而为 */ }
     }
     return trash;
   }
@@ -2677,6 +2806,38 @@ export class Engine {
     if (sid) this.unignoreSession(sid);
     if (metaPath) {
       try { await rm(metaPath, { force: true }); } catch { /* 留着不影响使用 */ }
+    }
+    /**
+     * 0.6.0 / 收尾②：恢复必须能**撤销墓碑**。
+     *
+     * 墓碑现在同时驱动两件事：对端按它回收本地副本；本机注册表合并按它的 sid
+     * 把会话从 `sessionIds` 里剔掉。恢复只把文件搬回来、不撤销墓碑的话，下一轮
+     * 同步会立刻把这条会话重新隐藏（甚至再次回收），用户看到的就是「恢复了又没了」。
+     * 发一条更晚的 upsert 即可：`buildTombstones()` 里 upsert 晚于 deletedAt 就销墓碑。
+     */
+    if (sid) {
+      const key = 'session:' + sid;
+      if (this.tombstones.some((t) => t.key === key)) {
+        try {
+          const buf = await readFile(this.resolveLocal(rel));
+          const device = selfDevice();
+          const e = makeEvent({
+            device, seq: nextLocalSeq(this.eventStream, device), ts: Date.now(),
+            key, rel, hash: sha256Hex(buf), op: 'upsert', category: 'sessions',
+          });
+          await this.appendLocalEvents([e]);
+          this.eventStream = mergeEventLogs([this.eventStream, [e]]);
+          this.tombstones = buildTombstones(this.eventStream, {
+            retentionDays: normalizeRetentionDays(this.deps.config.retentionDays),
+          });
+          await this.writeTombstones();
+          await this.writeCursors(this.eventStream);
+        } catch (err) {
+          console.warn(
+            '[dsh-nas-sync] 恢复后撤销删除墓碑失败（下一轮可能又把该会话隐藏）：' + String(err),
+          );
+        }
+      }
     }
     return { rel, restoredTo: sessionDir };
   }
@@ -2830,7 +2991,24 @@ export class Engine {
     // Array.prototype.toString 拼成 "123,34,…" 的逗号串，JSON.parse 必失败。
     const remoteText = Buffer.from(plain).toString('utf8');
     try {
-      const r = await mergeWorkspaceRegistry(remoteText, undefined, this.ignoredFromFile);
+      /**
+       * 0.6.0 / 收尾②：把「已删除会话」的 sid 一并交去剔除。
+       *
+       * 注册表合并是**单调并集**（只加不改），所以一端删了会话、本机把文件搬走后，
+       * 远端注册表下一轮又会把那个 sid 并回 `sessionIds` —— 侧栏立刻多出一条
+       * 「文件早没了、点开就报错」的幽灵会话。原先只有本机屏蔽集合走这道过滤，
+       * 现在把墓碑里的 sid 也并进去，删除才真正收敛。
+       */
+      const drops = new Set<string>(this.ignoredFromFile);
+      const now = Date.now();
+      for (const t of this.tombstones) {
+        if (!t.key.startsWith('session:')) continue;
+        const sid = t.key.slice('session:'.length);
+        if (!sid) continue;
+        if (t.expiresAt !== 0 && now >= t.expiresAt) continue; // 保留期已过，不再拦
+        drops.add(sid);
+      }
+      const r = await mergeWorkspaceRegistry(remoteText, undefined, drops);
       if (r.added > 0 || r.remapped > 0 || r.deduped > 0) {
         console.warn(
           '[dsh-nas-sync] 工作区注册表已合并：新增 ' + r.added +

@@ -21,6 +21,12 @@ export const SKIP_DIR_NAMES: ReadonlySet<string> = new Set([
   '.next', '.nuxt', '.turbo', '.cache', '.compile-cache',
   // 宿主运行时产生的目录
   'nas-sync', '.plugin-manager',
+  // DSH 自己的会话回收站（0.6.0 / 收尾②）。
+  // 它位于 `sessions/.sessions-trash/`，落在 sessions 分类的扫描前缀里；不排除的话
+  // 一端删会话会被当成「回收站里多了两个新文件」同步过去，另一端不仅收到 upsert，
+  // 还会把 `sessions/.sessions-trash/<ISO>---<enc>---<sid>` 当普通目录下载到本地，
+  // 把本机回收站污染成两端时间戳的大杂烩。删除意图只能走 delete 事件，不能靠搬文件。
+  '.sessions-trash',
   // 插件自身的安装目录（两端版本/平台不同，搬过去只会把对面弄坏）
   'dsh-nas-sync',
 ]);

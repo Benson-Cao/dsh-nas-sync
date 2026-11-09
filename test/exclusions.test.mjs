@@ -54,3 +54,19 @@ test('正常用户内容不被误排除', () => {
     assert.equal(isIgnoredRelPath(rel), false, rel);
   }
 });
+
+test('0.6.0 / 收尾②：DSH 会话回收站不参与同步', () => {
+  // 回收站位于 sessions/.sessions-trash/，落在 sessions 分类的扫描前缀内。
+  // 不排除的话，一端删会话会被同步成「对端多了两个新文件」，删除意图反而丢失。
+  assert.ok(SKIP_DIR_NAMES.has('.sessions-trash'), '回收站目录必须进跳过集合');
+  assert.equal(
+    isIgnoredRelPath('sessions/.sessions-trash/2026-11-09T10-52-22.155Z---enc---session-a/manifest.json'),
+    true,
+  );
+  assert.equal(
+    isIgnoredRelPath('sessions/.sessions-trash/2026-11-09T10-52-22.155Z---enc---session-a/session.v4.jsonl.zstd.trash'),
+    true,
+  );
+  // 正常会话路径不能被误伤（删除判定必须还能看到它）
+  assert.equal(isIgnoredRelPath('sessions/--enc--/session-a/session.v4.jsonl.zstd'), false);
+});

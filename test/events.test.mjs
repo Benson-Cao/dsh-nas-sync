@@ -399,3 +399,15 @@ test('mergeBidMaps：同 sid 取 version 大的，结果稳定可复现', () => 
   assert.equal(bidMapLookup(mergeBidMaps([a, b]), 's1').canonicalRel, 'sessions/by-id/s1/v2');
   assert.equal(bidMapLookup([], 'nope'), null);
 });
+
+test('0.6.0 / 收尾②：回收站副本没有会话身份，必须回落到 rel 空间', () => {
+  const rel = 'sessions/.sessions-trash/2026-11-09T10-52-22.155Z---enc---session-11111111-1111-4111-8111-111111111111/session.v4.jsonl.zstd.trash';
+  // 倒数第二段是回收站目录名，不是 sid；误抽会得到 `session:2026-11-09T...` 这种假键
+  assert.equal(sessionIdFromRel(rel), null);
+  assert.equal(stableKeyOf(rel), 'rel:' + rel);
+  // 正常会话仍按 sid 归键
+  assert.equal(
+    sessionIdFromRel('sessions/--enc--/session-11111111-1111-4111-8111-111111111111/session.v4.jsonl.zstd'),
+    'session-11111111-1111-4111-8111-111111111111',
+  );
+});
