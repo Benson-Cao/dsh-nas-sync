@@ -20,7 +20,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          # 不能用 cache:'npm'：setup-node 的 npm 缓存要读 package-lock.json /
+          # npm-shrinkwrap.json / yarn.lock 算 cache key，本仓库刻意不提交
+          # lock 文件，缺少时该步骤直接报错
+          # 「Dependencies lock file is not found」，整个 job 在 5 秒内失败。
+          # 首次运行 ci#1 已踩过，故这里显式关闭缓存。
 
       # 仓库刻意不提交 package-lock.json（插件要随宿主 Node 走，锁版本反而会
       # 把宿主拖进依赖冲突），所以用 npm install 而不是 npm ci。
