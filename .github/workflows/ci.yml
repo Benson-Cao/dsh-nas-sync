@@ -5,9 +5,9 @@
 # scripts/device-e2e.sh、scripts/two-device-drill.mjs 在装机后手动执行，
 # 报告落到 reports/。
 #
-# Node 矩阵：20 / 22。18 不支持 node --test 的自动发现与 --experimental-test-coverage，
-# 因此最低支持线定在 20（见 COMPAT.md）；重度步骤（覆盖率 / 变异 / 审计）只在 22 上跑，
-# 20 只验证「代码能装载 + 单测全绿」，避免矩阵把 CI 时长翻三倍。
+# Node 矩阵：22 / 24 —— 与 package.json 的 engines.node >=22.15.0 对齐。
+# 不要加 20：20 的 test runner 与 22 有行为差异（ci#5 实测 20 红 / 22 绿），
+# 且 engines 已明确拒绝 <22.15。重度步骤（覆盖率 / 变异 / 审计）只在 22 上跑。
 name: ci
 
 on:
@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20', '22']
+        node: ['22', '24']
     steps:
       - uses: actions/checkout@v4
 

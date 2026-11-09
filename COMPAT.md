@@ -8,8 +8,9 @@
 | 运行时 | 结论 | 依据 |
 |---|---|---|
 | Node **22.x** | ✅ 支持（基线） | 本仓库所有脚本、`npm run verify`、GitHub Actions matrix 均以 22 为基线 |
-| Node **20.x** | ✅ 支持（仅单测 / 构建） | CI matrix `node: ['20','22']` 实测；覆盖率 / 变异 / 审计只在 22 跑 |
-| Node **18.x** | ❌ 不支持 | 缺 `node --test` 的自动发现与 `--experimental-test-coverage`；`WebSocket` 全局也未稳定。`engines.node >= 22.15.0` 即为此设 |
+| Node **24.x** | ✅ 支持（CI 实测） | CI matrix `node: ['22','24']`；手机端 Termux 就是 24.18.0 |
+| Node **20.x** | ❌ 不支持 | 与 `engines.node >=22.15.0` 冲突；ci#5 实测 20 上单测失败、22 绿，test runner 行为有差异 |
+| Node **18.x** | ❌ 不支持 | 缺 `node --test` 的自动发现与 `--experimental-test-coverage`；`WebSocket` 全局也未稳定 |
 | Android Termux Node **24.18.0** | ✅ 实测通过 | 真机 `com.dsh.harness` 内置 runtime，`reports/device-e2e.json` `ok:true` |
 
 `engines.node` 定为 `>=22.15.0` 的原因：15 是 `node --test` 稳定支持目录/glob 发现的分界，
