@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dsh-nas-sync.local/contracts/store-state.schema.json",
+  "title": "StoreState",
+  "description": "持久化状态 store.json 的形状，字段对齐 src/config.ts 的 Store.save()。required 只放从早期就存在的三个核心字段（snapshot/pendingFiles/conflicts）；saltHex（0.5.9）、sessionImports（0.5.6）、deviceCursors / pendingIntents（0.6.0）都是后加的可选字段，用于锁定「新字段不得变成必填」这条向后兼容红线 —— v0.5.7 的 store 没有 0.6.0 新字段也必须能通过校验。",
+  "type": "object",
+  "required": ["snapshot", "pendingFiles", "conflicts"],
+  "additionalProperties": false,
+  "properties": {
+    "saltHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "固定 scrypt salt（16 字节 hex）；0.5.9 起独立持久化"
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["lastSyncTime", "phase", "progress", "pendingCount", "conflictCount", "running"],
+      "additionalProperties": false,
+      "properties": {
+        "lastSyncTime": { "type": ["number", "null"] },
+        "phase": { "type": "string", "enum": ["idle", "scanning", "uploading", "downloading", "error"] },
+        "progress": {
+          "type": "object",
+          "required": ["total", "done", "errors"],
+          "additionalProperties": false,
+          "properties": {
+            "total": { "type": "number", "minimum": 0 },
+            "done": { "type": "number", "minimum": 0 },
+            "errors": { "type": "number", "minimum": 0 }
+          }
+        },
+        "pendingCount": { "type": "number", "minimum": 0 },
+        "conflictCount": { "type": "number", "minimum": 0 },
+        "running": { "type": "boolean" }
+      }
+    },
+    "pendingFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rel", "size", "action"],
+        "additionalProperties": false,
+        "properties": {
+          "rel": { "type": "string" },
+          "size": { "type": "number", "minimum": 0 },
+          "action": { "type": "string", "enum": ["upload", "download", "delete"] },
+          "priority": { "type": "number", "description": "历史遗留权重，现算排序不再读取" }
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rel", "localMtime", "remoteMtime", "localHash", "remoteHash", "mergeable"],
+        "additionalProperties": false,
+        "properties": {
+          "rel": { "type": "string" },
+          "localMtime": { "type": "number" },
+          "remoteMtime": { "type": "number" },
+          "localHash": { "type": "string" },
+          "remoteHash": { "type": "string" },
+          "mergeable": { "type": "boolean" }
+        }
+      }
+    },
+    "localManifest": {
+      "type": "array",
+      "description": "上一轮本地清单（ManifestEntry[]）；可选字段较多，按宽松对象处理",
+      "items": {
+        "type": "object",
+        "required": ["rel", "mtime", "size", "hash"],
+        "properties": {
+          "rel": { "type": "string" },
+          "mtime": { "type": "number", "minimum": 0 },
+          "size": { "type": "number", "minimum": 0 },
+          "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "device": { "type": "string" }
+        }
+      }
+    },
+    "userConfig": {
+      "type": ["object", "null"],
+      "description": "用户配置覆盖层；键集合随版本演进，故不锁死 additionalProperties"
+    },
+    "sessionImports": {
+      "type": "object",
+      "description": "跨平台会话导入记录（0.5.6）；键为远端 rel",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["remoteHash", "localRel", "localHash", "originalCwd"],
+        "properties": {
+          "remoteHash": { "type": "string" },
+          "localRel": { "type": "string" },
+          "localHash": { "type": "string" },
+          "originalCwd": { "type": "string" },
+          "missingRounds": { "type": "number", "minimum": 0 },
+          "adopted": { "type": "boolean" }
+        }
+      }
+    },
+    "deviceCursors": {
+      "type": "object",
+      "description": "本机处理到各设备事件日志的位点（0.6.0 新增，可选）",
+      "additionalProperties": { "type": "number", "minimum": 0 }
+    },
+    "pendingIntents": {
+      "type": "array",
+      "description": "待发布的屏蔽 / 撤销意图（0.6.0 新增，可选）",
+      "items": {
+        "type": "object",
+        "required": ["op", "sid"],
+        "additionalProperties": false,
+        "properties": {
+          "op": { "type": "string", "enum": ["ignore", "unignore"] },
+          "sid": { "type": "string", "pattern": "^.+$" }
+        }
+      }
+    }
+  }
+}

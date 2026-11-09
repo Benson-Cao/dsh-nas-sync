@@ -1,0 +1,8 @@
+{
+  "name": "@scope/nas-helper",
+  "version": "1.2.3",
+  "target": "win32/x64/node-127",
+  "objectHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "size": 98765,
+  "device": "win32:DESKTOP-ABC"
+}

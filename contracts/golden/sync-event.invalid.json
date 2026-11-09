@@ -1,0 +1,9 @@
+{
+  "v": 2,
+  "device": "win32:DESKTOP-ABC",
+  "seq": 7,
+  "ts": 1730000000000,
+  "key": "sid:9f2c1a",
+  "op": "nuke",
+  "category": "sessions"
+}

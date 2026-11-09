@@ -1,0 +1,14 @@
+{
+  "v": 2,
+  "device": "win32:DESKTOP-ABC",
+  "seq": 7,
+  "ts": 1730000000000,
+  "key": "sid:9f2c1a",
+  "rel": "sessions/by-id/9f2c1a/v1/meta.json",
+  "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "op": "upsert",
+  "category": "sessions",
+  "platform": "win32/x64/node-127",
+  "retentionDays": 30,
+  "sig": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

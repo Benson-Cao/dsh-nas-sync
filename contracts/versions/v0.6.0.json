@@ -1,0 +1,151 @@
+{
+  "version": "0.6.0",
+  "note": "0.6.0 全字段：新增事件日志、设备位点 deviceCursors、待发布意图 pendingIntents；配置视图新增 sessionRelMode / envelopeVersion / scanCacheEnabled / scanCacheTtlHours 四个收尾字段（另有 retentionDays / maxFileBytes）。本文件是版本矩阵的基线，后续版本若把任何新字段写进 required，旧版 fixture 会立刻变红。",
+  "cases": [
+    {
+      "id": "v0.6.0/sync-event/full",
+      "kind": "schema",
+      "schema": "sync-event.schema.json",
+      "expect": "pass",
+      "note": "0.6.0 事件日志完整形态（含 sig / retentionDays / platform）",
+      "data": {
+        "v": 2,
+        "device": "win32:DESKTOP-ABC",
+        "seq": 7,
+        "ts": 1730000000000,
+        "key": "sid:9f2c1a",
+        "rel": "sessions/by-id/9f2c1a/v1/meta.json",
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "op": "delete",
+        "category": "sessions",
+        "platform": "win32/x64/node-127",
+        "retentionDays": 30,
+        "sig": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "id": "v0.6.0/store-state/all-fields",
+      "kind": "schema",
+      "schema": "store-state.schema.json",
+      "expect": "pass",
+      "note": "含 deviceCursors / pendingIntents 的全字段 store",
+      "data": {
+        "saltHex": "e3b0c44298fc1c149afbf4c8996fb924",
+        "snapshot": {
+          "lastSyncTime": 1730000000000,
+          "phase": "idle",
+          "progress": { "total": 3, "done": 3, "errors": 0 },
+          "pendingCount": 1,
+          "conflictCount": 0,
+          "running": false
+        },
+        "pendingFiles": [{ "rel": "attachments/a.png", "size": 512, "action": "upload" }],
+        "conflicts": [],
+        "localManifest": [
+          {
+            "rel": "sessions/s1/meta.json",
+            "mtime": 1730000000000,
+            "size": 100,
+            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ],
+        "userConfig": { "autoSync": { "enabled": true } },
+        "sessionImports": {},
+        "deviceCursors": { "win32:DESKTOP-ABC": 7, "android:V2458A": 3 },
+        "pendingIntents": [{ "op": "ignore", "sid": "s9" }]
+      }
+    },
+    {
+      "id": "v0.6.0/config-view/all-fields",
+      "kind": "schema",
+      "schema": "config-view.schema.json",
+      "expect": "pass",
+      "note": "含四个 0.6.0 收尾字段的完整配置视图",
+      "data": {
+        "type": "webdav",
+        "webdav": { "url": "https://nas.example/dav", "remotePath": "/dsh-sync", "username": "u", "passwordSet": true },
+        "mountRoot": "",
+        "passphraseSet": true,
+        "autoSync": { "enabled": false, "mode": "push", "intervalMin": 30 },
+        "includeSensitive": false,
+        "syncScope": { "sessions": true, "profiles": false },
+        "skillFilter": [],
+        "chunkThreshold": 104857600,
+        "chunkSize": 52428800,
+        "concurrency": 4,
+        "retentionDays": 30,
+        "maxFileBytes": 67108864,
+        "sessionRelMode": "canonical",
+        "envelopeVersion": 2,
+        "scanCacheEnabled": true,
+        "scanCacheTtlHours": 24
+      }
+    },
+    {
+      "id": "v0.6.0/compat/new-config-fields-present",
+      "kind": "compat",
+      "rule": "present",
+      "fields": ["sessionRelMode", "envelopeVersion", "scanCacheEnabled", "scanCacheTtlHours"],
+      "expect": "pass",
+      "note": "版本锚点（G6）：v0.6.0 配置视图必须包含这四个收尾字段",
+      "data": {
+        "sessionRelMode": "canonical",
+        "envelopeVersion": 2,
+        "scanCacheEnabled": true,
+        "scanCacheTtlHours": 24
+      }
+    },
+    {
+      "id": "v0.6.0/compat/new-config-field-types",
+      "kind": "compat",
+      "rule": "types",
+      "types": {
+        "sessionRelMode": "string",
+        "envelopeVersion": "number",
+        "scanCacheEnabled": "boolean",
+        "scanCacheTtlHours": "number"
+      },
+      "expect": "pass",
+      "note": "四个收尾字段的类型锁定：string / number / boolean / number",
+      "data": {
+        "sessionRelMode": "canonical",
+        "envelopeVersion": 2,
+        "scanCacheEnabled": true,
+        "scanCacheTtlHours": 24
+      }
+    },
+    {
+      "id": "v0.6.0/compat/store-0.6.0-fields-present",
+      "kind": "compat",
+      "rule": "present",
+      "fields": ["deviceCursors", "pendingIntents"],
+      "expect": "pass",
+      "note": "v0.6.0 store 必须含事件位点与待发布意图字段",
+      "data": {
+        "deviceCursors": { "win32:DESKTOP-ABC": 7 },
+        "pendingIntents": [{ "op": "unignore", "sid": "s9" }]
+      }
+    },
+    {
+      "id": "v0.6.0/config-view/envelope-version-out-of-range",
+      "kind": "schema",
+      "schema": "config-view.schema.json",
+      "expect": "fail",
+      "note": "反向验证：envelopeVersion=9 越过 maximum:2，必须被拒绝",
+      "data": {
+        "type": "webdav",
+        "webdav": { "url": "", "remotePath": "", "username": "", "passwordSet": false },
+        "mountRoot": "",
+        "passphraseSet": false,
+        "autoSync": { "enabled": false, "mode": "push", "intervalMin": 30 },
+        "includeSensitive": false,
+        "syncScope": { "sessions": true },
+        "skillFilter": [],
+        "chunkThreshold": 104857600,
+        "chunkSize": 52428800,
+        "concurrency": 4,
+        "envelopeVersion": 9
+      }
+    }
+  ]
+}

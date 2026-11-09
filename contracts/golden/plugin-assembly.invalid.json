@@ -1,0 +1,8 @@
+{
+  "name": "nas-helper",
+  "version": "1.2.3",
+  "target": "linux/x64/node-127",
+  "objectHash": "xyz",
+  "size": 123,
+  "device": "linux:host"
+}

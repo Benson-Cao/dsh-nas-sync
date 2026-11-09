@@ -1,0 +1,11 @@
+{
+  "rel": "sessions/by-id/s1/v1/meta.json",
+  "mtime": 1730000000000,
+  "size": 2048,
+  "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "device": "android:V2458A",
+  "version": 2,
+  "cas": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "deletedAt": 1730000009000,
+  "platform": "android/arm64/node-127"
+}

@@ -1,0 +1,100 @@
+{
+  "version": "0.5.7",
+  "note": "0.5.7：清单已经带 device（最后上传设备），但 store 仍没有 0.6.0 的事件位点 / 待发布意图字段（deviceCursors / pendingIntents），配置视图也还没有 0.6.0 的收尾字段。这是「store 无新字段」这一版本锚点。",
+  "cases": [
+    {
+      "id": "v0.5.7/manifest-entry/with-device",
+      "kind": "schema",
+      "schema": "manifest-entry.schema.json",
+      "expect": "pass",
+      "note": "0.5.x 清单带 device，仍须通过当前 schema",
+      "data": {
+        "rel": "sessions/legacy/s1",
+        "mtime": 1730000000000,
+        "size": 100,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "device": "android:V2458A"
+      }
+    },
+    {
+      "id": "v0.5.7/compat/device-is-string",
+      "kind": "compat",
+      "rule": "types",
+      "types": { "device": "string", "rel": "string", "mtime": "number", "size": "number", "hash": "string" },
+      "expect": "pass",
+      "note": "清单字段类型锁定：device 必须是 string，与 models.ts 一致",
+      "data": {
+        "rel": "sessions/legacy/s1",
+        "mtime": 1730000000000,
+        "size": 100,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "device": "android:V2458A"
+      }
+    },
+    {
+      "id": "v0.5.7/store-state/no-0.6.0-fields",
+      "kind": "schema",
+      "schema": "store-state.schema.json",
+      "expect": "pass",
+      "note": "0.5.7 store 含 saltHex/sessionImports 但无 deviceCursors/pendingIntents，仍须通过",
+      "data": {
+        "saltHex": "e3b0c44298fc1c149afbf4c8996fb924",
+        "snapshot": {
+          "lastSyncTime": 1730000000000,
+          "phase": "idle",
+          "progress": { "total": 2, "done": 2, "errors": 0 },
+          "pendingCount": 0,
+          "conflictCount": 0,
+          "running": false
+        },
+        "pendingFiles": [],
+        "conflicts": [],
+        "localManifest": [
+          {
+            "rel": "sessions/s1/meta.json",
+            "mtime": 1730000000000,
+            "size": 100,
+            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ],
+        "userConfig": { "autoSync": { "enabled": true } },
+        "sessionImports": {
+          "sessions/remote/s9": {
+            "remoteHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "localRel": "sessions/local/s9",
+            "localHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "originalCwd": "/home/me/project"
+          }
+        }
+      }
+    },
+    {
+      "id": "v0.5.7/compat/store-0.6.0-fields-absent",
+      "kind": "compat",
+      "rule": "absent",
+      "fields": ["deviceCursors", "pendingIntents"],
+      "expect": "pass",
+      "note": "版本锚点：0.5.7 的 store 不允许出现 0.6.0 才引入的位点与意图字段",
+      "data": {
+        "saltHex": "e3b0c44298fc1c149afbf4c8996fb924",
+        "snapshot": { "phase": "idle" },
+        "sessionImports": {}
+      }
+    },
+    {
+      "id": "v0.5.7/manifest-entry/extra-field-rejected",
+      "kind": "schema",
+      "schema": "manifest-entry.schema.json",
+      "expect": "fail",
+      "note": "反向验证：出现 schema 未声明的字段（bogus）必须被 additionalProperties:false 拒绝",
+      "data": {
+        "rel": "sessions/legacy/s1",
+        "mtime": 1730000000000,
+        "size": 100,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "device": "android:V2458A",
+        "bogus": 1
+      }
+    }
+  ]
+}

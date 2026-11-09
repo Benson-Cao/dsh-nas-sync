@@ -106,6 +106,7 @@ import {
   sessionFrameOffsets,
   unregisterSessionFromRel,
   WORKSPACE_REGISTRY_REL,
+  type WorkspaceCollision,
 } from './portable.js';
 
 export type SyncMode = 'push' | 'pull' | 'mirror';
@@ -314,6 +315,12 @@ export class Engine {
   /** 缓存损坏/写盘失败时要显式告警，不能静默退化成每轮全量扫描。 */
   private scanCacheWarning: string | null = null;
 
+  /** 进行中的扫描（并发调用复用同一轮，见 scan() 注释）。 */
+  private scanInFlight: Promise<{ local: ManifestEntry[]; pending: PendingFile[]; conflicts: ConflictItem[] }> | null = null;
+
+  /** 本次装载到的工作区 rel 撞车（同名不同路径），供状态面板提示。 */
+  private workspaceCollisions: WorkspaceCollision[] = [];
+
   // ---- 0.6.0 / P1：事件驱动删除传播的运行态 ----
   /** 本轮合并后的全局事件流（所有设备日志按序合并）。 */
   private eventStream: SyncEvent[] = [];
@@ -434,16 +441,35 @@ export class Engine {
   /** 读注册表缓存「工作区目录名 → 真实路径」；同步/扫描前各刷一次。 */
   private loadWorkspaceDirs(): void {
     this.workspaceDirs.clear();
+    this.workspaceCollisions = [];
     try {
       const raw = JSON.parse(readFileSync(join(dshHome(), 'storages', 'workspace.json'), 'utf8'));
       for (const w of Object.values<any>(raw?.tables?.workspaces ?? {})) {
         const p = String(w?.path ?? '');
         if (!p) continue;
         const name = safeName(p);
-        if (name) this.workspaceDirs.set(name, p);
+        if (!name) continue;
+        // 0.6.0 收尾：同名不同路径的工作区会抢同一个 rel 前缀。
+        // 0.5.9 这里直接 set(name, p)，后到的记录会**静默改写映射** ——
+        // 结果是 A 工作区的上传被解析到 B 的目录，A 的文件永远传不上去，
+        // 而且看清单完全正常。现在保留先到者（与 collectWorkspaceDirs 的
+        // seenRel 语义一致），并把冲突记下来给状态面板/日志。
+        const existing = this.workspaceDirs.get(name);
+        if (existing !== undefined && existing !== p) {
+          const rel = 'workspaces/' + name;
+          const hit = this.workspaceCollisions.find((c) => c.rel === rel);
+          if (hit) hit.paths.push(p);
+          else this.workspaceCollisions.push({ rel, paths: [existing, p] });
+          continue;
+        }
+        this.workspaceDirs.set(name, p);
       }
     } catch {
       /* 注册表读不到就退化成 localOf（和旧行为一致，不会更糟） */
+    }
+    if (this.workspaceCollisions.length > 0) {
+      console.warn('[dsh-nas-sync] 工作区 rel 撞车，后到者已跳过（先到者优先）：'
+        + this.workspaceCollisions.map((c) => c.rel + ' ← ' + c.paths.join(' | ')).join('；'));
     }
   }
 
@@ -1994,7 +2020,27 @@ export class Engine {
     return { published: true, reason: '' };
   }
 
+  /**
+   * 扫描入口（0.6.0 收尾 · 并发保护）。
+   *
+   * `scan()` 会写 `store.pendingFiles` / `snapshot` 并把对端删除执行到本地回收站，
+   * 不是幂等只读操作。0.5.9 审查 C 系列点出「scan() 无锁且带回收副作用」：
+   * 自动同步定时器、面板手动刷新、工具调用三方并发时，两轮扫描会互相覆盖
+   * pending 列表，极端情况下对同一份文件算出不同的「本地有/无」结论。
+   *
+   * 这里用 in-flight 去重而不是排队：并发的第二个调用**复用同一轮结果**，
+   * 既不重复扫盘、也不会因为排队把面板点一下卡两轮。`finally` 保证异常后解锁，
+   * 不会出现「第一次失败后永远锁死」。
+   */
   async scan(): Promise<{ local: ManifestEntry[]; pending: PendingFile[]; conflicts: ConflictItem[] }> {
+    if (this.scanInFlight) return this.scanInFlight;
+    const run = this.scanOnce().finally(() => { this.scanInFlight = null; });
+    this.scanInFlight = run;
+    return run;
+  }
+
+  /** 真正的一轮扫描。只允许经 {@link scan} 调用，以保证并发保护不被绕过。 */
+  private async scanOnce(): Promise<{ local: ManifestEntry[]; pending: PendingFile[]; conflicts: ConflictItem[] }> {
     this.checkReady();
     this.loadWorkspaceDirs();
     this.loadIgnoredFile();

@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dsh-nas-sync.local/contracts/config-view.schema.json",
+  "title": "ConfigView",
+  "description": "脱敏后的配置视图，字段对齐 src/bridge.ts 的 publicConfig()。此 schema 主要服务版本矩阵：0.6.0 新增的 sessionRelMode / envelopeVersion / scanCacheEnabled / scanCacheTtlHours（以及 retentionDays / maxFileBytes）全部是可选字段，required 只保留早期就存在的核心键 —— 这样 v0.4.x / v0.5.x 的配置视图（不含 0.6.0 新键）仍能被当前契约接受，正是「升级不改旧数据」的可执行断言。",
+  "type": "object",
+  "required": ["type", "webdav", "mountRoot", "passphraseSet", "autoSync", "includeSensitive", "syncScope", "skillFilter", "chunkThreshold", "chunkSize", "concurrency"],
+  "additionalProperties": false,
+  "properties": {
+    "type": { "type": "string", "enum": ["webdav", "mount"] },
+    "webdav": {
+      "type": "object",
+      "required": ["url", "remotePath", "username", "passwordSet"],
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string" },
+        "remotePath": { "type": "string" },
+        "username": { "type": "string" },
+        "passwordSet": { "type": "boolean", "description": "只回是否已设置，绝不回显口令" }
+      }
+    },
+    "mountRoot": { "type": "string" },
+    "passphraseSet": { "type": "boolean" },
+    "autoSync": {
+      "type": "object",
+      "required": ["enabled", "mode", "intervalMin"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mode": { "type": "string", "enum": ["push", "pull", "mirror"] },
+        "intervalMin": { "type": "number", "minimum": 1 }
+      }
+    },
+    "includeSensitive": { "type": "boolean" },
+    "syncScope": {
+      "type": "object",
+      "description": "分类勾选表；键集合按 DEFAULT_SYNC_SCOPE 演进，逐个值必须是 boolean",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "skillFilter": { "type": "array", "items": { "type": "string" } },
+    "chunkThreshold": { "type": "number", "minimum": 1024 },
+    "chunkSize": { "type": "number", "minimum": 1024 },
+    "concurrency": { "type": "number", "minimum": 1, "maximum": 16 },
+    "retentionDays": { "type": "number", "minimum": 0, "maximum": 3650, "description": "0.6.0 新增，可选" },
+    "maxFileBytes": { "type": "number", "minimum": 1024, "description": "0.6.0 新增，可选" },
+    "sessionRelMode": { "type": "string", "enum": ["legacy", "shadow", "canonical"], "description": "0.6.0 收尾①，可选" },
+    "envelopeVersion": { "type": "number", "minimum": 1, "maximum": 2, "description": "0.6.0 收尾②，可选" },
+    "scanCacheEnabled": { "type": "boolean", "description": "0.6.0 收尾③，可选" },
+    "scanCacheTtlHours": { "type": "number", "minimum": 1, "maximum": 720, "description": "0.6.0 收尾③，可选" }
+  }
+}

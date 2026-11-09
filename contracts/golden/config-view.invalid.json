@@ -1,0 +1,19 @@
+{
+  "type": "webdav",
+  "webdav": {
+    "url": "https://nas.example/dav",
+    "remotePath": "/dsh-sync",
+    "username": "sync-user",
+    "passwordSet": true
+  },
+  "mountRoot": "",
+  "passphraseSet": true,
+  "autoSync": { "enabled": false, "mode": "push", "intervalMin": 30 },
+  "includeSensitive": false,
+  "syncScope": { "sessions": true },
+  "skillFilter": [],
+  "chunkThreshold": 104857600,
+  "chunkSize": 52428800,
+  "concurrency": 4,
+  "envelopeVersion": 9
+}

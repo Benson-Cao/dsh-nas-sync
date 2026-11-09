@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dsh-nas-sync.local/contracts/plugin-assembly.schema.json",
+  "title": "PluginObjectRecord",
+  "description": "插件包体 CAS 装配记录（P4），字段严格对齐 src/data/models.ts 的 PluginObjectRecord 接口与 src/sync/plugin-objects.ts 的 recordsForTarget() 输出。target 形如 platform/arch/node-abi，objectHash 指向 /dsh/objects/<前2位>/<hash>。",
+  "type": "object",
+  "required": ["name", "version", "target", "objectHash", "size", "device"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "pattern": "^.+$", "description": "包名" },
+    "version": { "type": "string", "description": "语义化版本" },
+    "target": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/node-[0-9]+$", "description": "platform/arch/node-abi" },
+    "objectHash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "包体内容 sha256 hex" },
+    "size": { "type": "number", "minimum": 0, "description": "包体字节数" },
+    "device": { "type": "string", "description": "发布该包体的设备" }
+  }
+}

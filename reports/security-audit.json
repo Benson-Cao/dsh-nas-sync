@@ -1,7 +1,7 @@
 {
-  "at": "2026-11-09T07:25:28.549Z",
+  "at": "2026-11-09T09:33:22.254Z",
   "coverage": "静态规则（5 类）+ npm audit --omit=dev；不含 DAST / 运行时渗透 / 人工评审",
-  "scannedFiles": 39,
+  "scannedFiles": 42,
   "rules": [
     "dynamic-code",
     "hardcoded-secret",

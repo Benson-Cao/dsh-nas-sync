@@ -1,25 +1,36 @@
-# 0.6.0 / 收尾⑤：完整质量门禁
-# 顺序与 npm run verify 一致：编译 → 单测 → 覆盖率 → 变异 → 安全审计。
-# 真机 E2E 不在 CI 里跑（需要物理设备与无线调试），由 scripts/device-e2e.sh
-# 在装机后手动执行，报告落到 reports/device-e2e.json。
+# 0.6.0 · 完整质量门禁
+#
+# 顺序与 npm run verify 一致：编译 → 单测 → 契约 → 覆盖率 → 变异 → 安全审计。
+# 真机 E2E 与双端演练不在 CI 里跑（需要物理设备 / 真实 NAS），由
+# scripts/device-e2e.sh、scripts/two-device-drill.mjs 在装机后手动执行，
+# 报告落到 reports/。
+#
+# Node 矩阵：20 / 22。18 不支持 node --test 的自动发现与 --experimental-test-coverage，
+# 因此最低支持线定在 20（见 COMPAT.md）；重度步骤（覆盖率 / 变异 / 审计）只在 22 上跑，
+# 20 只验证「代码能装载 + 单测全绿」，避免矩阵把 CI 时长翻三倍。
 name: ci
 
 on:
   push:
     branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
           # 不能用 cache:'npm'：setup-node 的 npm 缓存要读 package-lock.json /
           # npm-shrinkwrap.json / yarn.lock 算 cache key，本仓库刻意不提交
           # lock 文件，缺少时该步骤直接报错
@@ -37,19 +48,25 @@ jobs:
       - name: Unit / integration tests
         run: npm test
 
+      - name: Data contracts (schema + golden + version matrix)
+        run: npm run verify:contracts
+
       - name: Coverage gate (>= 40% lines)
+        if: matrix.node == '22'
         run: npm run coverage
 
       - name: Mutation testing (critical predicates)
+        if: matrix.node == '22'
         run: npm run mutation
 
       - name: SAST + dependency audit
+        if: matrix.node == '22'
         run: npm run audit:security
 
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quality-reports
+          name: quality-reports-node${{ matrix.node }}
           path: reports/
           if-no-files-found: warn

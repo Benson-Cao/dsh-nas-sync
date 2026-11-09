@@ -1,0 +1,12 @@
+{
+  "snapshot": {
+    "lastSyncTime": null,
+    "phase": "paused",
+    "progress": { "total": 0, "done": 0, "errors": 0 },
+    "pendingCount": 0,
+    "conflictCount": 0,
+    "running": false
+  },
+  "pendingFiles": [],
+  "conflicts": []
+}

@@ -1,0 +1,35 @@
+{
+  "type": "webdav",
+  "webdav": {
+    "url": "https://nas.example/dav",
+    "remotePath": "/dsh-sync",
+    "username": "sync-user",
+    "passwordSet": true
+  },
+  "mountRoot": "",
+  "passphraseSet": true,
+  "autoSync": { "enabled": false, "mode": "push", "intervalMin": 30 },
+  "includeSensitive": false,
+  "syncScope": {
+    "sessions": true,
+    "workspaces": true,
+    "workspaceFiles": true,
+    "customFolders": true,
+    "sessionTitles": true,
+    "attachments": true,
+    "skills": true,
+    "profiles": false,
+    "settings": false,
+    "pluginPatch": false
+  },
+  "skillFilter": ["alpha", "beta"],
+  "chunkThreshold": 104857600,
+  "chunkSize": 52428800,
+  "concurrency": 4,
+  "retentionDays": 30,
+  "maxFileBytes": 67108864,
+  "sessionRelMode": "canonical",
+  "envelopeVersion": 2,
+  "scanCacheEnabled": true,
+  "scanCacheTtlHours": 24
+}

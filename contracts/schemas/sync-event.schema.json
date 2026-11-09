@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dsh-nas-sync.local/contracts/sync-event.schema.json",
+  "title": "SyncEvent",
+  "description": "0.6.0 事件日志条目（只追加、不可变）。字段严格对齐 src/data/models.ts 的 SyncEvent 接口。v 固定为 2；op 为闭集枚举；必填字段为发号与排序所必需，新增的可选字段一律不写进 required，以保证旧版对端数据仍能通过校验。",
+  "type": "object",
+  "required": ["v", "device", "seq", "ts", "key", "op"],
+  "additionalProperties": false,
+  "properties": {
+    "v": { "type": "number", "enum": [2], "description": "事件协议版本，当前固定 2" },
+    "device": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+$", "description": "形如 win32:DESKTOP-ABC / android:V2458A" },
+    "seq": { "type": "number", "minimum": 1, "description": "设备内从 1 开始单调递增" },
+    "ts": { "type": "number", "minimum": 0, "description": "物理毫秒" },
+    "key": { "type": "string", "pattern": "^.+$", "description": "稳定主键：会话 sid / 插件 name@target / 其余 rel" },
+    "rel": { "type": "string", "description": "事件对应的 rel（会话可能是 canonical rel）" },
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "内容 CAS 明文 sha256；delete 事件可省略该字段" },
+    "op": { "type": "string", "enum": ["upsert", "delete", "ignore", "unignore", "plugin-install", "plugin-uninstall"] },
+    "category": { "type": "string", "description": "分类前缀：sessions / attachments / skills / plugins" },
+    "platform": { "type": "string", "description": "插件对象用：平台 / 架构 / Node ABI" },
+    "retentionDays": { "type": "number", "minimum": 0, "description": "删除事件回收保留天数；0 = 永久" },
+    "sig": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "事件体 sha256 hex 校验和" }
+  }
+}

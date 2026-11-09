@@ -1,0 +1,85 @@
+{
+  "at": "2026-11-09T09:09:57.276Z",
+  "ok": true,
+  "passed": 15,
+  "total": 15,
+  "bigBytes": 8388608,
+  "bigSha256": "bffc5e44a1f1796bda7f44fe3bbbd10d64b12a8f03d8325a95da1aef3fd84c4a",
+  "chunks": 17,
+  "results": [
+    {
+      "name": "A 上传 8 MiB 大文件到远端",
+      "ok": true,
+      "detail": "对象 无，分块 17 个"
+    },
+    {
+      "name": "大文件确实走分块链路（>1 块）",
+      "ok": true,
+      "detail": "分块数 17"
+    },
+    {
+      "name": "分块对象是 NSS2 信封",
+      "ok": true,
+      "detail": "version=2"
+    },
+    {
+      "name": "清单已写出且为 NSS2",
+      "ok": true,
+      "detail": "清单 1 份"
+    },
+    {
+      "name": "会话 rel 预演能识别 legacy 形态并给出映射",
+      "ok": true,
+      "detail": "预演映射 1 条，valid=true"
+    },
+    {
+      "name": "confirm:false 不产生写入",
+      "ok": true,
+      "detail": "dryRun=true, copied=0"
+    },
+    {
+      "name": "confirm:true 真正复制对象并写迁移标记",
+      "ok": true,
+      "detail": "ok=true, copied=1, hint=迁移完成。旧对象仅复制未删除；把 sessionRelMode 设为 canonical 后主链即切换。"
+    },
+    {
+      "name": "迁移产出 bidmap 账本（可回滚溯源）",
+      "ok": true,
+      "detail": "entries=1"
+    },
+    {
+      "name": "canonical 对象只复制不删除（旧对象仍在）",
+      "ok": true,
+      "detail": "canonical=true, legacy=true"
+    },
+    {
+      "name": "B（默认 NSS1 配置）能解出 v2 清单并算出待下载项",
+      "ok": true,
+      "detail": "pending=3"
+    },
+    {
+      "name": "B 落盘文件与 A 原文逐字节一致（sha256）",
+      "ok": true,
+      "detail": "8388608B / bffc5e44a1f1796bda7f44fe3bbbd10d64b12a8f03d8325a95da1aef3fd84c4a vs bffc5e44a1f1796bda7f44fe3bbbd10d64b12a8f03d8325a95da1aef3fd84c4a"
+    },
+    {
+      "name": "小文件同样跨端一致",
+      "ok": true
+    },
+    {
+      "name": "A 把 .tgz 发布进 CAS 并登记装配清单",
+      "ok": true,
+      "detail": "/dsh/objects/02/028470272864f9a9e1463889cdae4f2dbac7338928da910f162747cce3d54b86 / assemblies=1"
+    },
+    {
+      "name": "CAS 对象可按 sha256 取回",
+      "ok": true,
+      "detail": "hash=028470272864…"
+    },
+    {
+      "name": "B 端无宿主 CLI 时从 CAS 解包写 node_modules",
+      "ok": true,
+      "detail": "installed=drill-plugin"
+    }
+  ]
+}

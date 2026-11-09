@@ -1,0 +1,100 @@
+{
+  "version": "0.4.x",
+  "note": "最早期的跨设备数据：ManifestEntry 只有 rel/mtime/size/hash 四元组，还没有 device 字段；store 只有 snapshot/pendingFiles/conflicts 三个核心字段；配置视图也没有 0.6.0 的收尾字段。本文件用当前（0.6.0）契约校验这些旧数据，验证「新增字段必须保持可选」这条向后兼容红线。",
+  "cases": [
+    {
+      "id": "v0.4.x/manifest-entry/no-device",
+      "kind": "schema",
+      "schema": "manifest-entry.schema.json",
+      "expect": "pass",
+      "note": "无 device 的 v1 清单条目仍须被当前 schema 接受（device 为可选）",
+      "data": {
+        "rel": "sessions/legacy/s1",
+        "mtime": 1730000000000,
+        "size": 100,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "id": "v0.4.x/compat/manifest-device-absent",
+      "kind": "compat",
+      "rule": "absent",
+      "fields": ["device", "version", "cas", "deletedAt", "platform"],
+      "expect": "pass",
+      "note": "0.4.x 清单不该出现任何 0.5.x/0.6.0 才引入的可选字段",
+      "data": {
+        "rel": "sessions/legacy/s1",
+        "mtime": 1730000000000,
+        "size": 100,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "id": "v0.4.x/store-state/minimal",
+      "kind": "schema",
+      "schema": "store-state.schema.json",
+      "expect": "pass",
+      "note": "旧 store 只有三个核心字段，缺少全部 0.5.6/0.6.0 新字段仍须通过",
+      "data": {
+        "snapshot": {
+          "lastSyncTime": null,
+          "phase": "idle",
+          "progress": { "total": 0, "done": 0, "errors": 0 },
+          "pendingCount": 0,
+          "conflictCount": 0,
+          "running": false
+        },
+        "pendingFiles": [],
+        "conflicts": []
+      }
+    },
+    {
+      "id": "v0.4.x/compat/store-new-fields-absent",
+      "kind": "compat",
+      "rule": "absent",
+      "fields": ["saltHex", "sessionImports", "deviceCursors", "pendingIntents"],
+      "expect": "pass",
+      "note": "0.4.x store 不含 0.5.6/0.5.9/0.6.0 引入的字段",
+      "data": {
+        "snapshot": { "phase": "idle" },
+        "pendingFiles": [],
+        "conflicts": []
+      }
+    },
+    {
+      "id": "v0.4.x/config-view/legacy",
+      "kind": "schema",
+      "schema": "config-view.schema.json",
+      "expect": "pass",
+      "note": "0.4.x 配置视图不含 0.6.0 四个收尾字段，当前 schema 仍须接受",
+      "data": {
+        "type": "webdav",
+        "webdav": { "url": "", "remotePath": "", "username": "", "passwordSet": false },
+        "mountRoot": "",
+        "passphraseSet": false,
+        "autoSync": { "enabled": false, "mode": "push", "intervalMin": 30 },
+        "includeSensitive": false,
+        "syncScope": { "sessions": true },
+        "skillFilter": [],
+        "chunkThreshold": 104857600,
+        "chunkSize": 52428800,
+        "concurrency": 4
+      }
+    },
+    {
+      "id": "v0.4.x/compat/device-leak-rejected",
+      "kind": "compat",
+      "rule": "absent",
+      "fields": ["device"],
+      "expect": "fail",
+      "note": "反向验证：若旧版清单里混入了 device，兼容性规则必须判不通过（expect=fail 表示预期被规则拒绝）",
+      "data": {
+        "rel": "sessions/legacy/s1",
+        "mtime": 1730000000000,
+        "size": 100,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "device": "win32:DESKTOP-ABC"
+      }
+    }
+  ]
+}

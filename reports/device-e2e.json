@@ -1,7 +1,7 @@
 {
   "ok": true,
   "failures": [],
-  "at": "2026-11-09T07:24:06.151Z",
+  "at": "2026-11-09T09:14:50.460Z",
   "tokenPresent": true,
   "prefix": "/nas-sync-api",
   "status": {
@@ -23,9 +23,9 @@
       },
       "scanCache": {
         "enabled": true,
-        "hits": 0,
-        "misses": 163,
-        "changed": 0,
+        "hits": 162,
+        "misses": 1,
+        "changed": 1,
         "expired": 0,
         "invalidated": false,
         "warning": null
@@ -33,11 +33,11 @@
     },
     "storeError": null,
     "snapshot": {
-      "lastSyncTime": 1794208029853,
+      "lastSyncTime": 1794215342698,
       "phase": "scanning",
       "progress": {
-        "total": 0,
-        "done": 0,
+        "total": 1,
+        "done": 1,
         "errors": 0
       },
       "pendingCount": 0,

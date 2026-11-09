@@ -23639,6 +23639,10 @@ var Engine = class {
   scanCache;
   /** 缓存损坏/写盘失败时要显式告警，不能静默退化成每轮全量扫描。 */
   scanCacheWarning = null;
+  /** 进行中的扫描（并发调用复用同一轮，见 scan() 注释）。 */
+  scanInFlight = null;
+  /** 本次装载到的工作区 rel 撞车（同名不同路径），供状态面板提示。 */
+  workspaceCollisions = [];
   // ---- 0.6.0 / P1：事件驱动删除传播的运行态 ----
   /** 本轮合并后的全局事件流（所有设备日志按序合并）。 */
   eventStream = [];
@@ -23723,15 +23727,28 @@ var Engine = class {
   /** 读注册表缓存「工作区目录名 → 真实路径」；同步/扫描前各刷一次。 */
   loadWorkspaceDirs() {
     this.workspaceDirs.clear();
+    this.workspaceCollisions = [];
     try {
       const raw = JSON.parse(readFileSync3(join8(dshHome(), "storages", "workspace.json"), "utf8"));
       for (const w of Object.values(raw?.tables?.workspaces ?? {})) {
         const p = String(w?.path ?? "");
         if (!p) continue;
         const name2 = safeName(p);
-        if (name2) this.workspaceDirs.set(name2, p);
+        if (!name2) continue;
+        const existing = this.workspaceDirs.get(name2);
+        if (existing !== void 0 && existing !== p) {
+          const rel = "workspaces/" + name2;
+          const hit = this.workspaceCollisions.find((c) => c.rel === rel);
+          if (hit) hit.paths.push(p);
+          else this.workspaceCollisions.push({ rel, paths: [existing, p] });
+          continue;
+        }
+        this.workspaceDirs.set(name2, p);
       }
     } catch {
+    }
+    if (this.workspaceCollisions.length > 0) {
+      console.warn("[dsh-nas-sync] \u5DE5\u4F5C\u533A rel \u649E\u8F66\uFF0C\u540E\u5230\u8005\u5DF2\u8DF3\u8FC7\uFF08\u5148\u5230\u8005\u4F18\u5148\uFF09\uFF1A" + this.workspaceCollisions.map((c) => c.rel + " \u2190 " + c.paths.join(" | ")).join("\uFF1B"));
     }
   }
   constructor(deps) {
@@ -25116,7 +25133,28 @@ var Engine = class {
     this.publishedEvents++;
     return { published: true, reason: "" };
   }
+  /**
+   * 扫描入口（0.6.0 收尾 · 并发保护）。
+   *
+   * `scan()` 会写 `store.pendingFiles` / `snapshot` 并把对端删除执行到本地回收站，
+   * 不是幂等只读操作。0.5.9 审查 C 系列点出「scan() 无锁且带回收副作用」：
+   * 自动同步定时器、面板手动刷新、工具调用三方并发时，两轮扫描会互相覆盖
+   * pending 列表，极端情况下对同一份文件算出不同的「本地有/无」结论。
+   *
+   * 这里用 in-flight 去重而不是排队：并发的第二个调用**复用同一轮结果**，
+   * 既不重复扫盘、也不会因为排队把面板点一下卡两轮。`finally` 保证异常后解锁，
+   * 不会出现「第一次失败后永远锁死」。
+   */
   async scan() {
+    if (this.scanInFlight) return this.scanInFlight;
+    const run = this.scanOnce().finally(() => {
+      this.scanInFlight = null;
+    });
+    this.scanInFlight = run;
+    return run;
+  }
+  /** 真正的一轮扫描。只允许经 {@link scan} 调用，以保证并发保护不被绕过。 */
+  async scanOnce() {
     this.checkReady();
     this.loadWorkspaceDirs();
     this.loadIgnoredFile();

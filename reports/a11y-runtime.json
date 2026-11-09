@@ -1,0 +1,94 @@
+{
+  "mode": "self-check",
+  "source": "内置自检快照",
+  "schemaVersion": "1.0.0",
+  "tool": "a11y-runtime",
+  "profile": "WCAG 2.1 AA 可判定子集（7 条规则）",
+  "meta": {
+    "selector": "#nas-sync",
+    "source": "builtin-self-check",
+    "note": "内置自检演示快照，非真机数据"
+  },
+  "inputValid": true,
+  "inputErrors": [],
+  "summary": {
+    "nodes": 7,
+    "interactive": 3,
+    "focusOrderLength": 3,
+    "contrastChecked": 1,
+    "contrastSkipped": 2,
+    "violations": 0,
+    "bySeverity": {
+      "critical": 0,
+      "serious": 0,
+      "moderate": 0,
+      "minor": 0
+    },
+    "byRule": {
+      "A11Y-01": 0,
+      "A11Y-02": 0,
+      "A11Y-03": 0,
+      "A11Y-04": 0,
+      "A11Y-05": 0,
+      "A11Y-06": 0,
+      "A11Y-07": 0
+    },
+    "passed": true
+  },
+  "focusOrder": [
+    "cfg-url",
+    "btn-save",
+    "chk-auto"
+  ],
+  "violations": [],
+  "selfCheck": {
+    "description": "clean 快照必须 0 违规；每个故意破坏的快照必须命中目标规则",
+    "cleanViolations": 0,
+    "cleanPassed": true,
+    "cases": [
+      {
+        "rule": "A11Y-01",
+        "label": "无名的 button",
+        "fired": true,
+        "ok": true
+      },
+      {
+        "rule": "A11Y-02",
+        "label": "role=alert 缺 aria-live",
+        "fired": true,
+        "ok": true
+      },
+      {
+        "rule": "A11Y-03",
+        "label": "正 tabIndex",
+        "fired": true,
+        "ok": true
+      },
+      {
+        "rule": "A11Y-04",
+        "label": "img 无 alt",
+        "fired": true,
+        "ok": true
+      },
+      {
+        "rule": "A11Y-05",
+        "label": "#777 对白底 4.48:1",
+        "fired": true,
+        "ok": true
+      },
+      {
+        "rule": "A11Y-06",
+        "label": "input 只有 aria-label",
+        "fired": true,
+        "ok": true
+      },
+      {
+        "rule": "A11Y-07",
+        "label": "display:none 仍可聚焦",
+        "fired": true,
+        "ok": true
+      }
+    ],
+    "allMatched": true
+  }
+}

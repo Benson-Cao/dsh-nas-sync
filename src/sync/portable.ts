@@ -1428,3 +1428,64 @@ export async function dedupeSessionDirs(home: string = dshHome()): Promise<Sessi
 
   return result;
 }
+
+/**
+ * 工作区 rel 撞车检测（0.6.0 收尾）。
+ *
+ * rel 空间按目录**基名**挂载成 `workspaces/<名字>`，这是刻意的简单性取舍：
+ * 换成 id 前缀就得在两端各维护一份映射表，反而更容易错位。代价是两个不同路径
+ * 的工作区恰好同名（`/a/demo` 与 `/b/demo`）会抢同一个 rel 前缀。
+ *
+ * `collectWorkspaceDirs()` 里已有 `seenRel` 去重 —— 后到的那个会被**跳过**，
+ * 不会真的互相覆盖文件。但它跳得很安静：用户只看到「某些工作区没同步」，
+ * 不知道为什么。本函数把冲突显式化，供状态面板与日志提示。
+ *
+ * 纯读、确定性：只读注册表与目录，按 rel 分组，返回 `paths.length > 1` 的组，
+ * 组内路径按字典序排序，组之间按 rel 字典序排序。
+ */
+export interface WorkspaceCollision {
+  /** 抢占的 rel 前缀，如 `workspaces/demo` */
+  rel: string;
+  /** 抢同一个前缀的绝对路径（字典序，第一个是实际生效的那个） */
+  paths: string[];
+}
+
+export async function detectWorkspaceCollisions(home: string = dshHome()): Promise<WorkspaceCollision[]> {
+  const byRel = new Map<string, string[]>();
+  const add = (dir: string): void => {
+    if (typeof dir !== 'string' || dir.length === 0) return;
+    if (isUnsafeWorkspaceRoot(dir, home)) return;
+    const abs = resolve(dir);
+    const rel = workspaceRelOf(abs);
+    const arr = byRel.get(rel) ?? [];
+    if (!arr.includes(abs)) arr.push(abs);
+    byRel.set(rel, arr);
+  };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(join(home, WORKSPACE_REGISTRY_REL), 'utf8'));
+  } catch {
+    parsed = null;
+  }
+  const spaces = ((parsed as any)?.['tables']?.['workspaces'] ?? {}) as Record<string, any>;
+  for (const w of Object.values(spaces)) {
+    if (typeof (w as any)?.['path'] === 'string') add((w as any)['path'] as string);
+  }
+  try {
+    const names = await readdir(join(home, WORKSPACES_DIR));
+    for (const name of names) {
+      if (name.startsWith('.')) continue;
+      add(join(home, WORKSPACES_DIR, name));
+    }
+  } catch {
+    /* 没有兜底目录就是没有，不影响注册表里的冲突判定 */
+  }
+
+  const out: WorkspaceCollision[] = [];
+  for (const [rel, paths] of byRel) {
+    if (paths.length > 1) out.push({ rel, paths: [...paths].sort() });
+  }
+  out.sort((a, b) => a.rel.localeCompare(b.rel));
+  return out;
+}

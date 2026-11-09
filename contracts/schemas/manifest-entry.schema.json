@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dsh-nas-sync.local/contracts/manifest-entry.schema.json",
+  "title": "ManifestEntry",
+  "description": "远端清单条目：本地 / 远端文件指纹。字段严格对齐 src/data/models.ts 的 ManifestEntry 接口。rel/mtime/size/hash 是 v1 起就有的必填四元组；device（0.5.x）、version/cas/deletedAt/platform（0.6.0）都是后加的可选字段，绝不写进 required —— 这是 v0.4.x 旧清单仍能通过契约校验的前提。",
+  "type": "object",
+  "required": ["rel", "mtime", "size", "hash"],
+  "additionalProperties": false,
+  "properties": {
+    "rel": { "type": "string", "description": "相对路径（canonical rel 空间）" },
+    "mtime": { "type": "number", "minimum": 0 },
+    "size": { "type": "number", "minimum": 0 },
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 hex" },
+    "device": { "type": "string", "description": "最后上传该文件的设备；0.5.x 引入，旧清单无此字段" },
+    "version": { "type": "number", "minimum": 1, "description": "事件协议版本；v1 清单没有该字段" },
+    "cas": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "内容寻址指纹，与 hash 同值" },
+    "deletedAt": { "type": "number", "minimum": 0, "description": "非空表示该条目已被软删除（墓碑）" },
+    "platform": { "type": "string", "description": "插件包体所属平台 platform/arch/node-abi" }
+  }
+}

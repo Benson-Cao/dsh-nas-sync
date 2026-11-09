@@ -1,0 +1,292 @@
+{
+  "at": "2026-11-09T09:29:09.229Z",
+  "ok": true,
+  "schemas": 5,
+  "total": 33,
+  "passed": 33,
+  "failed": 0,
+  "results": [
+    {
+      "id": "golden/config-view.invalid.json",
+      "kind": "golden",
+      "ok": true,
+      "expectAccept": false,
+      "errors": [
+        "$.envelopeVersion 值 9 > maximum 2"
+      ],
+      "reason": ""
+    },
+    {
+      "id": "golden/config-view.valid.json",
+      "kind": "golden",
+      "ok": true,
+      "expectAccept": true,
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "golden/manifest-entry.invalid.json",
+      "kind": "golden",
+      "ok": true,
+      "expectAccept": false,
+      "errors": [
+        "$ 缺少必填字段 hash"
+      ],
+      "reason": ""
+    },
+    {
+      "id": "golden/manifest-entry.valid.json",
+      "kind": "golden",
+      "ok": true,
+      "expectAccept": true,
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "golden/plugin-assembly.invalid.json",
+      "kind": "golden",
+      "ok": true,
+      "expectAccept": false,
+      "errors": [
+        "$.objectHash 不匹配 pattern ^[0-9a-f]{64}$：\"xyz\""
+      ],
+      "reason": ""
+    },
+    {
+      "id": "golden/plugin-assembly.valid.json",
+      "kind": "golden",
+      "ok": true,
+      "expectAccept": true,
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "golden/store-state.invalid.json",
+      "kind": "golden",
+      "ok": true,
+      "expectAccept": false,
+      "errors": [
+        "$.snapshot.phase 取值不在枚举内：\"paused\""
+      ],
+      "reason": ""
+    },
+    {
+      "id": "golden/store-state.valid.json",
+      "kind": "golden",
+      "ok": true,
+      "expectAccept": true,
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "golden/sync-event.invalid.json",
+      "kind": "golden",
+      "ok": true,
+      "expectAccept": false,
+      "errors": [
+        "$.op 取值不在枚举内：\"nuke\""
+      ],
+      "reason": ""
+    },
+    {
+      "id": "golden/sync-event.valid.json",
+      "kind": "golden",
+      "ok": true,
+      "expectAccept": true,
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.4.x/v0.4.x/manifest-entry/no-device",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.4.x/v0.4.x/compat/manifest-device-absent",
+      "kind": "compat",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.4.x/v0.4.x/store-state/minimal",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.4.x/v0.4.x/compat/store-new-fields-absent",
+      "kind": "compat",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.4.x/v0.4.x/config-view/legacy",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.4.x/v0.4.x/compat/device-leak-rejected",
+      "kind": "compat",
+      "ok": true,
+      "expect": "fail",
+      "errors": [
+        "$.device 该版本不应出现字段 device"
+      ],
+      "reason": ""
+    },
+    {
+      "id": "0.5.7/v0.5.7/manifest-entry/with-device",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.5.7/v0.5.7/compat/device-is-string",
+      "kind": "compat",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.5.7/v0.5.7/store-state/no-0.6.0-fields",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.5.7/v0.5.7/compat/store-0.6.0-fields-absent",
+      "kind": "compat",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.5.7/v0.5.7/manifest-entry/extra-field-rejected",
+      "kind": "schema",
+      "ok": true,
+      "expect": "fail",
+      "errors": [
+        "$ 不允许的额外字段 bogus"
+      ],
+      "reason": ""
+    },
+    {
+      "id": "0.5.8/v0.5.8/manifest-entry/full",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.5.8/v0.5.8/store-state/all-0.5.x-fields",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.5.8/v0.5.8/plugin-assembly/valid",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.5.8/v0.5.8/compat/store-0.5.x-fields-present",
+      "kind": "compat",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.5.8/v0.5.8/sync-event/missing-op-rejected",
+      "kind": "schema",
+      "ok": true,
+      "expect": "fail",
+      "errors": [
+        "$ 缺少必填字段 op"
+      ],
+      "reason": ""
+    },
+    {
+      "id": "0.6.0/v0.6.0/sync-event/full",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.6.0/v0.6.0/store-state/all-fields",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.6.0/v0.6.0/config-view/all-fields",
+      "kind": "schema",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.6.0/v0.6.0/compat/new-config-fields-present",
+      "kind": "compat",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.6.0/v0.6.0/compat/new-config-field-types",
+      "kind": "compat",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.6.0/v0.6.0/compat/store-0.6.0-fields-present",
+      "kind": "compat",
+      "ok": true,
+      "expect": "pass",
+      "errors": [],
+      "reason": ""
+    },
+    {
+      "id": "0.6.0/v0.6.0/config-view/envelope-version-out-of-range",
+      "kind": "schema",
+      "ok": true,
+      "expect": "fail",
+      "errors": [
+        "$.envelopeVersion 值 9 > maximum 2"
+      ],
+      "reason": ""
+    }
+  ]
+}

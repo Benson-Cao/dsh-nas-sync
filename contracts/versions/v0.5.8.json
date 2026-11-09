@@ -1,0 +1,106 @@
+{
+  "version": "0.5.8",
+  "note": "0.5.8 全字段（相对 0.5.x 而言）：清单带 device，store 带 saltHex（0.5.9 凭据拆分）与 sessionImports（0.5.6 跨平台导入，含 missingRounds/adopted），插件装配记录齐全。配置视图仍是 0.5.x 形态，没有 0.6.0 收尾字段。",
+  "cases": [
+    {
+      "id": "v0.5.8/manifest-entry/full",
+      "kind": "schema",
+      "schema": "manifest-entry.schema.json",
+      "expect": "pass",
+      "note": "0.5.8 清单含 device 等可选字段，全字段形态须通过",
+      "data": {
+        "rel": "sessions/legacy/s1",
+        "mtime": 1730000000000,
+        "size": 100,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "device": "win32:DESKTOP-ABC",
+        "version": 2,
+        "cas": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "platform": "win32/x64/node-127"
+      }
+    },
+    {
+      "id": "v0.5.8/store-state/all-0.5.x-fields",
+      "kind": "schema",
+      "schema": "store-state.schema.json",
+      "expect": "pass",
+      "note": "含 saltHex / localManifest / userConfig / sessionImports 的全字段 store",
+      "data": {
+        "saltHex": "e3b0c44298fc1c149afbf4c8996fb924",
+        "snapshot": {
+          "lastSyncTime": 1730000000000,
+          "phase": "idle",
+          "progress": { "total": 3, "done": 3, "errors": 0 },
+          "pendingCount": 1,
+          "conflictCount": 0,
+          "running": false
+        },
+        "pendingFiles": [{ "rel": "attachments/a.png", "size": 512, "action": "upload" }],
+        "conflicts": [],
+        "localManifest": [
+          {
+            "rel": "sessions/s1/meta.json",
+            "mtime": 1730000000000,
+            "size": 100,
+            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "device": "win32:DESKTOP-ABC"
+          }
+        ],
+        "userConfig": { "autoSync": { "enabled": true } },
+        "sessionImports": {
+          "sessions/remote/s9": {
+            "remoteHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "localRel": "sessions/local/s9",
+            "localHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "originalCwd": "/home/me/project",
+            "missingRounds": 2,
+            "adopted": true
+          }
+        }
+      }
+    },
+    {
+      "id": "v0.5.8/plugin-assembly/valid",
+      "kind": "schema",
+      "schema": "plugin-assembly.schema.json",
+      "expect": "pass",
+      "note": "0.4.0 起的插件对账记录，全字段合法",
+      "data": {
+        "name": "@scope/nas-helper",
+        "version": "1.2.3",
+        "target": "linux/x64/node-127",
+        "objectHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 98765,
+        "device": "linux:host"
+      }
+    },
+    {
+      "id": "v0.5.8/compat/store-0.5.x-fields-present",
+      "kind": "compat",
+      "rule": "present",
+      "fields": ["saltHex", "sessionImports", "localManifest", "userConfig"],
+      "expect": "pass",
+      "note": "0.5.8 相对 0.4.x 已具备这些字段；同时 deviceCursors/pendingIntents 仍缺席",
+      "data": {
+        "saltHex": "e3b0c44298fc1c149afbf4c8996fb924",
+        "sessionImports": {},
+        "localManifest": [],
+        "userConfig": {}
+      }
+    },
+    {
+      "id": "v0.5.8/sync-event/missing-op-rejected",
+      "kind": "schema",
+      "schema": "sync-event.schema.json",
+      "expect": "fail",
+      "note": "反向验证：0.6.0 事件结构缺必填 op 必须被拒绝（缺必填字段触发 CI 红）",
+      "data": {
+        "v": 2,
+        "device": "win32:DESKTOP-ABC",
+        "seq": 1,
+        "ts": 1730000000000,
+        "key": "sid:abc"
+      }
+    }
+  ]
+}
